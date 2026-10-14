@@ -1,6 +1,7 @@
 #include "../../src/data_win.h"
 #include "../../src/image/image_decoder.h"
 #include "../../src/utils.h"
+#include "t3x.h"
 
 // Loop counters here are often over const fields; drop the qualifier from the counter type.
 #undef repeat
@@ -151,7 +152,6 @@ typedef struct {
 typedef struct {
     const char* inputPath;
     const char* outputDir;
-    const char* tex3dsExe;
     const char* spriteReplacementDir;
     const char* borderAssetDir;
     const char* pageFormatOverridesPath;
@@ -168,7 +168,6 @@ typedef struct {
     char outputDirStorage[1024];
     char finalOutputDirStorage[1024];
     char stagingOutputDirStorage[1024];
-    char tex3dsExeStorage[1024];
     char spriteReplacementDirStorage[1200];
     char borderAssetDirStorage[1200];
     char toolDirStorage[1024];
@@ -256,7 +255,7 @@ static void setDefaultOptions(Options* out) {
 
 static void printUsage(const char* argv0) {
     fprintf(stderr,
-        "Usage: %s <data.win> <output-dir> [--tex3ds <path>] [--keep-png]\n"
+        "Usage: %s <data.win> <output-dir> [--keep-png]\n"
         "           [--atlas-page-mode auto|256|512]\n"
         "           [--texture-format etc1a4|rgba5551|indexed8|hybrid]\n"
         "           [--l4-dialogue-battle-sprites]\n"
@@ -308,35 +307,10 @@ static void applyDefaultToolPaths(Options* out) {
     if (out == NULL) return;
 
 #if N3DS_PREPROCESS_HOST_WINDOWS
-    if (getExecutableDir(out->toolDirStorage, sizeof(out->toolDirStorage))) {
-        char adjacentPath[1024];
-
-        snprintf(adjacentPath, sizeof(adjacentPath), "%s\\tex3ds.exe", out->toolDirStorage);
-        if (fileExists(adjacentPath)) {
-            snprintf(out->tex3dsExeStorage, sizeof(out->tex3dsExeStorage), "%s", adjacentPath);
-            out->tex3dsExe = out->tex3dsExeStorage;
-        }
-    }
-#endif
-
-    if (out->tex3dsExe == NULL) {
-        const char* devkitpro = getenv("DEVKITPRO");
-        if (devkitpro != NULL && devkitpro[0] != '\0') {
-#if N3DS_PREPROCESS_HOST_WINDOWS
-            snprintf(out->tex3dsExeStorage, sizeof(out->tex3dsExeStorage), "%s/tools/bin/tex3ds.exe", devkitpro);
+    getExecutableDir(out->toolDirStorage, sizeof(out->toolDirStorage));
 #else
-            snprintf(out->tex3dsExeStorage, sizeof(out->tex3dsExeStorage), "%s/tools/bin/tex3ds", devkitpro);
+    (void) out;
 #endif
-            out->tex3dsExe = out->tex3dsExeStorage;
-        } else {
-#if N3DS_PREPROCESS_HOST_WINDOWS
-            out->tex3dsExe = "C:/devkitPro/tools/bin/tex3ds.exe";
-#else
-            out->tex3dsExe = "/opt/devkitpro/tools/bin/tex3ds";
-#endif
-        }
-    }
-
 }
 
 static bool parseArgs(int argc, char** argv, Options* out) {
@@ -408,8 +382,9 @@ static bool parseArgs(int argc, char** argv, Options* out) {
             }
             continue;
         }
+        // Older SD kits still pass it; textures are encoded in-process now (t3x.c).
         if (strcmp(argv[i], "--tex3ds") == 0 && i + 1 < argc) {
-            out->tex3dsExe = argv[++i];
+            ++i;
             continue;
         }
         fprintf(stderr, "Unknown argument: %s\n", argv[i]);
@@ -848,19 +823,6 @@ static bool syncStagedOutputToDestination(const Options* options) {
         skippedCount
     );
     return true;
-}
-
-static const char* getTex3dsFormatName(N3DSTextureFormat format) {
-    switch (format) {
-        case N3DS_TEXFMT_RGBA5551: return "rgba5551";
-        case N3DS_TEXFMT_ETC1A4: return "etc1a4";
-        case N3DS_TEXFMT_INDEXED8: return "rgba5551";
-        case N3DS_TEXFMT_HYBRID: return "etc1a4";
-        case N3DS_TEXFMT_L4: return "l4";
-        case N3DS_TEXFMT_LA4: return "la4";
-        case N3DS_TEXFMT_RGBA8: return "rgba8";
-        default: return "etc1a4";
-    }
 }
 
 static const char* getPageExtension(N3DSTextureFormat format) {
@@ -1394,147 +1356,125 @@ static bool pixelsLookMonochrome(const uint8_t* rgba, uint32_t width, uint32_t h
     return tintedPixels <= (visiblePixels / 20u);
 }
 
-static bool runTex3ds(const char* tex3dsExe, const char* pngPath, const char* t3xPath, N3DSTextureFormat format) {
-#if N3DS_PREPROCESS_HOST_WINDOWS
-    char tex3dsExeNormalized[1024];
-    char pngPathNormalized[1024];
-    char t3xPathNormalized[1024];
-    char command[4096];
+static bool filenameHasPngExtension(const char* filename);
 
-    snprintf(tex3dsExeNormalized, sizeof(tex3dsExeNormalized), "%s", tex3dsExe);
-    snprintf(pngPathNormalized, sizeof(pngPathNormalized), "%s", pngPath);
-    snprintf(t3xPathNormalized, sizeof(t3xPathNormalized), "%s", t3xPath);
-    for (char* cursor = tex3dsExeNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
+static T3xFormat getT3xFormat(N3DSTextureFormat format) {
+    switch (format) {
+        case N3DS_TEXFMT_RGBA5551: return T3X_RGBA5551;
+        case N3DS_TEXFMT_ETC1A4: return T3X_ETC1A4;
+        case N3DS_TEXFMT_INDEXED8: return T3X_RGBA5551;
+        case N3DS_TEXFMT_HYBRID: return T3X_ETC1A4;
+        case N3DS_TEXFMT_L4: return T3X_L4;
+        case N3DS_TEXFMT_LA4: return T3X_LA4;
+        case N3DS_TEXFMT_RGBA8: return T3X_RGBA8;
+        default: return T3X_ETC1A4;
     }
-    for (char* cursor = pngPathNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
-    }
-    for (char* cursor = t3xPathNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
-    }
-
-    snprintf(
-        command,
-        sizeof(command),
-        "\"%s\" -f %s -z none -o \"%s\" \"%s\"",
-        tex3dsExeNormalized,
-        getTex3dsFormatName(format),
-        t3xPathNormalized,
-        pngPathNormalized
-    );
-    intptr_t rc = spawnl(
-        _P_WAIT,
-        tex3dsExeNormalized,
-        tex3dsExeNormalized,
-        "-f",
-        getTex3dsFormatName(format),
-        "-z",
-        "none",
-        "-o",
-        t3xPathNormalized,
-        pngPathNormalized,
-        NULL
-    );
-    if (rc != 0) {
-        fprintf(stderr, "tex3ds failed (%ld): %s\n", (long) rc, command);
-        return false;
-    }
-    return true;
-#else
-    char command[4096];
-    snprintf(
-        command,
-        sizeof(command),
-        "\"%s\" -f %s -z none -o \"%s\" \"%s\"",
-        tex3dsExe,
-        getTex3dsFormatName(format),
-        t3xPath,
-        pngPath
-    );
-    int rc = system(command);
-    if (rc != 0) {
-        fprintf(stderr, "tex3ds failed (%d): %s\n", rc, command);
-        return false;
-    }
-    return true;
-#endif
 }
 
-static bool runTex3dsAtlas(const char* tex3dsExe, const char* pngGlobPath, const char* t3xPath, N3DSTextureFormat format) {
+static bool writeT3xBuffer(const char* t3xPath, const T3xBuffer* buffer) {
+    FILE* fp = fopen(t3xPath, "wb");
+    if (fp == NULL) {
+        fprintf(stderr, "Failed to open %s\n", t3xPath);
+        return false;
+    }
+    bool ok = fwrite(buffer->data, 1, buffer->size, fp) == buffer->size;
+    if (fclose(fp) != 0) ok = false;
+    if (!ok) fprintf(stderr, "Failed to write %s\n", t3xPath);
+    return ok;
+}
+
+// Writes the .t3x that `tex3ds -f <format> -z none` makes from the PNG (see t3x.c).
+static bool encodeT3xFile(const char* pngPath, const char* t3xPath, N3DSTextureFormat format) {
+    int width, height, channels;
+    uint8_t* rgba = stbi_load(pngPath, &width, &height, &channels, 4);
+    if (rgba == NULL) {
+        fprintf(stderr, "Failed to load %s\n", pngPath);
+        return false;
+    }
+    T3xImage image = {rgba, (uint32_t) width, (uint32_t) height};
+    T3xBuffer buffer = {0};
+    bool ok = t3xEncodeImage(&image, getT3xFormat(format), &buffer);
+    stbi_image_free(rgba);
+    if (!ok) {
+        fprintf(stderr, "Texture encode failed: %s\n", pngPath);
+        return false;
+    }
+    ok = writeT3xBuffer(t3xPath, &buffer);
+    t3xFree(&buffer);
+    return ok;
+}
+
+static int compareCStrings(const void* a, const void* b) {
+    return strcmp(*(const char* const*) a, *(const char* const*) b);
+}
+
+// Lists a directory's *.png files, sorted like a shell glob. Returns NULL on failure.
+static char** listPngFiles(const char* dirPath, size_t* outCount) {
+    char** names = NULL;
+    *outCount = 0;
 #if N3DS_PREPROCESS_HOST_WINDOWS
-    char tex3dsExeNormalized[1024];
-    char pngGlobPathNormalized[1024];
-    char t3xPathNormalized[1024];
-    char command[4096];
-
-    snprintf(tex3dsExeNormalized, sizeof(tex3dsExeNormalized), "%s", tex3dsExe);
-    snprintf(pngGlobPathNormalized, sizeof(pngGlobPathNormalized), "%s", pngGlobPath);
-    snprintf(t3xPathNormalized, sizeof(t3xPathNormalized), "%s", t3xPath);
-    for (char* cursor = tex3dsExeNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
-    }
-    for (char* cursor = pngGlobPathNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
-    }
-    for (char* cursor = t3xPathNormalized; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/') *cursor = '\\';
-    }
-
-    snprintf(
-        command,
-        sizeof(command),
-        "\"%s\" --atlas -f %s -z none -o \"%s\" \"%s\"",
-        tex3dsExeNormalized,
-        getTex3dsFormatName(format),
-        t3xPathNormalized,
-        pngGlobPathNormalized
-    );
-    intptr_t rc = spawnl(
-        _P_WAIT,
-        tex3dsExeNormalized,
-        tex3dsExeNormalized,
-        "--atlas",
-        "-f",
-        getTex3dsFormatName(format),
-        "-z",
-        "none",
-        "-o",
-        t3xPathNormalized,
-        pngGlobPathNormalized,
-        NULL
-    );
-    if (rc != 0) {
-        fprintf(stderr, "tex3ds atlas failed (%ld): %s\n", (long) rc, command);
-        return false;
-    }
-    return true;
+    char searchPath[1400];
+    WIN32_FIND_DATAA findData;
+    snprintf(searchPath, sizeof(searchPath), "%s\*.png", dirPath);
+    HANDLE findHandle = FindFirstFileA(searchPath, &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) return NULL;
+    do {
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) continue;
+        if (!filenameHasPngExtension(findData.cFileName)) continue;
+        arrput(names, strdup(findData.cFileName));
+    } while (FindNextFileA(findHandle, &findData));
+    FindClose(findHandle);
 #else
-    // The shell has to expand the glob (tex3ds doesn't on POSIX): quote the directory, not the pattern. Frame files
-    // are zero-padded, so the sorted expansion is the frame order.
-    char globDir[1024];
-    snprintf(globDir, sizeof(globDir), "%s", pngGlobPath);
-    char* pattern = strrchr(globDir, '/');
-    if (pattern == NULL) return false;
-    *pattern++ = '\0';
-    char command[4096];
-    snprintf(
-        command,
-        sizeof(command),
-        "\"%s\" --atlas -f %s -z none -o \"%s\" \"%s\"/%s",
-        tex3dsExe,
-        getTex3dsFormatName(format),
-        t3xPath,
-        globDir,
-        pattern
-    );
-    int rc = system(command);
-    if (rc != 0) {
-        fprintf(stderr, "tex3ds atlas failed (%d): %s\n", rc, command);
+    DIR* dir = opendir(dirPath);
+    if (dir == NULL) return NULL;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.' || !filenameHasPngExtension(entry->d_name)) continue;
+        arrput(names, strdup(entry->d_name));
+    }
+    closedir(dir);
+#endif
+    *outCount = (size_t) arrlen(names);
+    if (*outCount > 0) qsort(names, *outCount, sizeof(char*), compareCStrings);
+    return names;
+}
+
+// Packs every PNG in the directory into one .t3x, as `tex3ds --atlas -f <format> -z none <dir>/*.png`. Returns false
+// when they don't fit in 1024x1024 ("No atlas solution found"); the caller then writes one file per frame.
+static bool encodeT3xAtlasDir(const char* pngDir, const char* t3xPath, N3DSTextureFormat format) {
+    size_t count = 0;
+    char** names = listPngFiles(pngDir, &count);
+    if (count == 0) {
+        arrfree(names);
         return false;
     }
-    return true;
-#endif
+
+    T3xImage* images = safeCalloc(count, sizeof(T3xImage));
+    bool ok = true;
+    repeat(count, i) {
+        char path[1400];
+        int width, height, channels;
+        snprintf(path, sizeof(path), "%s/%s", pngDir, names[i]);
+        uint8_t* rgba = stbi_load(path, &width, &height, &channels, 4);
+        if (rgba == NULL) {
+            fprintf(stderr, "Failed to load %s\n", path);
+            ok = false;
+            break;
+        }
+        images[i] = (T3xImage) {rgba, (uint32_t) width, (uint32_t) height};
+    }
+
+    T3xBuffer buffer = {0};
+    if (ok) ok = t3xEncodeAtlas(images, count, getT3xFormat(format), &buffer);
+    if (ok) ok = writeT3xBuffer(t3xPath, &buffer);
+    t3xFree(&buffer);
+    repeat(count, i) {
+        stbi_image_free((void*) images[i].rgba);
+        free(names[i]);
+    }
+    free(images);
+    arrfree(names);
+    return ok;
 }
 
 static uint16_t rgbaToRgb5551(const uint8_t* rgba) {
@@ -2200,7 +2140,7 @@ static bool convertBorderAssetPng(const Options* options, const char* filename, 
     snprintf(outputPath, sizeof(outputPath), "%s/gfx/borders/%s.t3x", options->outputDir, stem);
 
     fprintf(stderr, "n3ds-preprocess: border %s -> %s\n", inputPath, outputPath);
-    if (!runTex3ds(options->tex3dsExe, inputPath, outputPath, N3DS_TEXFMT_RGBA5551)) {
+    if (!encodeT3xFile(inputPath, outputPath, N3DS_TEXFMT_RGBA5551)) {
         fprintf(stderr, "Failed to convert border asset: %s\n", inputPath);
         return false;
     }
@@ -2269,7 +2209,7 @@ static bool writeDirectTextureAsset(const Options* options, const char* relative
         fprintf(stderr, "Failed to write direct asset PNG: %s\n", pngPath);
         return false;
     }
-    if (!runTex3ds(options->tex3dsExe, pngPath, t3xPath, format)) {
+    if (!encodeT3xFile(pngPath, t3xPath, format)) {
         return false;
     }
     if (!options->keepPng) remove(pngPath);
@@ -2387,13 +2327,11 @@ static bool finalizeDirectSpriteAssets(const Options* options, const DataWin* da
         if (sprite->textureCount <= 0) continue;
 
         char spriteTempDir[1024];
-        char globPath[1024];
         char outPath[1024];
         char pngPath[1024];
         char frameOutPath[1024];
         snprintf(spriteTempDir, sizeof(spriteTempDir), "%s/spr_%05lu", spriteTempRoot, (unsigned long) spriteIndex);
         if (!directoryExists(spriteTempDir)) continue;
-        snprintf(globPath, sizeof(globPath), "%s/spr_%05lu/*.png", spriteTempRoot, (unsigned long) spriteIndex);
         snprintf(outPath, sizeof(outPath), "%s/gfx/sprites/spr_%05lu.t3x", options->outputDir, (unsigned long) spriteIndex);
         bool forceFrameDirect = spriteShouldForceDirectRGBA5551(sprite->name);
         bool spriteMonoSafe =
@@ -2420,13 +2358,13 @@ static bool finalizeDirectSpriteAssets(const Options* options, const DataWin* da
                 getTextureFormatLabel(spriteFormat)
             );
         }
-        if (!forceFrameDirect && !runTex3dsAtlas(options->tex3dsExe, globPath, outPath, spriteFormat)) {
+        if (!forceFrameDirect && !encodeT3xAtlasDir(spriteTempDir, outPath, spriteFormat)) {
             fprintf(stderr, "n3ds-preprocess: atlas build failed for sprite %05lu, falling back to per-frame t3x\n", (unsigned long) spriteIndex);
             repeat(sprite->textureCount, frameIndex) {
                 snprintf(pngPath, sizeof(pngPath), "%s/spr_%05lu/frame_%05zu.png", spriteTempRoot, (unsigned long) spriteIndex, frameIndex);
                 if (!fileExists(pngPath)) continue;
                 snprintf(frameOutPath, sizeof(frameOutPath), "%s/gfx/sprites/spr_%05lu_frame_%05zu.t3x", options->outputDir, (unsigned long) spriteIndex, frameIndex);
-                if (!runTex3ds(options->tex3dsExe, pngPath, frameOutPath, spriteFormat)) {
+                if (!encodeT3xFile(pngPath, frameOutPath, spriteFormat)) {
                     return false;
                 }
             }
@@ -2435,7 +2373,7 @@ static bool finalizeDirectSpriteAssets(const Options* options, const DataWin* da
                 snprintf(pngPath, sizeof(pngPath), "%s/spr_%05lu/frame_%05zu.png", spriteTempRoot, (unsigned long) spriteIndex, frameIndex);
                 if (!fileExists(pngPath)) continue;
                 snprintf(frameOutPath, sizeof(frameOutPath), "%s/gfx/sprites/spr_%05lu_frame_%05zu.t3x", options->outputDir, (unsigned long) spriteIndex, frameIndex);
-                if (!runTex3ds(options->tex3dsExe, pngPath, frameOutPath, spriteFormat)) {
+                if (!encodeT3xFile(pngPath, frameOutPath, spriteFormat)) {
                     return false;
                 }
             }
@@ -2947,7 +2885,7 @@ static bool flushPackedPages(const Options* options, OutputPage* outputPages, Pa
                 free(overrideFormats);
                 return false;
             }
-            if (!runTex3ds(options->tex3dsExe, pngPath, pagePath, pageFormat)) {
+            if (!encodeT3xFile(pngPath, pagePath, pageFormat)) {
                 free(overrideFormats);
                 return false;
             }
