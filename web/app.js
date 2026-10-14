@@ -1,6 +1,6 @@
 // The page: picks the files, runs the build in workers (worker.js, embedded in this page): one prepares and patches the
 // game, then several convert it at once. It zips what they send back and saves it. Nothing is uploaded.
-/* global fflate, qrcode, WORKER_SOURCE_BASE64, SD_FILES, CIA_URL, PATCH_VERSION, SD_DATA_REV */
+/* global fflate, qrcode, WORKER_SOURCE_BASE64, SD_FILES, CIA_URL, CIA_REPO, PATCH_VERSION, SD_DATA_REV */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -304,11 +304,13 @@ function showDone(name, blob, msg) {
 
 // ===[ CIA QR code ]===
 
-(function drawQr() {
-    els.ciaLink.href = CIA_URL;
-    els.ciaLink.textContent = CIA_URL;
+// The QR code installs the newest am2r.cia on Codeberg. The page asks Codeberg for it when it's opened; the address
+// it was built with (CIA_URL) is the fallback when that fails, e.g. offline or from a saved copy without a connection.
+function drawQr(url) {
+    els.ciaLink.href = url;
+    els.ciaLink.textContent = url;
     const qr = qrcode(0, "M");
-    qr.addData(CIA_URL);
+    qr.addData(url);
     qr.make();
     const count = qr.getModuleCount();
     const margin = 4;
@@ -324,7 +326,21 @@ function showDone(name, blob, msg) {
             if (qr.isDark(y, x)) ctx.fillRect((x + margin) * scale, (y + margin) * scale, scale, scale);
         }
     }
-})();
+}
+
+async function newestCiaUrl() {
+    const response = await fetch(`https://codeberg.org/api/v1/repos/${CIA_REPO}/releases?limit=20`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    // Newest first; pre-releases count (the project's releases are pre-releases for now).
+    for (const release of await response.json()) {
+        const asset = !release.draft && release.assets.find((a) => a.name === "am2r.cia");
+        if (asset) return asset.browser_download_url;
+    }
+    throw new Error("no release has an am2r.cia");
+}
+
+drawQr(CIA_URL);
+newestCiaUrl().then((url) => { if (url !== CIA_URL) drawQr(url); }, () => {});
 
 for (const el of document.querySelectorAll("[data-patch-version]")) el.textContent = PATCH_VERSION;
 for (const el of document.querySelectorAll("[data-sd-rev]")) el.textContent = SD_DATA_REV;

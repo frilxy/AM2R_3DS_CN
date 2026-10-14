@@ -46,6 +46,7 @@ const config = [
     `const WORKER_SOURCE_BASE64 = ${JSON.stringify(Buffer.from(worker).toString("base64"))};`,
     `const SD_FILES = ${JSON.stringify(sdFiles)};`,
     `const CIA_URL = ${JSON.stringify(ciaUrl)};`,
+    `const CIA_REPO = ${JSON.stringify(ciaRepo)};`,
     `const PATCH_VERSION = ${JSON.stringify(manifest.version)};`,
     `const SD_DATA_REV = ${JSON.stringify(sdDataRev)};`,
 ].join("\n");
