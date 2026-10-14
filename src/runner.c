@@ -1636,14 +1636,27 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
 
                 Runner_surfaceSetTarget(runner, view->surfaceId);
 
-                // Cleared every frame, as the screen is (black if the room doesn't draw its colour): a surface keeps its
-                // pixels, and whatever the room doesn't cover stayed on it. AM2R 1.5's widescreen surface is wider than
-                // the room, and the margins at an exit showed the tiles there smeared as the view scrolled.
-                renderer->vtable->clearScreen(renderer, runner->drawBackgroundColor ? runner->currentRoom->backgroundColor : 0, 1.0f);
+                if (runner->drawBackgroundColor)
+                    renderer->vtable->clearScreen(renderer, runner->currentRoom->backgroundColor, 1.0f);
 
                 runner->viewCurrent = (int32_t) vi;
                 runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
                 runner->renderer->vtable->applyProjection(runner->renderer, &camera->viewMatrix, &camera->projectionMatrix);
+
+                // A surface keeps its pixels, and nothing redraws what is outside the room. AM2R 1.5's widescreen
+                // surface is wider than the room, so at an exit the margin kept old pixels and the tiles there smeared
+                // as the view scrolled. Only that part is cleared (black, like the screen): the rest stays as the game
+                // left it, which its item screen relies on (it draws this surface onto itself as the frozen frame).
+                {
+                    float vx = camera->viewX, vy = camera->viewY;
+                    float vw = (float) camera->viewWidth, vh = (float) camera->viewHeight;
+                    float rw = (float) runner->currentRoom->width, rh = (float) runner->currentRoom->height;
+                    const float pad = 64.0f;
+                    if (vx < 0.0f) renderer->vtable->drawRectangle(renderer, vx - pad, vy - pad, 0.0f, vy + vh + pad, 0, 1.0f, false);
+                    if (vx + vw > rw) renderer->vtable->drawRectangle(renderer, rw, vy - pad, vx + vw + pad, vy + vh + pad, 0, 1.0f, false);
+                    if (vy < 0.0f) renderer->vtable->drawRectangle(renderer, vx - pad, vy - pad, vx + vw + pad, 0.0f, 0, 1.0f, false);
+                    if (vy + vh > rh) renderer->vtable->drawRectangle(renderer, vx - pad, rh, vx + vw + pad, vy + vh + pad, 0, 1.0f, false);
+                }
 
                 Runner_draw(runner);
 
