@@ -26,13 +26,15 @@ Saves don't carry over between the two: 1.5 saves as `save1`..`save3`, 1.1 as `s
 
 ## Install
 
-1. **SD card files.** Download `am2r-sd.bat` (Windows) or `am2r-sd.sh` (Linux) from the
+1. **SD card files.** Open the [SD card maker](https://nattensmadrigal.codeberg.page/AM2R_3DS/) (`web/`), drop in the AM2R 1.1 zip and extract the zip it
+   makes to the root of the SD card: it applies the Community Updates 1.5.5 patch and runs the preprocessor in the
+   browser. Or download `am2r-sd.bat` (Windows) or `am2r-sd.sh` (Linux) from the
    [latest release](https://github.com/pegacha/Butterscotch/releases/latest) and run it. Pick the game's `data.win` (for 1.5.5: the one in the
    launcher's `Profiles/Community Updates (Latest)` folder, with its music files next to it) and a folder; it writes
    `<folder>/3ds/am2r/`, which you copy to the root of the SD card, and downloads `am2r.cia` next to it.
    - On Windows it runs in WSL, and offers to install WSL (administrator rights and a restart) if it isn't there.
-   - The first run downloads the tools it needs (the preprocessor and devkitPro's `tex3ds`) into its own folder.
-   - Developers can also run `tools/n3ds/make_sd.sh <game folder> <out>` from a checkout (needs devkitPro).
+   - The first run downloads the tools it needs (the preprocessor) into its own folder.
+   - Developers can also run `tools/n3ds/make_sd.sh <game folder> <out>` from a checkout (a C compiler and CMake).
 
    The folder only needs rebuilding when a release says it needs a newer SD data revision; the game tells you at
    startup if the card's folder is out of date.

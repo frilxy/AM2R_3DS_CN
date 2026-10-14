@@ -11,6 +11,7 @@ AM2R 1.1 (WAD 14); the AM2R build enables both. New 3DS (804 MHz, L2 cache, 124 
 ```bash
 tools/n3ds/build.sh ../build-n3ds           # -> am2r.cia + am2r.3dsx (BS_N3DS_GAME=generic: plain runner)
 tools/n3ds/make_sd.sh <game dir> <out>      # -> <out>/3ds/am2r/: data.win, lang/, gfx/, audio/, config.ini seed
+tools/web/build.sh                          # -> build-web/index.html: the SD card maker page (needs emcc and node)
 ```
 
 The program ships in the CIA (title `AM2R`, unique ID `0xA2E21`); the SD folder `sdmc:/3ds/am2r/` holds the game's
@@ -138,6 +139,22 @@ into the desktop's `--goto-room <frame>:<room>`.
 - Dropped Undertale-only code: borders, battle top-screen layout, sprite-name hacks, GMS2 tile-layer cache,
   `sdmc:/3ds/UNDERTALE` paths.
 - `n3ds-preprocess`: builds against upstream (`src/image/image_decoder.c`, bzip2, log shim, const-safe `repeat`).
+  It writes the `.t3x` files itself (`t3x.c`): a C port of devkitPro tex3ds 2.3's `[--atlas] -f <fmt> -z none`
+  (packer, swizzle, formats; ETC1 through the same rg_etc1, `vendor/rg_etc1`), down to libstdc++'s `std::sort`
+  order for equal-sized frames. A full AM2R 1.5.5 conversion gives the same bytes as the tex3ds build in every asset
+  file; `t3x-cli` (CMake target) takes tex3ds's command line for comparing the two. So it no longer needs devkitPro
+  or Linux, and it builds with Emscripten. `--parts textures,sfx,music` and `--music-shard <i>/<n>` split a run.
+- SD card maker (`web/`, built by `tools/web/build.sh` into one self-contained `index.html`, hosted on Codeberg
+  Pages): checks the AM2R 1.1 zip's `data.win`, gets the Community Updates patch (`web/patch-manifest.json`: the
+  AM2R-Autopatcher-Windows commit and file hashes; downloaded from raw.githubusercontent.com, or a zip the user picks),
+  applies `data.xdelta` with xdelta3 (WebAssembly, with liblzma: the patch uses LZMA secondary compression), copies
+  `files_to_copy`, then runs `n3ds-preprocess` (WebAssembly) in workers: one for the textures and sound bank, the
+  rest share the music. Inputs reach it through WORKERFS; outputs leave at each `outputCheckpoint()` and go into a
+  stored zip of `3ds/am2r/` (File System Access save, or a download). About a minute on a 12-thread PC. Against
+  `make_sd.sh` with a launcher-made 1.5.5: same files; text files have LF where a Windows checkout of the patch has
+  CRLF, and three audio files differ in a few bytes (WebAssembly's libm vs glibc in stb_vorbis). The page's QR code is
+  the newest Codeberg release's `am2r.cia` when it was built (`AM2R_CIA_URL` overrides), so a saved page keeps
+  pointing at a CIA that reads the SD data it makes.
 
 ## Built-in scripts ("Fast scripts")
 
