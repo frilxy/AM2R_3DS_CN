@@ -1,0 +1,25 @@
+# AM2R 1.5.5 (issue 3): rm_a1h03 (the shaft) left side, Samus jumping up and down next to the left exit; the exit area must stay black.
+seed 12345
+after_room titleroom
+press 800 START 4
+press 900 START 4
+press 1000 A 4
+press 1100 A 4
+press 1200 A 4
+after_room gameintroroom
+press 60 START 4
+press 120 START 4
+press 180 A 4
+after_room rm_a0h01
+goto 200 rm_a1h03
+after_room rm_a1h03
+place 5 47 625
+screenshot 40
+press 50 B 30
+screenshot 60
+screenshot 75
+press 110 B 30
+screenshot 120
+screenshot 135
+screenshot 200
+exit 240

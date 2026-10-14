@@ -1636,8 +1636,10 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
 
                 Runner_surfaceSetTarget(runner, view->surfaceId);
 
-                if (runner->drawBackgroundColor)
-                    renderer->vtable->clearScreen(renderer, runner->currentRoom->backgroundColor, 1.0f);
+                // Cleared every frame, as the screen is (black if the room doesn't draw its colour): a surface keeps its
+                // pixels, and whatever the room doesn't cover stayed on it. AM2R 1.5's widescreen surface is wider than
+                // the room, and the margins at an exit showed the tiles there smeared as the view scrolled.
+                renderer->vtable->clearScreen(renderer, runner->drawBackgroundColor ? runner->currentRoom->backgroundColor : 0, 1.0f);
 
                 runner->viewCurrent = (int32_t) vi;
                 runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
