@@ -4470,8 +4470,9 @@ static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX,
     }
 #endif
     uint32_t bgr = tile->color & 0x00FFFFFFu;
-    uint8_t alphaByte = (uint8_t) ((tile->color >> 24) & 0xFFu);
-    float alpha = (alphaByte == 0) ? 1.0f : (float) alphaByte / 255.0f;
+    // tile->alpha starts as the colour's alpha byte (data_win.c) and is what tile_set_alpha changes: AM2R fades the
+    // foreground over its hidden spots with it (oFadeTiles).
+    float alpha = tile->alpha;
     float drawX = (float) tile->x + offsetX;
     float drawY = (float) tile->y + offsetY;
     if (!Renderer_isFiniteFloat(drawX) || !Renderer_isFiniteFloat(drawY) ||

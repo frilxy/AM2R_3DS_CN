@@ -1,0 +1,22 @@
+# AM2R 1.5.5: Samus enters the hidden spot of rm_a1a07 (oFadeTiles at 432,80, area 160x80): the foreground must fade out. Screenshots outside and inside.
+seed 12345
+after_room titleroom
+press 800 START 4
+press 900 START 4
+press 1000 A 4
+press 1100 A 4
+press 1200 A 4
+after_room gameintroroom
+press 60 START 4
+press 120 START 4
+press 180 A 4
+after_room rm_a0h01
+goto 200 rm_a1a07
+after_room rm_a1a07
+place 5 380 140
+screenshot 60
+place 70 480 140
+screenshot 90
+screenshot 120
+screenshot 180
+exit 220
