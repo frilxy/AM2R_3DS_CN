@@ -51,6 +51,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(n3ds-preprocess PRIVATE m)
 endif()
 
+# Browser build (emcmake cmake ..., see tools/web/build.sh): one .js with the .wasm inlined, which the SD-card page runs
+# in workers. Inputs come in through WORKERFS (no copy of data.win or the music); outputs go to MEMFS and leave at each
+# outputCheckpoint().
+if(EMSCRIPTEN)
+    target_link_options(n3ds-preprocess PRIVATE
+        -sMODULARIZE=1 -sEXPORT_NAME=createPreprocess -sSINGLE_FILE=1
+        -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0
+        -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB
+        -sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,callMain -lworkerfs.js)
+endif()
+
 # Same textures as tex3ds, compared byte for byte: tools/n3ds-preprocess/t3x_cli.c takes tex3ds's command line.
 add_executable(t3x-cli EXCLUDE_FROM_ALL t3x_cli.c t3x.c etc1.cpp stb_impl_image.c ${BS_ROOT}/vendor/rg_etc1/rg_etc1.cpp)
 target_include_directories(t3x-cli PRIVATE ${BS_ROOT}/vendor)

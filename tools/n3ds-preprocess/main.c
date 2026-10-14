@@ -33,6 +33,19 @@
 #include <process.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// The page takes the finished files out of the in-memory file system at each checkpoint (Module.onCheckpoint), so the
+// whole SD folder (~550 MB) is never held at once.
+EM_JS(void, outputCheckpoint, (const char* stage), {
+    if (Module.onCheckpoint) Module.onCheckpoint(UTF8ToString(stage));
+});
+#else
+static void outputCheckpoint(const char* stage) {
+    (void) stage;
+}
+#endif
+
 #if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
@@ -157,6 +170,12 @@ typedef struct {
     const char* pageFormatOverridesPath;
     bool keepPng;
     bool pcm16SoundBank;
+    // --parts / --music-shard: which work this run does, so several runs (the SD-card page's workers) can share it.
+    bool doTextures;
+    bool doSfx;
+    bool doMusic;
+    uint32_t musicShard;
+    uint32_t musicShardCount;
     bool dumpPagePreviews;
     bool enableTargetedBattleDialogueMono;
     bool interactiveMode;
@@ -250,7 +269,17 @@ static void setDefaultOptions(Options* out) {
     out->interactiveMode = false;
     out->atlasPageMode = N3DS_ATLAS_PAGE_MODE_AUTO;
     out->textureFormat = N3DS_TEXFMT_HYBRID;
+    out->doTextures = true;
+    out->doSfx = true;
+    out->doMusic = true;
+    out->musicShard = 0;
+    out->musicShardCount = 1;
+#ifdef __EMSCRIPTEN__
+    // The browser build writes to an in-memory file system: there is no slow destination to stage for.
+    out->stageOutputLocally = false;
+#else
     out->stageOutputLocally = true;
+#endif
 }
 
 static void printUsage(const char* argv0) {
@@ -263,6 +292,7 @@ static void printUsage(const char* argv0) {
         "           [--page-format-overrides <file>]\n"
         "           [--sprite-replacements <dir>]\n"
         "           [--borders <dir>]\n"
+        "           [--parts textures,sfx,music] [--music-shard <i>/<n>]\n"
         "\n"
         "Running with no arguments on Windows starts an interactive setup.\n"
         "\n"
@@ -353,6 +383,23 @@ static bool parseArgs(int argc, char** argv, Options* out) {
         }
         if (strcmp(argv[i], "--sprite-replacements") == 0 && i + 1 < argc) {
             out->spriteReplacementDir = argv[++i];
+            continue;
+        }
+        if (strcmp(argv[i], "--parts") == 0 && i + 1 < argc) {
+            const char* parts = argv[++i];
+            out->doTextures = strstr(parts, "textures") != NULL;
+            out->doSfx = strstr(parts, "sfx") != NULL;
+            out->doMusic = strstr(parts, "music") != NULL;
+            continue;
+        }
+        if (strcmp(argv[i], "--music-shard") == 0 && i + 1 < argc) {
+            unsigned shard = 0, count = 0;
+            if (sscanf(argv[++i], "%u/%u", &shard, &count) != 2 || count == 0 || shard >= count) {
+                fprintf(stderr, "Bad --music-shard (want <i>/<n>, i < n): %s\n", argv[i]);
+                return false;
+            }
+            out->musicShard = shard;
+            out->musicShardCount = count;
             continue;
         }
         if (strcmp(argv[i], "--borders") == 0 && i + 1 < argc) {
@@ -4901,10 +4948,12 @@ static bool convertStreamedMusicBcwavs(Options* options, DataWin* dataWin) {
     uint32_t convertedCount = 0;
     uint32_t preservedCount = 0;
     uint32_t skippedCount = 0;
+    uint32_t musicOrdinal = 0;
 
     repeat(dataWin->sond.count, soundIndex) {
         const Sound* sound = &dataWin->sond.sounds[soundIndex];
         if (!soundLooksLikeMusic(sound)) continue;
+        if (musicOrdinal++ % options->musicShardCount != options->musicShard) continue;
 
         char baseName[256];
         bool haveBaseName = extractBaseNameNoExt(sound->file, baseName, sizeof(baseName));
@@ -4946,6 +4995,7 @@ static bool convertStreamedMusicBcwavs(Options* options, DataWin* dataWin) {
         }
 
         convertedCount++;
+        outputCheckpoint("music");
     }
 
     fprintf(
@@ -4962,7 +5012,9 @@ static bool convertAudio(Options* options, DataWin* dataWin) {
     fprintf(stderr, "n3ds-preprocess: processing audio\n");
     fprintf(stderr, "Using in-process audio conversion (WAV and Ogg Vorbis supported; other codecs unavailable).\n");
 
-    bool ok = convertStreamedMusicBcwavs(options, dataWin);
+    bool ok = true;
+    if (options->doMusic) ok = convertStreamedMusicBcwavs(options, dataWin);
+    if (!options->doSfx) return ok;
     if (ok) ok = buildPackedSoundBank(options, dataWin);
     if (ok) fprintf(stderr, "Packed SFX audio into %s sound_bank.bin at %u Hz\n", options->pcm16SoundBank ? "PCM16" : "DSP-ADPCM", N3DS_AUDIO_SAMPLE_RATE);
     return ok;
@@ -5032,8 +5084,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    bool ok = convertTextures(&options, dataWin);
-    if (ok) ok = convertAudio(&options, dataWin);
+    bool ok = true;
+    if (options.doTextures) ok = convertTextures(&options, dataWin);
+    if (ok && options.doTextures) outputCheckpoint("textures");
+    if (ok && (options.doMusic || options.doSfx)) ok = convertAudio(&options, dataWin);
+    if (ok) outputCheckpoint("audio");
     DataWin_free(dataWin);
 
     bool syncedStaging = true;

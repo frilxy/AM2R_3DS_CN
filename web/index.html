@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AM2R 3DS SD Card Maker</title>
+<meta name="description" content="Turn your AM2R 1.1 zip into the SD card files for the AM2R 3DS port, entirely in your browser.">
+<style>/*INLINE style.css*/</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AM2R 3DS SD Card Maker</h1>
+    <p class="lede">Turns your AM2R 1.1 zip into a ready-to-copy SD card folder for the AM2R 3DS port, updated to the
+      Community Updates <span data-patch-version></span>. It all runs in this browser: your files aren't uploaded anywhere.</p>
+  </header>
+
+  <section id="setup">
+    <h2><span class="step">1</span> Your AM2R 1.1 zip</h2>
+    <label id="drop" class="drop">
+      <input id="game-input" type="file" accept=".zip,application/zip">
+      <span class="drop-main">Drop <code>AM2R_11.zip</code> here, or click to choose it</span>
+      <span id="game-name" class="drop-name"></span>
+    </label>
+
+    <h2><span class="step">2</span> The Community Updates patch</h2>
+    <label class="choice"><input id="patch-download" type="radio" name="patch" checked>
+      Download it from the AM2R Community Developers (about 39 MB, needs an internet connection)</label>
+    <label class="choice"><input id="patch-local" type="radio" name="patch">
+      I have the patch files: a zip of <a href="https://github.com/AM2R-Community-Developers/AM2R-Autopatcher-Windows" target="_blank" rel="noopener">AM2R-Autopatcher-Windows</a>
+      (<span data-patch-version></span>)</label>
+    <div class="patch-file">
+      <input id="patch-input" type="file" accept=".zip,application/zip" disabled>
+      <span id="patch-name"></span>
+    </div>
+
+    <h2><span class="step">3</span> Make the SD card zip</h2>
+    <p class="hint">It takes a few minutes and makes a zip of about 550 MB. Keep this tab open until it's done.</p>
+    <button id="start" class="primary" disabled>Make the SD card zip</button>
+
+    <div id="error" class="error" role="alert" hidden>
+      <p id="error-text"></p>
+      <pre id="error-log" hidden></pre>
+      <button id="retry">OK</button>
+    </div>
+  </section>
+
+  <section id="working" hidden>
+    <p id="status" class="status" aria-live="polite">Starting</p>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
+    <p class="meta"><span id="percent">0%</span> · <span id="elapsed">0 s</span></p>
+  </section>
+
+  <section id="done" hidden>
+    <h2>Done</h2>
+    <p id="saved"></p>
+    <a id="download" class="primary button" hidden>Download am2r-3ds-sd.zip</a>
+
+    <h3>Copy it to the SD card</h3>
+    <ol>
+      <li>Put your 3DS's SD card in your computer (or connect over FTP).</li>
+      <li>Extract the zip to the <strong>root</strong> of the SD card, so the files end up in
+        <code>sdmc:/3ds/am2r/</code> (the card's <code>3ds</code> folder, then <code>am2r</code>).</li>
+      <li>Updating an older copy? Let it replace the files, but keep your own <code>config.ini</code> if you changed
+        the controls. Your saves aren't in the zip, so they stay.</li>
+    </ol>
+
+    <h3>Install the game (am2r.cia)</h3>
+    <div class="cia">
+      <canvas id="qr" width="200" height="200" aria-label="QR code for am2r.cia"></canvas>
+      <ol>
+        <li>On the 3DS, open <strong>FBI</strong>, choose <strong>Remote Install</strong>, then
+          <strong>Scan QR Code</strong>, and scan this code. FBI downloads and installs <code>am2r.cia</code>.</li>
+        <li>No camera or no Wi-Fi? Download it from <a id="cia-link" target="_blank" rel="noopener"></a>, copy it to the
+          SD card, and install it with FBI from there.</li>
+        <li>Start AM2R from the HOME Menu.</li>
+      </ol>
+    </div>
+  </section>
+
+  <footer>
+    <p>Works offline: save this page (it's one file) and open it again any time. Only the patch download needs a
+      connection, and you can pick the patch zip instead. SD data revision <span data-sd-rev></span>.</p>
+    <p>AM2R is a fan game by the AM2R team (DoctorM64 and contributors); the Community Updates are by the
+      <a href="https://github.com/AM2R-Community-Developers" target="_blank" rel="noopener">AM2R Community Developers</a> (GPL-3.0).
+      The <a href="https://codeberg.org/NattensMadrigal/AM2R_3DS" target="_blank" rel="noopener">3DS port</a> is built on Butterscotch.
+      This page uses <a href="https://github.com/101arrowz/fflate" target="_blank" rel="noopener">fflate</a>,
+      <a href="https://github.com/jmacd/xdelta" target="_blank" rel="noopener">xdelta3</a>,
+      <a href="https://tukaani.org/xz/" target="_blank" rel="noopener">XZ Utils</a>, rg_etc1, code ported from
+      <a href="https://github.com/devkitPro/tex3ds" target="_blank" rel="noopener">tex3ds</a> and
+      <a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener">qrcode-generator</a>.</p>
+    <p>Not affiliated with or endorsed by Nintendo. You provide your own copy of the game.</p>
+  </footer>
+</main>
+<script>/*INLINE config*/</script>
+<script>/*INLINE fflate.js*/</script>
+<script>/*INLINE qrcode.js*/</script>
+<script>/*INLINE app.js*/</script>
+</body>
+</html>

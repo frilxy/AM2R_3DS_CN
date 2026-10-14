@@ -7,7 +7,7 @@
 // - quantum_to_bits<n>(257 * v) is v >> (8 - n) for every 8-bit v.
 // - Luminance (L4/LA4) is BT.709 on linearised sRGB in double, stored as a float quantum, then truncated.
 // - The atlas packer sorts its inputs with std::sort, which isn't stable; equal-sized frames end up in libstdc++'s
-//   order, so that sort is reproduced too (stdSortImages) to give the same layout.
+//   order, so that sort is reproduced too (stdSortInputs) to give the same layout.
 
 #include "t3x.h"
 
