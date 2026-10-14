@@ -2659,10 +2659,14 @@ static void populateObjectsWithAnyEventOfType(Runner* runner) {
             repeat(entryCount, i) {
                 int32_t obj = entries[i].concreteObjectId;
                 if (obj < 0 || obj >= objectCount) continue;
-                if (seen[obj]) continue;
                 seen[obj] = 1;
-                arrput(runner->objectsWithAnyEventOfType[t], obj);
             }
+        }
+        // In object order, as the native runner walks its per-event object table (not in the order of the event
+        // subtypes found above). Collision dispatch depends on it: in AM2R 1.5.5 oDoor must see an oBeam before the
+        // beam's own collision with the door's oSolid1 block destroys it, or no beam ever opens a door.
+        repeat(objectCount, obj) {
+            if (seen[obj]) arrput(runner->objectsWithAnyEventOfType[t], (int32_t) obj);
         }
     }
 

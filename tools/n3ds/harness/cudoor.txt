@@ -1,0 +1,27 @@
+# AM2R 1.5.5: Samus in rm_a1a01 (title card waited out) shoots the blue door (24,96) with the normal beam; screenshots of the shot.
+seed 12345
+after_room titleroom
+press 800 START 4
+press 900 START 4
+press 1000 A 4
+press 1100 A 4
+press 1200 A 4
+after_room gameintroroom
+press 60 START 4
+press 120 START 4
+press 180 A 4
+after_room rm_a0h01
+goto 200 rm_a1a01
+after_room rm_a1a01
+place 5 120 130
+screenshot 100
+screenshot 300
+press 320 LEFT 40
+screenshot 370
+press 380 Y 3
+screenshot 383
+screenshot 385
+screenshot 387
+screenshot 390
+screenshot 420
+exit 470
