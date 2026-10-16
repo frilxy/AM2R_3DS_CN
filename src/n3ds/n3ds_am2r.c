@@ -12,6 +12,7 @@
 #include "../vm.h"
 
 #include <stb/ds/stb_ds.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -244,9 +245,9 @@ static RValue hookDamageSamusPush(MAYBE_UNUSED VMContext* ctx, RValue* args, int
 
 // ===[ Screen mode ]===
 
-// The screen modes the Display page offers, in order (Stretch first: the default).
-static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X, N3DS_SCREEN_2X, N3DS_SCREEN_WIDE };
-static const char* const kScreenModeNames[] = { "Stretch", "1x", "2x", "Wide" };
+// The screen modes the Display page offers, in order (Wide first: the default).
+static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_WIDE, N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X, N3DS_SCREEN_2X };
+static const char* const kScreenModeNames[] = { "Wide", "Stretch", "1x", "2x" };
 #define N3DS_AM2R_SCREEN_MODES ((int) (sizeof(kScreenModes) / sizeof(kScreenModes[0])))
 
 static int N3DSAm2r_screenModeSlot(void) {
@@ -415,7 +416,7 @@ static void N3DSAm2r_refreshPage(void) {
         }
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? "ON" : "OFF");
-        const char* tip = selected == DISPLAY_ROW_SCREEN ? "Stretch fills the screen; 1x and 2x keep square pixels; Wide shows more of the room"
+        const char* tip = selected == DISPLAY_ROW_SCREEN ? "Wide fills the screen with square pixels; Stretch fills it by squashing; 1x and 2x keep square pixels at 1:1 or 2x"
             : selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
             : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
                 : "Busy game scripts run as built-in code: faster, same behaviour")
@@ -605,40 +606,68 @@ int32_t N3DSAm2r_gameWidth(void) {
 }
 
 // AM2R 1.5's own widescreen is 320 + widescreen_space wide, and the game's default space (106) makes a 426x240 (16:9)
-// picture. The top screen is 400x240 (5:3) and the bottom screen is no longer used, so 426 columns cannot all be shown
-// at 1:1. Rather than scaling the picture down (0.939, blurry) the extra columns are given up: the space is clamped to
-// 400 - 320 = 80, which keeps every pixel 1:1 and every row of content, with no letterboxing at all.
+// picture. The top screen is 400x240 (5:3), so 426 columns do not all fit at 1:1 and something has to give: Wide gives
+// up the 26 columns past 400, keeps pixels 1:1 and has no bars.
 //
 // The game lays the picture out itself, in the window it is told about: it reads window_get_width() (the port returns
-// gWindowW = 320 + space, see main.c) and draws the widescreen surface at (displayx, displayy) scaled by display_scale.
-// With the space clamped to 80 the window is exactly the 400-wide top screen, so the picture has to sit at x = 0.
+// gWindowW, see main.c) and draws the widescreen surface at (displayx, displayy) scaled by display_scale. It computes
+// those in its own Step, from the space and window it had that frame, so this (which runs after the step) has to state
+// the values the picture needs rather than correct a difference:
+//
+//   display_scale = 1        the window is the screen and the picture is to be shown 1:1, not fitted
+//   displayx      = -(pictureW - 400) / 2    centred, so the 26 columns that do not fit are split 13/13
+//
+// displayx is what keeps it centred: leaving the game's own value (0 for its 0.939 fit) would draw the 426-wide
+// picture from x = 0 and cut only the right-hand side.
+//
+// The picture width is read from the surface itself rather than assumed: the game keeps its own 426-wide picture (the
+// port does not clamp widescreen_space any more), and reading the surface means the offset stays right whatever width
+// the game's own widescreen ends up at.
 #define N3DS_AM2R_WIDE_SCREEN_W 400
 
-static void N3DSAm2r_fitWidescreenToScreen(void) {
+// Where the picture has to start so that what does not fit is split evenly. 0 when it fits (or is narrower).
+static double N3DSAm2r_centredDisplayX(double pictureW) {
+    double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
+    return overflow > 0.0 ? floor(-overflow * 0.5) : 0.0;
+}
+
+static void N3DSAm2r_applyScreenMode(void) {
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
     if (control == NULL) return;
     double widescreen = 0.0, space = 0.0;
     if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) return;
     if (!N3DSGml_getVar(control, "widescreen_space", &space)) return;
     if (space <= 0.0) return; // widescreen off: the game is 320 wide on its own
-    double wanted = (double) (N3DS_AM2R_WIDE_SCREEN_W - 320);
-    if (space != wanted) {
-        N3DSGml_setVar(control, "widescreen_space", wanted);
-        logInfo("AM2R: widescreen_space %.0f -> %.0f (picture %d wide)\n", space, wanted, (int) (320.0 + wanted));
+
+    if (N3DS_getScreenMode() != N3DS_SCREEN_WIDE) {
+        // Stretch, 1x and 2x all leave the game's own widescreen alone: it fits it (1x: the game is given the screen as
+        // its window and scales its own picture to it) or the port transforms it (Stretch squashes, 2x zooms), and the
+        // game's own display_scale/displayx already put the picture where those modes want it.
+        return;
     }
-    // The game computes display_scale/displayx/displayy in its own Step, from the space and window it had that frame,
-    // and this runs after the step: the values it is about to draw with are the ones it computed for the wider space.
-    // Rather than trying to correct that difference, state the invariant the clamped picture needs - the window is
-    // exactly the picture (gWindowW = 320 + space = 400) - so it fills the top screen 1:1 with no offset. Any sprite
-    // shake the game adds on top of displayx is still added by the game itself when it draws.
+
+    // The picture's real width. widescreen_space is deliberately NOT clamped any more: the game rewrites it from its
+    // own logic every Step, so clamping it fights the game and (via checkWidescreenSurface) makes the game's surface -
+    // which it sizes from its own space - be freed and rebuilt every frame. Instead the game keeps its 426-wide picture
+    // and this only says where to show it: 1:1, centred, with the overflow split evenly.
+    double pictureW = (double) (320.0 + space);
+    double surface = -1.0;
+    Renderer* renderer = gAm2r.runner != NULL ? gAm2r.runner->renderer : NULL;
+    if (renderer != NULL && N3DSGml_getVar(control, "widescreen_surface", &surface) && surface >= 0.0) {
+        double width = (double) Renderer_getSurfaceWidth(renderer, (int32_t) surface);
+        if (width > 0.0) pictureW = width;
+    }
+    double wantedX = N3DSAm2r_centredDisplayX(pictureW);
+
     double scale = 1.0;
     if (N3DSGml_getVar(control, "display_scale", &scale) && scale != 1.0) {
         N3DSGml_setVar(control, "display_scale", 1.0);
     }
     double offset = 0.0;
-    if (N3DSGml_getVar(control, "displayx", &offset) && offset != 0.0) {
-        logInfo("AM2R: displayx %.0f -> 0 (picture %d wide)\n", offset, (int) (320.0 + wanted));
-        N3DSGml_setVar(control, "displayx", 0.0);
+    if (N3DSGml_getVar(control, "displayx", &offset) && offset != wantedX) {
+        logInfo("AM2R: wide displayx %.0f -> %.0f (picture %.0f wide, %d shown)\n", offset, wantedX, pictureW,
+            N3DS_AM2R_WIDE_SCREEN_W);
+        N3DSGml_setVar(control, "displayx", wantedX);
     }
     if (N3DSGml_getVar(control, "displayy", &offset) && offset != 0.0) N3DSGml_setVar(control, "displayy", 0.0);
 }
@@ -714,7 +743,7 @@ void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
-    N3DSAm2r_fitWidescreenToScreen();
+    N3DSAm2r_applyScreenMode();
     N3DSAm2r_checkWidescreenSurface();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();

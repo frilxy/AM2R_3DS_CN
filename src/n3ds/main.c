@@ -492,10 +492,10 @@ static int32_t gWindowH = N3DS_TOP_SCREEN_H;
 
 static const char* N3DS_screenModeName(N3DSScreenMode mode) {
     switch (mode) {
-        case N3DS_SCREEN_WIDE: return "wide (more of the room, 1:1)";
-        case N3DS_SCREEN_STRETCH: return "stretch";
-        case N3DS_SCREEN_1X: return "1x";
-        case N3DS_SCREEN_2X: return "2x";
+        case N3DS_SCREEN_WIDE: return "wide (1:1, fills the screen)";
+        case N3DS_SCREEN_STRETCH: return "stretch (fills the screen, squashed)";
+        case N3DS_SCREEN_1X: return "1x (1:1, bars)";
+        case N3DS_SCREEN_2X: return "2x (2x, zoomed in)";
         default: return "pillarbox (1:1)";
     }
 }
@@ -894,30 +894,38 @@ int main(int argc, char** argv) {
         int32_t gameW = runner->applicationWidth;
         int32_t gameH = runner->applicationHeight;
 
-        // Screen mode (N3DS_DEFAULT_SCREEN_MODE; the touch screen belongs to the pause screen). Wide: upstream's
-        // widescreen hack (views grow to the 5:3 top screen, 1:1 pixels). Stretch: the native size scaled to
-        // 400x240. Pillarbox: native size 1:1, centred.
+        // Screen mode (N3DS_DEFAULT_SCREEN_MODE). AM2R draws its own picture (a 426x240 widescreen view) into a
+        // window it is told about, scaling and centring it itself, so the mode decides what window the game gets and
+        // how the port then presents it:
+        //   Wide:     the screen's window (400x240). The game fits its 426-wide view into that by itself (0.939) and
+        //             centres it, and N3DSAm2r_applyScreenMode overrides that to 1:1 with the picture centred, so the
+        //             426x240 picture is shown pixel-for-pixel with the 13 columns at each edge given up. No bars.
+        //   1x:      the same window (400x240) with no override: the game's own 0.939 fit and centring stand, so the
+        //             whole 426x240 view is shown at 400x225 with ~7px bars top and bottom. Slightly soft.
+        //   2x:      the game's own window at 2x, centred: the middle of the picture, the rest off screen.
+        //   Stretch: the game's own window (426), and the screen stretches that onto 400x240. The whole view, with the
+        //             426 columns squeezed into 400 (a 0.939 horizontal squash).
         runner->widescreenExtraWidth = 0;
         runner->widescreenExtraHeight = 0;
-        // AM2R 1.5's own widescreen (a 426x240 picture): the game's width instead of the upstream hack. The width is a
-        // property of the game's own layout, so it stays the same whether or not the pause screen is open - the pause
-        // picture is no longer squeezed into the 320-wide bottom screen.
         int32_t ownGameW = N3DSAm2r_gameWidth();
-        if (gScreenMode == N3DS_SCREEN_WIDE && ownGameW == 0 && runner->usingAppSurface && gameW > 0 && gameH > 0) {
+        bool wide = gScreenMode == N3DS_SCREEN_WIDE;
+        if (wide && ownGameW == 0 && runner->usingAppSurface && gameW > 0 && gameH > 0) {
             int32_t targetW = (int32_t) ((float) gameH * ((float) N3DS_TOP_SCREEN_W / (float) N3DS_TOP_SCREEN_H) + 0.5f);
             if (targetW > gameW) {
                 runner->widescreenExtraWidth = targetW - gameW;
                 gameW = targetW;
             }
         }
-        // The "window" the game sees: the screen, except in Stretch, 1x and 2x where it is the game's own size (and the
-        // renderer stretches that to the screen, or scales it by 1 or 2, centred).
+        // The "window" the game sees. Stretch and 2x give it a window as wide as its own picture, so it draws 1:1 and
+        // the port transforms that onto the screen (squashed, or zoomed). Wide and 1x give it the screen instead, so it
+        // scales and centres its picture itself (Wide then overrides that to 1:1, see N3DSAm2r_applyScreenMode).
         bool stretch = gScreenMode == N3DS_SCREEN_STRETCH;
-        int32_t fixedScale = gScreenMode == N3DS_SCREEN_1X ? 1 : gScreenMode == N3DS_SCREEN_2X ? 2 : 0;
-        bool gameSizedWindow = stretch || fixedScale > 0;
+        bool scale2x = gScreenMode == N3DS_SCREEN_2X;
+        int32_t fixedScale = scale2x ? 2 : 0;
+        bool gameSizedWindow = stretch || scale2x;
         gWindowW = gameSizedWindow ? (ownGameW > 0 ? ownGameW : runner->usingAppSurface ? runner->applicationWidth : (int32_t) gen8->defaultWindowWidth) : N3DS_TOP_SCREEN_W;
         gWindowH = gameSizedWindow ? (runner->usingAppSurface ? runner->applicationHeight : (int32_t) gen8->defaultWindowHeight) : N3DS_TOP_SCREEN_H;
-        // The pause screen (rm_options) lays itself out for a 320x568 surface. In a game-sized window (stretch, 1x, 2x)
+        // The pause screen (rm_options) lays itself out for a 320x568 surface. In a game-sized window (stretch, 2x)
         // that would make the window 568 tall and letterbox the picture away, so the height is pinned to the screen.
         if (N3DSPause_isPaused()) gWindowH = N3DS_TOP_SCREEN_H;
         N3DSRenderer_setStretchToScreen(renderer, stretch);

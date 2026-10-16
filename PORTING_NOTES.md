@@ -65,19 +65,33 @@ into the desktop's `--goto-room <frame>:<room>`.
   and a target must fit in one; a surface that doesn't fit at RGBA8 drops to RGBA5551, then to a smaller stored
   area (top-left part). Over 1024 only the top-left 1024 is stored (PICA limit). AM2R's 2048x1024 pause map ends
   up as 1024x512 RGBA5551, which holds the whole map (it uses about 600x464).
-- Screen: AM2R lays out its own picture in the window it is told about (application surface and HUD at its own
-  offsets), so the window the game sees is the game's size and the renderer scales that to the screen. In AM2R the
-  mode is picked in Options -> Display -> Screen: Stretch (default), 1x (centred 1:1), 2x (doubled and centred) or
-  Wide (upstream's widescreen hack); 1x/2x use `N3DSRenderer_setFixedScale`. AM2R 1.5 has its own widescreen
-  (`oControl.widescreen`, on by default: a 426x240 view into `widescreen_surface`, centred by the game in the window):
-  while it is on, the window is 426 wide (`N3DSAm2r_gameWidth`), the GUI layer is the window's size (1.5 draws its
-  HUD in window coordinates) and Wide adds no hack on top. 1.5 makes `widescreen_surface` once, on its first frame,
-  320 wide (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a
-  wrong-sized one so the game remakes it. 426 columns do not fit the 400-wide top screen, so
-  `N3DSAm2r_fitWidescreenToScreen` (once a frame, after the game's step and before its draw) clamps
-  `oControl.widescreen_space` from 106 to 80 = 400 - 320 and pins `display_scale`/`displayx`/`displayy` to 1/0/0:
-  the window becomes exactly 400 wide and the picture fills the top screen 1:1, with no cropping and no scaling.
-  Everything downstream of the space (HUD offsets, lava/water strips, the pause layout) follows the clamped value.
+- Screen: AM2R has its own 16:9 widescreen (`oControl.widescreen`, on by default: a 426x240 view into
+  `widescreen_surface`), which is wider than the 5:3 top screen, so the upstream widescreen hack has nothing to add and
+  the port has to choose what gives. The mode is picked in Options -> Display -> Screen:
+  - **Wide** (default): the picture 1:1 and centred, filling the screen - the 26 columns past 400 are given up 13 each
+    side, so nothing is scaled and there are no bars.
+  - **Stretch**: the same 426 columns squeezed into 400 (a 0.939 horizontal squash), so the whole view is shown but is
+    not square.
+  - **1x**: the game's own fit - the whole 426x240 view at 400x225, centred, with ~7px bars top and bottom. Slightly
+    soft (0.939, not an integer).
+  - **2x**: 2x, centred, showing the middle of the picture.
+
+  AM2R draws its own picture, so the mode works by what the game is told, not by presenting an application surface:
+  `application_surface_draw_enable(0)` leaves `appSurfaceAutoDraw` false, and `N3DSRenderer_endFrameEnd` returns early
+  on that (`usingAppSurface && !appSurfaceAutoDraw`), so the app surface is never presented and `screenRect`
+  (`stretchToScreen`/`fixedScale`) only affects the GUI/HUD layer. The game draws its widescreen surface itself at
+  `(displayx, displayy)` scaled by `display_scale`, and it sizes that surface from `320 + widescreen_space`, reading
+  `window_get_width()` (the port's `gWindowW`) to centre it. So `main.c` gives the game the window each mode needs -
+  the screen (400) for Wide/1x so the game fits and centres its own picture, the game's own 426 for Stretch/2x so it
+  draws 1:1 and the renderer transforms it - and `N3DSAm2r_applyScreenMode` (once a frame, after the game's step and
+  before its draw) states the invariant only Wide needs: `display_scale` 1 and `displayx` centred at
+  `-(pictureW - 400) / 2`. Leaving the game's own `displayx` (0 for its 0.939 fit) would draw the 426-wide picture from
+  x = 0 and cut only the right-hand side; the offset is what splits the overflow evenly. The picture width is read from
+  the surface itself, and `widescreen_space` is deliberately no longer clamped: the game rewrites it every Step, so
+  clamping fought the game and made `N3DSAm2r_checkWidescreenSurface` free and remake the surface every frame. The
+  other modes leave `display_*` entirely to the game. 1.5 makes `widescreen_surface` once, on its first frame, 320 wide
+  (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a wrong-sized
+  one so the game remakes it.
 - Pause screen (`n3ds_pause.c`): AM2R's `rm_subscreen` is the pause menu and the game draws and operates it like any
   other room - on the top screen, with its own Menu1/Menu2 (A/B) and D-pad bindings. The front end does nothing for
   it: `N3DSPause_update` only tracks whether the game is in the pause room (following `rm_transition`'s `targetroom`

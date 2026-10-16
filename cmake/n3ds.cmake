@@ -18,7 +18,7 @@ set(N3DS_ASSET_DIR "" CACHE PATH "Optional icon.png (48x48), banner.png (256x128
 if(N3DS_ASSET_DIR STREQUAL "" OR N3DS_ASSET_DIR STREQUAL "${CMAKE_SOURCE_DIR}/res/n3ds/butterscotch")
     set(N3DS_ASSET_DIR "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}")
 endif()
-set(N3DS_SCREEN_MODE "wide" CACHE STRING "Default top-screen mode: wide (widescreen hack), stretch or pillarbox")
+set(N3DS_SCREEN_MODE "wide" CACHE STRING "Default top-screen mode: wide, stretch, 1x or 2x")
 set(N3DS_TOOLS_DIR "/root/kfx/3ds-prefix/bin" CACHE PATH "Where makerom and bannertool are")
 
 add_compile_definitions(PLATFORM_N3DS)
