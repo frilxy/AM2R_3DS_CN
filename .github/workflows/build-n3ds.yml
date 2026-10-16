@@ -3,10 +3,11 @@ name: Build (Nintendo 3DS)
 # Builds the AM2R 3DS program (tools/n3ds/build.sh). Every passing run except pull requests and claude/* branches
 # (work in progress) is published as a GitHub release holding only am2r.cia and am2r.3dsx.
 #
-# This is the top-screen line (branch `top-screen`, the game and its pause menu on the top screen, the bottom screen
-# black), built from the upstream baseline without the localisation work. It keeps its own version numbers so its
-# releases never mix with the localised line's: pushes to `top-screen` are am2r-3ds-top-b<run number> (the name says
-# which line it is), while a pushed tag is published under that tag (e.g. v0.4.0-top) and is the release to hand out.
+# This is the top-screen localised line (branch `top-screen-zh`: the game and its pause menu on the top screen, the
+# bottom screen black, and the Chinese localisation - font_replace/background_replace plus a config.ini language
+# switch). It keeps its own version numbers so its releases never mix with the other lines': pushes to
+# `top-screen-zh` are am2r-3ds-zh-top-b<run number>, while a pushed tag is published under that tag
+# (e.g. v0.6.0-zh-top) and is the release to hand out.
 
 on:
   push:
@@ -81,8 +82,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          # The line this build belongs to: its own release tags, so the localised line's releases are never touched.
-          LINE: top
+          # The line this build belongs to: its own release tags, so the other lines' releases are never touched.
+          LINE: zh-top
         run: |
           apt-get update
           apt-get install -y --no-install-recommends gh
@@ -91,12 +92,12 @@ jobs:
           create_args=()
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
-            title="AM2R for 3DS $tag (top screen)"
+            title="AM2R for 3DS $tag (top screen, Chinese)"
             built="Built from $hash."
           else
             # A re-run keeps its run number, so it updates the same release.
             tag="am2r-3ds-$LINE-b$GITHUB_RUN_NUMBER"
-            title="AM2R for 3DS top-screen build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
+            title="AM2R for 3DS top-screen Chinese build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
             built="Built from $hash on \`$GITHUB_REF_NAME\`."
             create_args+=(--target "$GITHUB_SHA")
             create_args+=(--prerelease)
@@ -112,18 +113,30 @@ jobs:
             echo "* \`am2r.cia\` — install with FBI: $base/am2r.cia"
             echo "* \`am2r.3dsx\` — for the Homebrew Launcher: $base/am2r.3dsx"
             echo
-            echo "## Top-screen build"
+            echo "## Top-screen localised build"
             echo
             echo "The game and its pause menu are both drawn on the **top** screen; the bottom screen stays black."
             echo "Building on AM2R's own 426-pixel widescreen, the picture is fitted to the top screen at exactly"
             echo "\`400x240\` with square pixels, so nothing is cropped and nothing is scaled. The pause menu is driven"
             echo "with the game's own buttons (D-pad, A = OK, B = back); the touch screen is not used."
             echo
+            echo "The Chinese localisation is built in: \`font_replace\`/\`background_replace\` are implemented, so the"
+            echo "game's own language files render in the bitmap fonts the layout was designed around. The language is"
+            echo "the game's own \`config.ini\` setting (\`[Screen] Language\`): the line number in \`lang/languages.txt\`,"
+            echo "counting from 0 - this build ships English then Chinese, so 0 is English and 1 is Chinese. The bundled"
+            echo "\`config.ini\` defaults to Chinese."
+            echo
             echo "## SD card"
             echo
             echo "The game's files go in \`sdmc:/3ds/am2r/\`, made from your AM2R 1.1 (or Community Updates) \`data.win\` with"
             echo "\`tools/n3ds/make_sd.sh\` from this repository. Copy the \`3ds\` folder it makes to the root of the SD card."
             echo "This build needs SD data revision $(cat tools/n3ds/sd_data_rev.txt) (\`sd_data_rev.txt\` on the card)."
+            echo
+            echo "## Language"
+            echo
+            echo "\`sdmc:/3ds/am2r/config.ini\` selects the language: \`[Screen]\` \`Language=\"0\"\` is English, \`Language=\"1\"\`"
+            echo "is Chinese. The font texture holds the characters of every language in \`sdmc:/3ds/am2r/lang/languages.txt\`,"
+            echo "so switching needs no rebuild."
             echo
             echo "$built"
           } > notes.md

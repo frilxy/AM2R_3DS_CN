@@ -31,6 +31,20 @@ uint32_t N3DSRenderer_getFrameTextGlyphDraws(Renderer* renderer);
 uint32_t N3DSRenderer_getFrameTextTenthsMs(Renderer* renderer);
 int32_t N3DSRenderer_findTileEntryIndex(Renderer* renderer, int32_t backgroundIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH);
 bool N3DSRenderer_drawCachedTileEntry(Renderer* renderer, int32_t tileEntryIndex, float drawX, float drawY, float xscale, float yscale, uint32_t color, float alpha);
+// Runtime textures for font_replace and background_replace (see docs/localization.md). Every font size shares ONE
+// texture: with two or more, particular strings stopped drawing while the atlases themselves looked correct.
+int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* renderer);
+int32_t N3DSRenderer_sharedFontAtlasIndex(Renderer* renderer);
+int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* renderer);
+bool N3DSRenderer_uploadFontAtlasRegion(Renderer* renderer, const uint8_t* rgba, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+// The shared texture's first free row. Each font size stacks below the previous one, and reallocating the atlas
+// resets it, so the two are kept together.
+uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* renderer);
+void N3DSRenderer_setSharedFontAtlasNextY(Renderer* renderer, uint32_t y);
+int32_t N3DSRenderer_allocRuntimeImage(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
+bool N3DSRenderer_setRuntimeTPAGContent(Renderer* renderer, int32_t tpagIndex, uint32_t contentW, uint32_t contentH);
+// A swapped font has a whole new glyph array; a text layout cached before the swap still holds the old rectangles.
+void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);
 // Loads the textures a room is likely to need (call when the room changes).
 void N3DSRenderer_prewarmRoom(Renderer* renderer, Runner* runner);
 void N3DSRenderer_importReadAhead(Renderer* renderer);

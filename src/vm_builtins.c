@@ -428,6 +428,8 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "path_speed", BUILTIN_VAR_PATH_SPEED },
     { "persistent", BUILTIN_VAR_PERSISTENT },
     { "pi", BUILTIN_VAR_PI },
+    // this list is bsearched: keep it sorted
+    { "program_directory", BUILTIN_VAR_PROGRAM_DIRECTORY },
     { "room", BUILTIN_VAR_ROOM },
     { "room_first", BUILTIN_VAR_ROOM_FIRST },
     { "room_height", BUILTIN_VAR_ROOM_HEIGHT },
@@ -621,6 +623,8 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
     // So that's why this (and setVariable) are a jump table
     switch (builtinVarId) {
         // File system
+        // This port keeps the game's files in one directory, so program_directory and working_directory are the same.
+        case BUILTIN_VAR_PROGRAM_DIRECTORY:
         case BUILTIN_VAR_WORKING_DIRECTORY: {
             FileSystem* fs = runner->fileSystem;
             return RValue_makeOwnedString(fs->vtable->resolvePath(fs, ""));
