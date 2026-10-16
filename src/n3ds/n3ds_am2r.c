@@ -64,7 +64,7 @@ typedef struct {
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
     int32_t objCharacter;
-    int32_t objSSFg, objSSBg, drawCoolText;
+    int32_t objSSFg, objSSBg;
     int32_t sndSpin[5]; // the spin-jump loops: plain, Space Jump, Screw Attack, both, underwater
     int32_t sprA, sprB, sprX, sprY;
     int32_t sfxPlay, sndMenuMove, sndMenuSel;
@@ -328,7 +328,6 @@ void N3DSAm2r_init(Runner* runner) {
     gAm2r.objCharacter = N3DSGml_objectIndex("oCharacter");
     gAm2r.objSSFg = N3DSGml_objectIndex("oSS_Fg");
     gAm2r.objSSBg = N3DSGml_objectIndex("oSS_Bg");
-    gAm2r.drawCoolText = N3DSGml_scriptIndex("draw_cool_text");
     {
         static const char* const kSpin[5] = { "sndSpinJump", "sndSpaceJump", "sndScrewAttack", "sndSpaceScrewAttack", "sndSpinJumpWater" };
         repeat(5, i) gAm2r.sndSpin[i] = N3DSGml_soundIndex(kSpin[i]);
@@ -605,6 +604,45 @@ int32_t N3DSAm2r_gameWidth(void) {
     return 320 + (int32_t) space;
 }
 
+// AM2R 1.5's own widescreen is 320 + widescreen_space wide, and the game's default space (106) makes a 426x240 (16:9)
+// picture. The top screen is 400x240 (5:3) and the bottom screen is no longer used, so 426 columns cannot all be shown
+// at 1:1. Rather than scaling the picture down (0.939, blurry) the extra columns are given up: the space is clamped to
+// 400 - 320 = 80, which keeps every pixel 1:1 and every row of content, with no letterboxing at all.
+//
+// The game lays the picture out itself, in the window it is told about: it reads window_get_width() (the port returns
+// gWindowW = 320 + space, see main.c) and draws the widescreen surface at (displayx, displayy) scaled by display_scale.
+// With the space clamped to 80 the window is exactly the 400-wide top screen, so the picture has to sit at x = 0.
+#define N3DS_AM2R_WIDE_SCREEN_W 400
+
+static void N3DSAm2r_fitWidescreenToScreen(void) {
+    Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
+    if (control == NULL) return;
+    double widescreen = 0.0, space = 0.0;
+    if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) return;
+    if (!N3DSGml_getVar(control, "widescreen_space", &space)) return;
+    if (space <= 0.0) return; // widescreen off: the game is 320 wide on its own
+    double wanted = (double) (N3DS_AM2R_WIDE_SCREEN_W - 320);
+    if (space != wanted) {
+        N3DSGml_setVar(control, "widescreen_space", wanted);
+        logInfo("AM2R: widescreen_space %.0f -> %.0f (picture %d wide)\n", space, wanted, (int) (320.0 + wanted));
+    }
+    // The game computes display_scale/displayx/displayy in its own Step, from the space and window it had that frame,
+    // and this runs after the step: the values it is about to draw with are the ones it computed for the wider space.
+    // Rather than trying to correct that difference, state the invariant the clamped picture needs - the window is
+    // exactly the picture (gWindowW = 320 + space = 400) - so it fills the top screen 1:1 with no offset. Any sprite
+    // shake the game adds on top of displayx is still added by the game itself when it draws.
+    double scale = 1.0;
+    if (N3DSGml_getVar(control, "display_scale", &scale) && scale != 1.0) {
+        N3DSGml_setVar(control, "display_scale", 1.0);
+    }
+    double offset = 0.0;
+    if (N3DSGml_getVar(control, "displayx", &offset) && offset != 0.0) {
+        logInfo("AM2R: displayx %.0f -> 0 (picture %d wide)\n", offset, (int) (320.0 + wanted));
+        N3DSGml_setVar(control, "displayx", 0.0);
+    }
+    if (N3DSGml_getVar(control, "displayy", &offset) && offset != 0.0) N3DSGml_setVar(control, "displayy", 0.0);
+}
+
 // AM2R 1.5 creates its widescreen surface once, from the widescreen view's width, on its first frame, before the
 // widescreen width is set: 320 wide, so only 320 of the 426 columns ever showed. On a PC the surface is lost and made
 // again (window and display changes at startup); here it would never be. A wrong-sized one is freed for the game to
@@ -672,44 +710,11 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
-#define N3DS_AM2R_TOP_W 400
-#define N3DS_AM2R_TOP_H 240
-
-// "Paused" over the frozen game on the top screen while the pause screen is on the bottom one: a semi-transparent
-// black bar and the game's own item-message text (draw_cool_text in global.fontGUI, its colours).
-void N3DSAm2r_drawPausedBanner(Renderer* renderer) {
-    if (!gAm2r.active || renderer == NULL) return;
-    N3DSRenderer_beginTopScreenGUI(renderer, N3DS_AM2R_TOP_W, N3DS_AM2R_TOP_H);
-    const float barH = 36.0f, barY = ((float) N3DS_AM2R_TOP_H - barH) * 0.5f;
-    renderer->vtable->drawRectangle(renderer, 0.0f, barY, (float) N3DS_AM2R_TOP_W, barY + barH, 0x000000, 0.6f, false);
-    double font = -1.0;
-    if (gAm2r.drawCoolText >= 0 && N3DSGml_getGlobal("fontGUI", -1, &font)) {
-        int32_t savedFont = renderer->drawFont, savedHalign = renderer->drawHalign, savedValign = renderer->drawValign;
-        uint32_t savedColor = renderer->drawColor;
-        float savedAlpha = renderer->drawAlpha;
-        renderer->drawFont = (int32_t) font;
-        renderer->drawHalign = 1;
-        renderer->drawValign = 1;
-        RValue args[7] = {
-            RValue_makeReal((GMLReal) N3DS_AM2R_TOP_W * 0.5), RValue_makeReal((GMLReal) N3DS_AM2R_TOP_H * 0.5),
-            RValue_makeString("Paused"), RValue_makeReal(16777215.0), RValue_makeReal(16776960.0),
-            RValue_makeReal(8388608.0), RValue_makeReal(1.0),
-        };
-        RValue result = N3DSGml_callScript(gAm2r.drawCoolText, args, 7);
-        RValue_free(&result);
-        renderer->drawFont = savedFont;
-        renderer->drawHalign = savedHalign;
-        renderer->drawValign = savedValign;
-        renderer->drawColor = savedColor;
-        renderer->drawAlpha = savedAlpha;
-    }
-    N3DSRenderer_endTopScreenGUI(renderer);
-}
-
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
+    N3DSAm2r_fitWidescreenToScreen();
     N3DSAm2r_checkWidescreenSurface();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();

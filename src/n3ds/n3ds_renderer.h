@@ -13,18 +13,6 @@ Renderer* N3DSRenderer_create(void);
 bool N3DSRenderer_isReady(Renderer* renderer);
 const char* N3DSRenderer_getStartupError(Renderer* renderer);
 void N3DSRenderer_beginOverlay(Renderer* renderer);
-void N3DSRenderer_beginBottomScreenGUIEx(Renderer* renderer, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY);
-void N3DSRenderer_beginBottomScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_endBottomScreenGUI(Renderer* renderer);
-void N3DSRenderer_beginTopScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_endTopScreenGUI(Renderer* renderer);
-void N3DSRenderer_beginBottomScreenGUI2x(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_endBottomScreenGUI2x(Renderer* renderer);
-void N3DSRenderer_beginTopScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_endTopScreenGUI(Renderer* renderer);
-void N3DSRenderer_beginTopScreenGUI2x(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_endTopScreenGUI2x(Renderer* renderer);
-bool N3DSRenderer_isTopScreenGUIActive(Renderer* renderer);
 bool N3DSRenderer_isTopScreenBattleViewActive(Renderer* renderer);
 void N3DSRenderer_setTopScreenBattleViewActive(Renderer* renderer, bool active);
 uint32_t N3DSRenderer_getResidentAtlasVRAMBytes(Renderer* renderer);
@@ -54,7 +42,6 @@ bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);
 C3D_RenderTarget* N3DSRenderer_getTopTarget(Renderer* renderer);
-C3D_RenderTarget* N3DSRenderer_getBottomTarget(Renderer* renderer);
 // Deletes surfaces freed during earlier frames. Call outside C3D_FrameBegin/End; all = everything (shutdown).
 void N3DSRenderer_collectGarbage(Renderer* renderer, bool all);
 void N3DSRenderer_logDiag(Renderer* renderer);
@@ -62,17 +49,7 @@ void N3DSRenderer_logDiag(Renderer* renderer);
 void N3DSRenderer_setStretchToScreen(Renderer* renderer, bool stretch);
 // 1x / 2x screen modes: the game's picture at this scale on the top screen, centred (0: the usual fit).
 void N3DSRenderer_setFixedScale(Renderer* renderer, int32_t scale);
-// Sends the game's screen (RENDER_TARGET_HOST_FRAMEBUFFER) to the bottom screen, 1:1 (the pause screen).
-void N3DSRenderer_setHostScreenBottom(Renderer* renderer, bool bottom);
-// Keeps the last finished top-screen frame (call right after C3D_FrameBegin) / shows it / lets it go.
-bool N3DSRenderer_captureFrozenTop(Renderer* renderer);
-void N3DSRenderer_drawFrozenTop(Renderer* renderer);
-void N3DSRenderer_dropFrozenTop(Renderer* renderer);
-// Keeps the finished bottom screen (the pause screen; call right after C3D_FrameBegin) / shows it.
-bool N3DSRenderer_captureBottomSnapshot(Renderer* renderer);
-bool N3DSRenderer_hasBottomSnapshot(Renderer* renderer);
-void N3DSRenderer_drawBottomSnapshot(Renderer* renderer);
-// Plain citro2d drawing in screen pixels on top of the game's frame (top or bottom screen).
+// Plain citro2d drawing in screen pixels on top of the game's frame, on the top screen.
 #define N3DS_OVERLAY_DEPTH 1.0f
-void N3DSRenderer_beginScreenOverlay(Renderer* renderer, bool top);
+void N3DSRenderer_beginScreenOverlay(Renderer* renderer);
 void N3DSRenderer_endScreenOverlay(Renderer* renderer);

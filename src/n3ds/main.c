@@ -16,7 +16,6 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
-#include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_prof.h"
@@ -205,14 +204,8 @@ static void N3DSDebugMonitor_tickFrame(N3DSDebugMonitor* monitor, const double* 
     monitor->sampleStartMs = nowMs;
 }
 
-// On the bottom screen, or on the top one while the bottom one shows the game's pause screen.
-static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Renderer* renderer, bool onTop) {
-#ifdef N3DS_DISABLE_BOTTOM_SCREEN
-    (void) monitor;
-    (void) runner;
-    (void) renderer;
-    return;
-#endif
+// Drawn on the top screen, the only screen the game uses.
+static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Renderer* renderer) {
     if (monitor == NULL || runner == NULL || renderer == NULL || monitor->textBuf == NULL) return;
 
     const char* roomName = "(none)";
@@ -243,8 +236,8 @@ static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Ren
     snprintf(unimplLine, sizeof(unimplLine), "UNIMPL %lu", (unsigned long) N3DS_unimplCount());
     snprintf(roomLine, sizeof(roomLine), "R %.28s", roomName);
 
-    N3DSRenderer_beginScreenOverlay(renderer, onTop);
-    const float boxX = onTop ? 172.0f : 92.0f;
+    N3DSRenderer_beginScreenOverlay(renderer);
+    const float boxX = 172.0f;
     const float boxY = 8.0f;
     const float boxW = 220.0f;
     const float boxH = 127.0f;
@@ -306,7 +299,7 @@ static void N3DSFpsCounter_draw(N3DSFpsCounter* counter, Renderer* renderer, dou
     float w = 0.0f, h = 0.0f;
     C2D_TextGetDimensions(&counter->text, scale, scale, &w, &h);
     float x = 4.0f, y = (float) N3DS_TOP_SCREEN_H - h - 3.0f;
-    N3DSRenderer_beginScreenOverlay(renderer, true);
+    N3DSRenderer_beginScreenOverlay(renderer);
     C2D_DrawText(&counter->text, C2D_WithColor, x + 1.0f, y + 1.0f, N3DS_OVERLAY_DEPTH, scale, scale, C2D_Color32(0, 0, 0, 150));
     C2D_DrawText(&counter->text, C2D_WithColor, x, y, N3DS_OVERLAY_DEPTH, scale, scale, C2D_Color32(255, 255, 255, 190));
     N3DSRenderer_endScreenOverlay(renderer);
@@ -718,7 +711,8 @@ int main(int argc, char** argv) {
     if (!N3DSRenderer_isReady(renderer)) {
         const char* error = N3DSRenderer_getStartupError(renderer);
         logError("Renderer: %s\n", error != NULL ? error : "init failed");
-        consoleInit(GFX_BOTTOM, NULL);
+        // This build only uses the top screen, so a failure to start has to be readable there.
+        consoleInit(GFX_TOP, NULL);
         printf("%s\nPress START to exit.\n", error != NULL ? error : "Renderer init failed");
         while (aptMainLoop()) {
             hidScanInput();
@@ -741,7 +735,6 @@ int main(int argc, char** argv) {
     Runner_setGameArgs(runner, gameArgs, (int32_t) arrlen(gameArgs));
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
-    N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
@@ -812,9 +805,9 @@ int main(int argc, char** argv) {
         // renderer call that needs the GPU opens it (N3DSRenderer_frameGate), else the drawing below does. (The screen
         // captures here open it themselves when they run.)
         N3DSScreenshot_captureIfRequested(renderer);
-        N3DSLiveMap_beginFrame();
-        // Before the step: freezes the top screen when the pause screen opens and turns touches into its presses.
-        bool paused = N3DSPause_update();
+        // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
+        // is operated with its own buttons.
+        (void) N3DSPause_update();
         bool frameOpenBeforeStep = N3DSRenderer_frameIsOpen();
         u64 stepStartTick = svcGetSystemTick();
         {
@@ -906,10 +899,10 @@ int main(int argc, char** argv) {
         // 400x240. Pillarbox: native size 1:1, centred.
         runner->widescreenExtraWidth = 0;
         runner->widescreenExtraHeight = 0;
-        // AM2R 1.5's own widescreen (a 426x240 picture): the game's width instead of the upstream hack.
-        // (Not on the pause screen: it goes to the 320-wide bottom screen 1:1, where the game, told the window is 320,
-        // centres its widescreen pause picture and the side margins fall off; 426 would be shrunk to fit.)
-        int32_t ownGameW = N3DSPause_isPaused() ? 0 : N3DSAm2r_gameWidth();
+        // AM2R 1.5's own widescreen (a 426x240 picture): the game's width instead of the upstream hack. The width is a
+        // property of the game's own layout, so it stays the same whether or not the pause screen is open - the pause
+        // picture is no longer squeezed into the 320-wide bottom screen.
+        int32_t ownGameW = N3DSAm2r_gameWidth();
         if (gScreenMode == N3DS_SCREEN_WIDE && ownGameW == 0 && runner->usingAppSurface && gameW > 0 && gameH > 0) {
             int32_t targetW = (int32_t) ((float) gameH * ((float) N3DS_TOP_SCREEN_W / (float) N3DS_TOP_SCREEN_H) + 0.5f);
             if (targetW > gameW) {
@@ -924,6 +917,9 @@ int main(int argc, char** argv) {
         bool gameSizedWindow = stretch || fixedScale > 0;
         gWindowW = gameSizedWindow ? (ownGameW > 0 ? ownGameW : runner->usingAppSurface ? runner->applicationWidth : (int32_t) gen8->defaultWindowWidth) : N3DS_TOP_SCREEN_W;
         gWindowH = gameSizedWindow ? (runner->usingAppSurface ? runner->applicationHeight : (int32_t) gen8->defaultWindowHeight) : N3DS_TOP_SCREEN_H;
+        // The pause screen (rm_options) lays itself out for a 320x568 surface. In a game-sized window (stretch, 1x, 2x)
+        // that would make the window 568 tall and letterbox the picture away, so the height is pinned to the screen.
+        if (N3DSPause_isPaused()) gWindowH = N3DS_TOP_SCREEN_H;
         N3DSRenderer_setStretchToScreen(renderer, stretch);
         N3DSRenderer_setFixedScale(renderer, fixedScale);
 
@@ -953,13 +949,7 @@ int main(int argc, char** argv) {
 #endif
         {
             N3DS_ZONE(N3DS_ZONE_OVERLAYS);
-            if (paused) {
-                N3DSRenderer_drawFrozenTop(renderer);
-                N3DSAm2r_drawPausedBanner(renderer);
-            }
-            if (N3DSPause_inPlay() && N3DSLiveMap_available()) N3DSLiveMap_draw();
-            else if (N3DSPause_showMapOnBottom()) N3DSRenderer_drawBottomSnapshot(renderer);
-            if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer, paused);
+            if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
             if (gFpsCounter) N3DSFpsCounter_draw(&fpsCounter, renderer, debugMonitor.displayedFps);
             renderer->vtable->flush(renderer);
         }

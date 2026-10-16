@@ -1,9 +1,12 @@
 name: Build (Nintendo 3DS)
 
 # Builds the AM2R 3DS program (tools/n3ds/build.sh). Every passing run except pull requests and claude/* branches
-# (work in progress) is published as a GitHub release with am2r.cia, am2r.3dsx, the ELF (for symbolizing crashes) and a QR code for FBI's Remote
-# Install: branch pushes as am2r-3ds-b<run number> (pre-releases except on main, so releases/latest is the
-# newest main build), pushed tags and releases made on GitHub under their own tag.
+# (work in progress) is published as a GitHub release holding only am2r.cia and am2r.3dsx.
+#
+# This is the top-screen line (branch `top-screen`, the game and its pause menu on the top screen, the bottom screen
+# black), built from the upstream baseline without the localisation work. It keeps its own version numbers so its
+# releases never mix with the localised line's: pushes to `top-screen` are am2r-3ds-top-b<run number> (the name says
+# which line it is), while a pushed tag is published under that tag (e.g. v0.4.0-top) and is the release to hand out.
 
 on:
   push:
@@ -65,21 +68,6 @@ jobs:
             "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
           mkdir -p out
           cp build/am2r.cia build/am2r.3dsx out/
-          cp build/butterscotch.elf out/am2r.elf
-          ls -la out
-
-      - name: Build the SD card kit
-        run: |
-          # What tools/n3ds/sdkit/am2r-sd.sh downloads: the preprocessor (static: runs on any Linux / WSL), tex3ds,
-          # the SD data revision and the 3DS control config.
-          cmake -S tools/n3ds-preprocess -B build-preprocess -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS=-static
-          cmake --build build-preprocess
-          mkdir -p kit/bin kit/seed
-          cp build-preprocess/n3ds-preprocess "$DEVKITPRO/tools/bin/tex3ds" kit/bin/
-          cp tools/n3ds/sd_data_rev.txt kit/
-          cp res/n3ds/am2r/sd/config.ini kit/seed/
-          tar -czf out/am2r-sd-tools.tar.gz -C kit bin sd_data_rev.txt seed
-          cp tools/n3ds/sdkit/am2r-sd.sh tools/n3ds/sdkit/am2r-sd.bat out/
           ls -la out
 
       - name: Upload artifact
@@ -93,48 +81,48 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_BRANCH: main
+          # The line this build belongs to: its own release tags, so the localised line's releases are never touched.
+          LINE: top
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends gh qrencode
+          apt-get install -y --no-install-recommends gh
 
           hash="${{ steps.commit-info.outputs.hash }}"
           create_args=()
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
-            title="AM2R for 3DS $tag"
+            title="AM2R for 3DS $tag (top screen)"
             built="Built from $hash."
           else
             # A re-run keeps its run number, so it updates the same release.
-            tag="am2r-3ds-b$GITHUB_RUN_NUMBER"
-            title="AM2R for 3DS build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
+            tag="am2r-3ds-$LINE-b$GITHUB_RUN_NUMBER"
+            title="AM2R for 3DS top-screen build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
             built="Built from $hash on \`$GITHUB_REF_NAME\`."
             create_args+=(--target "$GITHUB_SHA")
-            if [ "$GITHUB_REF_NAME" != "$RELEASE_BRANCH" ]; then
-              create_args+=(--prerelease)
-            fi
+            create_args+=(--prerelease)
           fi
 
           base="https://github.com/$GH_REPO/releases/download/$tag"
-          # FBI: Remote Install -> Scan QR Code reads a URL and installs the CIA it downloads.
-          qrencode -s 8 -m 4 -o out/am2r-cia-qr.png "$base/am2r.cia"
 
           marker="<!-- n3ds-build -->"
           {
             echo "$marker"
-            echo "## Install with FBI"
+            echo "## Downloads"
             echo
-            echo "FBI → Remote Install → Scan QR Code:"
+            echo "* \`am2r.cia\` — install with FBI: $base/am2r.cia"
+            echo "* \`am2r.3dsx\` — for the Homebrew Launcher: $base/am2r.3dsx"
             echo
-            echo "![QR code for am2r.cia]($base/am2r-cia-qr.png)"
+            echo "## Top-screen build"
             echo
-            echo "Direct link: $base/am2r.cia"
+            echo "The game and its pause menu are both drawn on the **top** screen; the bottom screen stays black."
+            echo "Building on AM2R's own 426-pixel widescreen, the picture is fitted to the top screen at exactly"
+            echo "\`400x240\` with square pixels, so nothing is cropped and nothing is scaled. The pause menu is driven"
+            echo "with the game's own buttons (D-pad, A = OK, B = back); the touch screen is not used."
             echo
             echo "## SD card"
             echo
-            echo "The game's files go in \`sdmc:/3ds/am2r/\`, made from your AM2R 1.1 (or Community Updates) \`data.win\`:"
-            echo "run **am2r-sd.bat** on Windows (it sets up WSL if needed) or **am2r-sd.sh** on Linux, pick the \`data.win\` and a"
-            echo "folder, and copy the \`3ds\` folder it makes to the root of the SD card."
+            echo "The game's files go in \`sdmc:/3ds/am2r/\`, made from your AM2R 1.1 (or Community Updates) \`data.win\` with"
+            echo "\`tools/n3ds/make_sd.sh\` from this repository. Copy the \`3ds\` folder it makes to the root of the SD card."
             echo "This build needs SD data revision $(cat tools/n3ds/sd_data_rev.txt) (\`sd_data_rev.txt\` on the card)."
             echo
             echo "$built"
@@ -150,5 +138,4 @@ jobs:
           else
             gh release create "$tag" --title "$title" --notes-file notes.md "${create_args[@]}"
           fi
-          gh release upload "$tag" --clobber out/am2r.cia out/am2r.3dsx out/am2r.elf out/am2r-cia-qr.png \
-            out/am2r-sd-tools.tar.gz out/am2r-sd.sh out/am2r-sd.bat
+          gh release upload "$tag" --clobber out/am2r.cia out/am2r.3dsx

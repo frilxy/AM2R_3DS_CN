@@ -51,8 +51,10 @@ Saves, `cheats.ini` (the 3DS options) and `log.txt` go in `sdmc:/3ds/am2r/`.
 - **Buttons:** B jump, Y fire, A morph, L/ZL aim, R missiles, ZR aim lock, Select weapon, Start pause; in menus A is OK
   and B is back. The full layout is in [res/n3ds/am2r/README.md](../res/n3ds/am2r/README.md); the game's own Joypad menu
   can rebind it.
-- **Bottom screen:** the area map around Samus while you play; a tap opens the pause screen there, which is driven by
-  touch (pages, map panning and markers, inventory, logs, options).
+- **One screen:** the game runs on the **top** screen, and so does its pause menu (`rm_subscreen`), driven with the
+  game's own buttons (D-pad, A = OK, B = back). The bottom screen stays black and the touch screen is not used.
+  AM2R's own widescreen picture (426x240) is clamped to the top screen's width, so it lands as 400x240 with square
+  pixels: nothing is cropped and nothing is scaled.
 - **Options → Display** is a 3DS page:
   - *Screen:* Stretch (default), 1x, 2x or Wide.
   - *Frameskip:* a steady 30 fps at full game speed.

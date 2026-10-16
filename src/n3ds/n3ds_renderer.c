@@ -43,8 +43,6 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_DIRECT_ASSET_ENTRY_SIZE 16u
 #define N3DS_TOP_WIDTH 400
 #define N3DS_TOP_HEIGHT 240
-#define N3DS_BOTTOM_WIDTH 320
-#define N3DS_BOTTOM_HEIGHT 240
 #define N3DS_SDMC_ASSET_BASE N3DS_SD_DIR "gfx"
 #define N3DS_ROMFS_ASSET_BASE "romfs:/gfx"
 #define N3DS_RENDERER_FILE_BUFFER_SIZE (32u * 1024u)
@@ -360,18 +358,7 @@ typedef struct {
     float presentScale;
     bool stretchToScreen;
     int32_t fixedScale; // 1x / 2x screen modes: the game's picture at this scale, centred (0: fit)
-    // The game's "screen" (RENDER_TARGET_HOST_FRAMEBUFFER) is the bottom screen (AM2R's pause screen, 1:1).
-    bool hostOnBottom;
-    // The top screen as it was when the game paused (linear memory, 512x256 RGBA8), shown while paused.
-    C3D_Tex frozenTop;
-    Tex3DS_SubTexture frozenTopSubtex;
-    bool frozenTopValid;
-    // The pause screen as last seen on its map page, shown on the bottom screen during play.
-    C3D_Tex bottomShot;
-    Tex3DS_SubTexture bottomShotSubtex;
-    bool bottomShotValid;
     C3D_RenderTarget* topTarget;
-    C3D_RenderTarget* bottomTarget;
     N3DSLoadedAtlasPage* atlasPages;
     N3DSAtlasItem* atlasItems;
     N3DSAtlasItemV3* atlasItemsV3;
@@ -483,23 +470,9 @@ typedef struct {
     uint32_t roomManifestRoomCount;
     uint32_t baseTPAGCount;
     uint32_t dynamicCaptureTPAGCount;
-    bool bottomScreenGuiActive;
-    bool topScreenGuiActive;
-    bool topScreenGui2xActive;
-    bool topScreenBattleViewActive;
     bool textLinearFilterActive;
     uint8_t activeSceneTarget;
     const C3D_Tex* lastDrawTexture;
-    float savedFrameScaleX;
-    float savedFrameScaleY;
-    float savedFrameOffsetX;
-    float savedFrameOffsetY;
-    float savedPortOffsetX;
-    float savedPortOffsetY;
-    int32_t savedViewX;
-    int32_t savedViewY;
-    float savedViewScaleX;
-    float savedViewScaleY;
     bool isNew3DS;
     bool pendingOld3DSAtlasFlush;
 } N3DSRenderer;
@@ -507,7 +480,6 @@ typedef struct {
 enum {
     N3DS_SCENE_TARGET_NONE = 0,
     N3DS_SCENE_TARGET_TOP = 1,
-    N3DS_SCENE_TARGET_BOTTOM = 2,
     N3DS_SCENE_TARGET_SURFACE = 3,
 };
 
@@ -686,19 +658,6 @@ static void N3DSRenderer_traceTPAGUsage(N3DSRenderer* renderer, uint8_t traceKin
 #endif
 }
 
-static void N3DSRenderer_computeFrameLayoutForTarget(N3DSRenderer* renderer, int32_t gameW, int32_t gameH, int32_t targetW, int32_t targetH) {
-    if (gameW <= 0) gameW = targetW;
-    if (gameH <= 0) gameH = targetH;
-
-    float sx = (float) targetW / (float) gameW;
-    float sy = (float) targetH / (float) gameH;
-    float scale = sx < sy ? sx : sy;
-    renderer->frameScaleX = scale;
-    renderer->frameScaleY = scale;
-    renderer->frameOffsetX = ((float) targetW - ((float) gameW * scale)) * 0.5f;
-    renderer->frameOffsetY = ((float) targetH - ((float) gameH * scale)) * 0.5f;
-}
-
 static bool N3DSRenderer_isFragmentedAtlasVersion(uint16_t atlasVersion) {
     return atlasVersion == N3DS_ATLAS_VERSION_FRAGMENTED ||
         atlasVersion == N3DS_ATLAS_VERSION_FRAGMENTED_TILES ||
@@ -847,11 +806,6 @@ static uint32_t N3DSRenderer_getPageVRAMBytes(MAYBE_UNUSED const N3DSRenderer* r
 }
 
 static void N3DSRenderer_getActiveTargetSize(const N3DSRenderer* renderer, float* outW, float* outH) {
-    if (renderer->activeSceneTarget == N3DS_SCENE_TARGET_BOTTOM) {
-        *outW = (float) N3DS_BOTTOM_WIDTH;
-        *outH = (float) N3DS_BOTTOM_HEIGHT;
-        return;
-    }
     if (renderer->activeSceneTarget == N3DS_SCENE_TARGET_SURFACE) {
         *outW = renderer->targetW;
         *outH = renderer->targetH;
@@ -2174,13 +2128,6 @@ static void N3DSRenderer_sceneBeginTarget(N3DSRenderer* renderer, uint8_t target
         return;
     }
 
-    if (targetKind == N3DS_SCENE_TARGET_BOTTOM) {
-        if (renderer->bottomTarget == NULL) return;
-        C2D_SceneBegin(renderer->bottomTarget);
-        renderer->activeSceneTarget = N3DS_SCENE_TARGET_BOTTOM;
-        return;
-    }
-
     renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
 }
 
@@ -2242,10 +2189,6 @@ static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_
 
     if (renderer != NULL && renderer->base.texFilter) {
         C3D_TexSetFilter(texture, GPU_LINEAR, GPU_LINEAR);
-        return;
-    }
-    if (renderer != NULL && renderer->bottomScreenGuiActive) {
-        C3D_TexSetFilter(texture, GPU_NEAREST, GPU_NEAREST);
         return;
     }
 
@@ -3539,9 +3482,6 @@ static void N3DSRenderer_init(Renderer* base, DataWin* dataWin) {
     }
     renderer->baseTPAGCount = dataWin != NULL ? dataWin->tpag.count : 0u;
     renderer->topTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-#ifndef N3DS_DISABLE_BOTTOM_SCREEN
-    renderer->bottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-#endif
     renderer->blendEnabled = true;
     renderer->blendEquation = bm_normal;
     renderer->blendSrcFactor = bm_src_alpha;
@@ -3654,9 +3594,6 @@ static void N3DSRenderer_destroy(Renderer* base) {
         arrfree(renderer->tileLayerChunkCaches);
         renderer->tileLayerChunkCaches = NULL;
     }
-    if (renderer->bottomTarget != NULL) {
-        C3D_RenderTargetDelete(renderer->bottomTarget);
-    }
     if (renderer->topTarget != NULL) {
         C3D_RenderTargetDelete(renderer->topTarget);
     }
@@ -3671,117 +3608,6 @@ void N3DSRenderer_beginOverlay(Renderer* base) {
     N3DSRenderer_setDefaultGPUState(renderer);
     N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, false);
 }
-
-void N3DSRenderer_beginBottomScreenGUIEx(Renderer* base, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY) {
-#ifdef N3DS_DISABLE_BOTTOM_SCREEN
-    (void) base;
-    (void) guiW;
-    (void) guiH;
-    (void) scaleX;
-    (void) scaleY;
-    (void) offsetX;
-    (void) offsetY;
-    return;
-#endif
-    if (base == NULL) return;
-
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (renderer->bottomTarget == NULL || renderer->bottomScreenGuiActive) return;
-
-    renderer->savedFrameScaleX = renderer->frameScaleX;
-    renderer->savedFrameScaleY = renderer->frameScaleY;
-    renderer->savedFrameOffsetX = renderer->frameOffsetX;
-    renderer->savedFrameOffsetY = renderer->frameOffsetY;
-    renderer->savedPortOffsetX = renderer->portOffsetX;
-    renderer->savedPortOffsetY = renderer->portOffsetY;
-    renderer->savedViewX = renderer->viewX;
-    renderer->savedViewY = renderer->viewY;
-    renderer->savedViewScaleX = renderer->viewScaleX;
-    renderer->savedViewScaleY = renderer->viewScaleY;
-
-    N3DSRenderer_computeFrameLayoutForTarget(renderer, guiW, guiH, N3DS_BOTTOM_WIDTH, N3DS_BOTTOM_HEIGHT);
-    renderer->viewX = 0;
-    renderer->viewY = 0;
-    renderer->viewScaleX = renderer->frameScaleX * scaleX;
-    renderer->viewScaleY = renderer->frameScaleY * scaleY;
-    renderer->portOffsetX = ((float) guiW * (renderer->frameScaleX - renderer->viewScaleX) * 0.5f) + offsetX;
-    renderer->portOffsetY = ((float) guiH * (renderer->frameScaleY - renderer->viewScaleY) * 0.5f) + offsetY;
-    renderer->bottomScreenGuiActive = true;
-
-    N3DSRenderer_flushC2DQueue(renderer);
-    N3DSRenderer_setDefaultGPUState(renderer);
-    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_BOTTOM, false);
-}
-
-// The top screen in guiW x guiH coordinates, for game drawing over the frame (the pause banner); end with
-// N3DSRenderer_endTopScreenGUI.
-void N3DSRenderer_beginTopScreenGUI(Renderer* base, int32_t guiW, int32_t guiH) {
-    if (base == NULL) return;
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (renderer->bottomScreenGuiActive) return;
-    renderer->savedFrameScaleX = renderer->frameScaleX;
-    renderer->savedFrameScaleY = renderer->frameScaleY;
-    renderer->savedFrameOffsetX = renderer->frameOffsetX;
-    renderer->savedFrameOffsetY = renderer->frameOffsetY;
-    renderer->savedPortOffsetX = renderer->portOffsetX;
-    renderer->savedPortOffsetY = renderer->portOffsetY;
-    renderer->savedViewX = renderer->viewX;
-    renderer->savedViewY = renderer->viewY;
-    renderer->savedViewScaleX = renderer->viewScaleX;
-    renderer->savedViewScaleY = renderer->viewScaleY;
-    N3DSRenderer_computeFrameLayoutForTarget(renderer, guiW, guiH, N3DS_TOP_WIDTH, N3DS_TOP_HEIGHT);
-    renderer->viewX = 0;
-    renderer->viewY = 0;
-    renderer->viewScaleX = renderer->frameScaleX;
-    renderer->viewScaleY = renderer->frameScaleY;
-    renderer->portOffsetX = 0.0f;
-    renderer->portOffsetY = 0.0f;
-    renderer->bottomScreenGuiActive = true;
-    N3DSRenderer_flushC2DQueue(renderer);
-    N3DSRenderer_setDefaultGPUState(renderer);
-    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, false);
-}
-
-void N3DSRenderer_endTopScreenGUI(Renderer* base) {
-    N3DSRenderer_endBottomScreenGUI(base);
-}
-
-void N3DSRenderer_beginBottomScreenGUI(Renderer* base, int32_t guiW, int32_t guiH) {
-    N3DSRenderer_beginBottomScreenGUIEx(base, guiW, guiH, 1.0f, 1.0f, 0.0f, 0.0f);
-}
-
-void N3DSRenderer_endBottomScreenGUI(Renderer* base) {
-    if (base == NULL) return;
-
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (!renderer->bottomScreenGuiActive) return;
-
-    renderer->frameScaleX = renderer->savedFrameScaleX;
-    renderer->frameScaleY = renderer->savedFrameScaleY;
-    renderer->frameOffsetX = renderer->savedFrameOffsetX;
-    renderer->frameOffsetY = renderer->savedFrameOffsetY;
-    renderer->portOffsetX = renderer->savedPortOffsetX;
-    renderer->portOffsetY = renderer->savedPortOffsetY;
-    renderer->viewX = renderer->savedViewX;
-    renderer->viewY = renderer->savedViewY;
-    renderer->viewScaleX = renderer->savedViewScaleX;
-    renderer->viewScaleY = renderer->savedViewScaleY;
-    renderer->bottomScreenGuiActive = false;
-
-    N3DSRenderer_flushC2DQueue(renderer);
-    N3DSRenderer_applyBlendState(renderer);
-    N3DSRenderer_applyAlphaState(renderer);
-    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, false);
-}
-
-void N3DSRenderer_beginBottomScreenGUI2x(Renderer* base, int32_t guiW, int32_t guiH) {
-    N3DSRenderer_beginBottomScreenGUIEx(base, guiW, guiH, 2.0f, 2.0f, 0.0f, 0.0f);
-}
-
-void N3DSRenderer_endBottomScreenGUI2x(Renderer* base) {
-    N3DSRenderer_endBottomScreenGUI(base);
-}
-
 
 static void N3DSRenderer_drawImage(Renderer* base, C2D_Image* image, float localX, float localY, float width, float height, float pivotX, float pivotY, float angleDeg, uint32_t color, float alpha) {
     if (image == NULL || image->tex == NULL || image->subtex == NULL) return;
@@ -5475,9 +5301,9 @@ static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, b
     N3DSSurface* surface = N3DSRenderer_getSurface(renderer, surfaceID);
     if (surface == NULL) {
         renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
-        renderer->targetW = renderer->hostOnBottom ? N3DS_BOTTOM_WIDTH : N3DS_TOP_WIDTH;
-        renderer->targetH = renderer->hostOnBottom ? N3DS_BOTTOM_HEIGHT : N3DS_TOP_HEIGHT;
-        N3DSRenderer_sceneBeginTarget(renderer, renderer->hostOnBottom ? N3DS_SCENE_TARGET_BOTTOM : N3DS_SCENE_TARGET_TOP, true);
+        renderer->targetW = N3DS_TOP_WIDTH;
+        renderer->targetH = N3DS_TOP_HEIGHT;
+        N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, true);
     } else {
         renderer->currentTargetSurface = surfaceID;
         renderer->targetW = (float) surface->width;
@@ -5599,12 +5425,11 @@ static void N3DSRenderer_computeLetterbox(int32_t gameW, int32_t gameH, int32_t 
     *outH = effH;
 }
 
-// Where a w x h image goes on the game's screen: integer-scaled and centred, or the whole top screen when
-// stretching (the bottom screen, when it is the game's screen, is never stretched: AM2R's 320x240 fits it 1:1).
+// Where a w x h image goes on the game's screen: integer-scaled and centred, or the whole top screen when stretching.
 static void N3DSRenderer_screenRect(const N3DSRenderer* renderer, int32_t w, int32_t h, float* outX, float* outY, float* outW, float* outH) {
-    int32_t screenW = renderer->hostOnBottom ? N3DS_BOTTOM_WIDTH : N3DS_TOP_WIDTH;
-    int32_t screenH = renderer->hostOnBottom ? N3DS_BOTTOM_HEIGHT : N3DS_TOP_HEIGHT;
-    if ((renderer->stretchToScreen && !renderer->hostOnBottom) || w <= 0 || h <= 0) {
+    int32_t screenW = N3DS_TOP_WIDTH;
+    int32_t screenH = N3DS_TOP_HEIGHT;
+    if (renderer->stretchToScreen || w <= 0 || h <= 0) {
         *outX = 0.0f;
         *outY = 0.0f;
         *outW = (float) screenW;
@@ -5615,8 +5440,8 @@ static void N3DSRenderer_screenRect(const N3DSRenderer* renderer, int32_t w, int
     N3DSRenderer_computeLetterbox(w, h, screenW, screenH, &lx, &ly, &lw, &lh);
     float scale = (float) lw / (float) w;
     if (scale >= 1.0f) scale = floorf(scale);
-    // 1x / 2x: that scale, centred, whatever doesn't fit off screen (not on the bottom screen).
-    if (renderer->fixedScale > 0 && !renderer->hostOnBottom) scale = (float) renderer->fixedScale;
+    // 1x / 2x: that scale, centred, whatever doesn't fit off screen.
+    if (renderer->fixedScale > 0) scale = (float) renderer->fixedScale;
     *outW = (float) w * scale;
     *outH = (float) h * scale;
     *outX = floorf(((float) screenW - *outW) * 0.5f);
@@ -5631,83 +5456,13 @@ void N3DSRenderer_setFixedScale(Renderer* base, int32_t scale) {
     ((N3DSRenderer*) base)->fixedScale = scale;
 }
 
-void N3DSRenderer_setHostScreenBottom(Renderer* base, bool bottom) {
-    ((N3DSRenderer*) base)->hostOnBottom = bottom;
-}
-
-// ===[ Frozen top screen (the game while its pause screen is on the bottom) ]===
-
-#define N3DS_FROZEN_TEX_W 512
-#define N3DS_FROZEN_TEX_H 256
-
-static inline uint32_t N3DSRenderer_morton(uint32_t x, uint32_t y) {
-    return (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) | ((y & 4u) << 3);
-}
-
-// Copies the top screen's color buffer (the last finished frame: call right after C3D_FrameBegin, before anything
-// clears it) into a texture. The color buffer is the screen rotated 90 degrees in 8x8 Morton tiles; textures are
-// 8x8 Morton tiles, first row at the top.
-// Copies a screen's finished color buffer (w x h on screen) into a texture (allocated on first use).
-static bool N3DSRenderer_copyScreen(C3D_RenderTarget* target, uint32_t w, uint32_t h, C3D_Tex* tex, Tex3DS_SubTexture* subtex) {
-    N3DSRenderer_frameGate(); // the previous frame must be finished (and not yet cleared)
-    if (target == NULL || target->frameBuf.colorBuf == NULL) return false;
-    if (tex->data == NULL && !C3D_TexInit(tex, N3DS_FROZEN_TEX_W, N3DS_FROZEN_TEX_H, GPU_RGBA8)) return false;
-    const uint32_t fbW = target->frameBuf.width; // 240: the screens are rotated
-    const uint32_t* src = (const uint32_t*) target->frameBuf.colorBuf;
-    uint32_t* dst = (uint32_t*) tex->data;
-    for (uint32_t y = 0; y < h; y++) {
-        uint32_t fx = (fbW - 1u) - y;
-        for (uint32_t x = 0; x < w; x++) {
-            uint32_t fy = x;
-            uint32_t p = src[((fy >> 3) * (fbW >> 3) + (fx >> 3)) * 64u + N3DSRenderer_morton(fx & 7u, fy & 7u)];
-            dst[((y >> 3) * (N3DS_FROZEN_TEX_W >> 3) + (x >> 3)) * 64u + N3DSRenderer_morton(x & 7u, y & 7u)] = p | 0xFFu;
-        }
-    }
-    GSPGPU_FlushDataCache(tex->data, tex->size);
-    C3D_TexSetFilter(tex, GPU_NEAREST, GPU_NEAREST);
-    *subtex = (Tex3DS_SubTexture) {
-        .width = (u16) w, .height = (u16) h,
-        .left = 0.0f, .top = 1.0f,
-        .right = (float) w / (float) N3DS_FROZEN_TEX_W,
-        .bottom = 1.0f - (float) h / (float) N3DS_FROZEN_TEX_H,
-    };
-    return true;
-}
-
-bool N3DSRenderer_captureFrozenTop(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    renderer->frozenTopValid = N3DSRenderer_copyScreen(renderer->topTarget, N3DS_TOP_WIDTH, N3DS_TOP_HEIGHT, &renderer->frozenTop, &renderer->frozenTopSubtex);
-    return renderer->frozenTopValid;
-}
-
-bool N3DSRenderer_captureBottomSnapshot(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (N3DSRenderer_copyScreen(renderer->bottomTarget, N3DS_BOTTOM_WIDTH, N3DS_BOTTOM_HEIGHT, &renderer->bottomShot, &renderer->bottomShotSubtex)) {
-        renderer->bottomShotValid = true;
-    }
-    return renderer->bottomShotValid;
-}
-
-bool N3DSRenderer_hasBottomSnapshot(Renderer* base) {
-    return ((N3DSRenderer*) base)->bottomShotValid;
-}
-
-// Frees the frozen frame (call at the start of a frame: the GPU is done with it).
-void N3DSRenderer_dropFrozenTop(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (renderer->frozenTop.data != NULL) N3DSRenderer_frameGate(); // the GPU may still be drawing with it
-    renderer->frozenTopValid = false;
-    if (renderer->frozenTop.data != NULL) C3D_TexDelete(&renderer->frozenTop);
-    memset(&renderer->frozenTop, 0, sizeof(renderer->frozenTop));
-}
-
 // Plain citro2d drawing in a screen's pixels, outside the game's own mapping (overlays drawn after the game). Draw
 // at depth N3DS_OVERLAY_DEPTH: the game draws at 0.5 and citro2d's depth test keeps the nearer.
-void N3DSRenderer_beginScreenOverlay(Renderer* base, bool top) {
+void N3DSRenderer_beginScreenOverlay(Renderer* base) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     N3DSRenderer_flushC2DQueue(renderer);
     N3DSRenderer_setDefaultGPUState(renderer);
-    N3DSRenderer_sceneBeginTarget(renderer, top ? N3DS_SCENE_TARGET_TOP : N3DS_SCENE_TARGET_BOTTOM, true);
+    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, true);
 }
 
 void N3DSRenderer_endScreenOverlay(Renderer* base) {
@@ -5719,26 +5474,6 @@ void N3DSRenderer_endScreenOverlay(Renderer* base) {
     N3DSRenderer_applyAlphaState(renderer);
     // The game's next bind starts from a known state.
     renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
-}
-
-void N3DSRenderer_drawBottomSnapshot(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (!renderer->bottomShotValid) return;
-    N3DSRenderer_beginScreenOverlay(base, false);
-    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
-    C2D_Image image = { .tex = &renderer->bottomShot, .subtex = &renderer->bottomShotSubtex };
-    C2D_DrawImageAt(image, 0.0f, 0.0f, 0.5f, NULL, 1.0f, 1.0f);
-    N3DSRenderer_endScreenOverlay(base);
-}
-
-void N3DSRenderer_drawFrozenTop(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (!renderer->frozenTopValid) return;
-    N3DSRenderer_beginScreenOverlay(base, true);
-    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
-    C2D_Image image = { .tex = &renderer->frozenTop, .subtex = &renderer->frozenTopSubtex };
-    C2D_DrawImageAt(image, 0.0f, 0.0f, 0.5f, NULL, 1.0f, 1.0f);
-    N3DSRenderer_endScreenOverlay(base);
 }
 
 static void N3DSRenderer_beginFrame(Renderer* base, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH) {
@@ -5759,9 +5494,6 @@ static void N3DSRenderer_beginFrame(Renderer* base, int32_t gameW, int32_t gameH
     }
 
     N3DSRenderer_setDefaultGPUState(renderer);
-    if (renderer->bottomTarget != NULL) {
-        C2D_TargetClear(renderer->bottomTarget, C2D_Color32(0, 0, 0, 255));
-    }
     C2D_TargetClear(renderer->topTarget, C2D_Color32(0, 0, 0, 255));
     N3DSRenderer_bindTarget(renderer, base->runner->applicationSurfaceId, true);
 #ifdef N3DS_DIAG_PATTERN
@@ -6281,10 +6013,6 @@ static float N3DSRenderer_textureGetTexelHeight(MAYBE_UNUSED Renderer* base, MAY
 static bool N3DSRenderer_textureGetUVs(MAYBE_UNUSED Renderer* base, MAYBE_UNUSED uint32_t texID, MAYBE_UNUSED float* outUVs) { return false; }
 static void N3DSRenderer_textureSetStage(MAYBE_UNUSED Renderer* base, int32_t slot, uint32_t texID) {
     if (texID != 0) N3DS_UNIMPL("textureSetStage", "slot=%d", (int) slot);
-}
-
-C3D_RenderTarget* N3DSRenderer_getBottomTarget(Renderer* base) {
-    return base != NULL ? ((N3DSRenderer*) base)->bottomTarget : NULL;
 }
 
 C3D_RenderTarget* N3DSRenderer_getTopTarget(Renderer* base) {

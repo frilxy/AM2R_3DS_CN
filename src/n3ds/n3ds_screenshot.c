@@ -67,6 +67,4 @@ void N3DSScreenshot_captureIfRequested(Renderer* renderer) {
     N3DSScreenshot_save(N3DSRenderer_getTopTarget(renderer), path);
     // tools/n3ds/compare_rooms.py pairs each screenshot with the room it was taken in from this line.
     logInfo("Screenshot saved: %s\n", path);
-    snprintf(path, sizeof(path), N3DS_SD_DIR "shots/frame_%05d_bottom.png", (int) frame);
-    N3DSScreenshot_save(N3DSRenderer_getBottomTarget(renderer), path);
 }

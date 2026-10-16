@@ -73,25 +73,17 @@ into the desktop's `--goto-room <frame>:<room>`.
   while it is on, the window is 426 wide (`N3DSAm2r_gameWidth`), the GUI layer is the window's size (1.5 draws its
   HUD in window coordinates) and Wide adds no hack on top. 1.5 makes `widescreen_surface` once, on its first frame,
   320 wide (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a
-  wrong-sized one so the game remakes it. The touch screen belongs to the pause screen.
-- Pause screen (`n3ds_pause.c`): while the game is in `rm_subscreen` (or the transition into it), the game's
-  screen (`RENDER_TARGET_HOST_FRAMEBUFFER`) is the bottom screen, 1:1, and the top screen shows the game as it was
-  when paused. That frame is captured when Start goes into the input delay line (AM2R blanks the screen on the
-  frame it leaves for the pause room). Touch becomes the presses the pause screen already understands (AM2R's own
-  Menu1/Menu2 bindings and the D-pad), plus a few variable writes:
-  - the hint strip at the bottom (it shows the Menu2 hint) is Menu2: change page / back;
-  - page cross: tap an icon;
-  - map: drag to pan (`oMapCamera.targetx/targety`), tap a cell to put the marker there, tap the marker to delete it;
-  - inventory: tap an item to select it (shows its tip), tap again to toggle it;
-  - logs: tap an entry to select it, tap again to expand; drag to scroll the list or the text;
-  - options and submenus: tap a row to select, tap again to activate; touch and hold the left/right half of a
-    selected value box to turn it down/up (the volume sliders only move while the direction is held).
-  Touch must never become a mouse: AM2R moves Samus to the mouse while button 1 is held (a debug leftover).
-- Bottom screen during play (`n3ds_livemap.c`): the map, drawn from the game's own map data the way
-  `draw_map_surf`/`draw_mapblock` draw it (`global.map[x, y]` cell strings, `global.dmap` explored state, the map
-  sprites), centred on Samus's cell (`global.mapposx/y`) with `sMapHilight` and the marker. It is redrawn when Samus
-  changes cell and once a second; the finished frame is kept as the bottom-screen picture in between (only the
-  highlight is drawn every frame). A tap pauses the game (the pause screen opens on its map page).
+  wrong-sized one so the game remakes it. 426 columns do not fit the 400-wide top screen, so
+  `N3DSAm2r_fitWidescreenToScreen` (once a frame, after the game's step and before its draw) clamps
+  `oControl.widescreen_space` from 106 to 80 = 400 - 320 and pins `display_scale`/`displayx`/`displayy` to 1/0/0:
+  the window becomes exactly 400 wide and the picture fills the top screen 1:1, with no cropping and no scaling.
+  Everything downstream of the space (HUD offsets, lava/water strips, the pause layout) follows the clamped value.
+- Pause screen (`n3ds_pause.c`): AM2R's `rm_subscreen` is the pause menu and the game draws and operates it like any
+  other room - on the top screen, with its own Menu1/Menu2 (A/B) and D-pad bindings. The front end does nothing for
+  it: `N3DSPause_update` only tracks whether the game is in the pause room (following `rm_transition`'s `targetroom`
+  into `rm_subscreen`), which `main.c` uses to pin the window height (the pause screen lays itself out for a tall
+  320x568 surface, which would letterbox the picture away). There is no touch handling, no queued presses, no frozen
+  frame and no bottom screen.
 - AM2R adjustments from the front end (`n3ds_am2r.c`; the game's files are unchanged): calls to the game's
   `get_text`, `get_xjoybtnname` and `get_xjoybtnsprite` go through C hooks that call the game's script and adjust
   the result (Nintendo button names, A/B and X/Y icons swapped by position, "XBox 360 Joypad" -> "Nintendo 3DS",
@@ -176,7 +168,7 @@ User Event 1 (the light map; a room with `oCoreX`, whose block nests further wit
 
 ## Diagnostics
 
-Bottom screen (top screen while paused; toggle Start+Select): FPS, average frame ms and the worst in the last quarter second; `S` step (GML),
+Top screen (toggle Start+Select): FPS, average frame ms and the worst in the last quarter second; `S` step (GML),
 `W` waiting for the GPU/VBlank, `D` building the GPU frame, `P` room prewarm; `IO` SD reads by the renderer,
 `TX` texture uploads/surface allocations, `FS` the game's file I/O, `AU` audio calls (all ms per frame, main
 thread only); VRAM, heap used/total, linear free, UNIMPL count, room. `log.txt`: a `Perf:` line every 5 s, every

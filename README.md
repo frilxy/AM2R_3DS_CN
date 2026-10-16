@@ -4,10 +4,12 @@ Play **AM2R** (Another Metroid 2 Remake) on your **New 3DS / New 2DS XL**.
 
 ![Samus at the landing site](docs/screenshots/landing-site.png)
 ![Samus over lava](docs/screenshots/lava.png)
-![The map on the touch screen](docs/screenshots/pause-map.png)
 
 > [!IMPORTANT]
 > You need your own copy of AM2R. The game itself is not included.
+>
+> This branch is the **top-screen** build: the game and its pause menu both run on the top screen, and the bottom
+> screen stays black. The touch screen is not used; the pause menu takes the game's own buttons.
 
 ## You need
 
@@ -40,7 +42,9 @@ Save the page (Ctrl+S) to keep a copy that works offline. Already updated your g
 | Select | Switch weapon |
 | Start | Pause |
 
-Tap the touch screen to open the map and pause menu.
+The pause menu is the game's own (`rm_subscreen`) and is driven with the buttons above: the D-pad moves the
+selection, **A** confirms and **B** goes back. The whole game, pause menu included, is on the top screen; the bottom
+screen is black. AM2R's own widescreen picture is fitted to the top screen at 400x240 with square pixels.
 
 ## Problems?
 
