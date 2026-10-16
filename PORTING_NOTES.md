@@ -107,12 +107,15 @@ into the desktop's `--goto-room <frame>:<room>`.
   early when it is off). The port's Display page therefore just puts the row back; the choice is kept in `cheats.ini`
   (`hud=`) and stated to the game every frame, because the game's own `load_gameoptions` would otherwise restore the
   value from the save. Until the player sets it here, the game's own value is left alone.
-  The HUD is drawn in the port's window, not in the game's picture, and the game lays its right-hand block (map and
-  Metroid-counter frames, at 250/272/276/296 + `widescreen_space`) out for a window as wide as that picture. In Wide and
-  1x the window is the 400-wide screen while the picture is 426 wide, so that block would reach 402 and be drawn off the
-  right edge. `N3DSAm2r_hudRightInset` reports the columns that do not fit (26) and the native HUD takes them off its
-  offsets, which keeps the block's right margin as the game intended. Only the native (Fast scripts) draw_gui does this,
-  so with Fast scripts off the game's own code still lays the block out for the wider window.
+  The HUD shares the picture's transform: `draw_gui` lays it out in the picture's own coordinates and the Draw GUI blit
+  applies `displayx`/`display_scale` to it, so each side of the HUD loses exactly the columns that side of the picture
+  loses. In Wide the picture starts at `displayx` -13, so the left-hand block (health, tanks, ammo, laid out from x = 0)
+  would be cut by 13 and the right-hand block (map and Metroid-counter frames, at 250/272/276/296 + `widescreen_space`)
+  would reach 13 past the right edge. `N3DSAm2r_hudLeftInset`/`N3DSAm2r_hudRightInset` report each side's own crop
+  (Wide: 13 and 13; 1x: 0 and 0) and the native HUD moves each block back in by its own side's amount, so both keep the
+  same margin. Using the whole 26-column overflow for the right block instead left it a crop's worth short of the edge.
+  Only the native (Fast scripts) draw_gui does this, so with Fast scripts off the game's own code still lays the blocks
+  out for the wider window.
 - Pause screen (`n3ds_pause.c`): AM2R's `rm_subscreen` is the pause menu and the game draws and operates it like any
   other room - on the top screen, with its own Menu1/Menu2 (A/B) and D-pad bindings. The front end does nothing for
   it: `N3DSPause_update` only tracks whether the game is in the pause room (following `rm_transition`'s `targetroom`
