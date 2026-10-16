@@ -111,11 +111,32 @@ schinese.ini   # Language="1"
 Every language in that file has its characters put into the texture (the atlas is built from the language files
 themselves, so it never has to cover all of CJK), which is what makes switching possible without a rebuild.
 
+## The item page (the one section the game's own Chinese pack left in English)
+
+The item page's names (SUIT / BEAM / CHARGE / BOMBS / BOOTS …) come from `[ItemsMenu]`, and the game's shipped
+`schinese.ini` does not translate it: all 21 keys were **byte-identical to `english.ini`**, while `[Items]` right next
+to it (the pickup banners and descriptions) is translated. Russian, French and Spanish all translate `[ItemsMenu]`, so
+this is a gap in the Chinese pack, not a limit of the game — and no code change can fix it, because the strings are
+the game's own, read through `get_text` like every other one.
+
+`res/n3ds/am2r/overlay/lang/schinese.ini` therefore carries a patched copy with those 21 names translated. Nothing
+else differs: 21 of its 667 lines change, and the file keeps the original's BOM, CRLF endings and even its quirks
+(`PlasmaBeam =  "PLASMA"` has two spaces after the `=`). The names are kept to at most four characters, which is what
+`fontMenuTiny`'s 8px strike and 9px stride allow.
+
+No glyph registration is needed for them: `N3DSFontReplace_addFileChars` scans **every** quoted string in **every**
+file `languages.txt` lists, section by section, so a translated value puts its characters in the atlas by itself.
+
 ## The 3DS front end's own strings
 
 The port replaces the game's Display page, and those rows are in no language file, so their characters would be
 missing. They are handed to the loader before `oControl` builds the atlas
 (`N3DSAm2r_registerPortGlyphs`), and the strings follow the selected language through `N3DSAm2r_text`.
+
+The screen-mode row is a special case: the names it shows are translated (`N3DSAm2r_screenModeLabel` — Wide/宽屏,
+Stretch/拉伸), but the names the **save file** uses are not. `cheats.ini` writes `screen=Wide` and reads it back by
+name (`kScreenModeNames`), so translating that table would stop an existing save being understood. The two are kept
+separate for that reason.
 
 ## The other three fixes
 

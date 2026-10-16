@@ -208,6 +208,36 @@ User Event 1 (the light map; a room with `oCoreX`, whose block nests further wit
   and 1.5.5 has a local `scale` that shadowed `oA6Dust.scale`.
 - Checked with `profrooms_cu_seeded.txt`: top-screen screenshots pixel-identical with the option on and off.
 
+## Chinese localisation (branch `top-screen-zh`)
+
+The localised line keeps the top-screen work and adds AM2R's own Chinese: the game already reads `config.ini`'s
+`[Screen] Language` into `global.currentlanguage` and picks the line's file from `lang/languages.txt`, so switching
+needs no code here. What the port adds is the two builtins AM2R's language packs are made of, neither of which
+Butterscotch implemented:
+
+- **`font_replace(font, ttf, size, bold, italic)`** (`src/n3ds/n3ds_font_replace.c`): reads the 1-bit `EBLC`/`EBDT`
+  bitmap strikes out of the TTF and packs every glyph into **one** shared runtime atlas (citro3d accepts only one),
+  uploading 8x8 Morton tiles. Every font size stacks below the previous one.
+- **`background_replace(background, png, removeback, smooth, xorigin, yorigin)`**: decodes the PNG and uploads it as a
+  runtime texture (the language packs use it for the title logo).
+
+The glyph set is built from `lang/languages.txt` itself: every quoted string in every listed file, so the atlas covers
+exactly the characters the shipped languages need (about 1264) instead of all of CJK, and a language switch never needs
+a rebuild. The 3DS front end's own pages are in no language file, so their strings are registered up front
+(`N3DSAm2r_registerPortGlyphs`) and follow the selection through `N3DSAm2r_text`.
+
+Three supporting fixes were needed for the title screen (all three are described in `docs/localization.md`):
+`src/ini.c` skipping the files' UTF-8 BOM, the `program_directory` built-in the game builds `lang/titles/…` from, and
+`src/overlay_file_system.c` treating `sdmc:/…` as absolute. `res/n3ds/am2r/overlay/` carries the fusion-pixel bitmap
+fonts the layout was designed around, and `tools/n3ds/make_sd.sh` copies the overlay over the game's own files.
+
+**The item page** was the one thing that stayed English through all of this: its names come from `[ItemsMenu]`, and the
+game's shipped `schinese.ini` never translated that section (all 21 keys byte-identical to `english.ini`, while
+`[Items]` next to it is translated; Russian, French and Spanish all translate it). The overlay's `schinese.ini`
+therefore carries those 21 names translated and nothing else changed.
+
+The bundled `config.ini` defaults to Chinese (`Language="1"`); `"0"` is English.
+
 ## Diagnostics
 
 Top screen (toggle Start+Select): FPS, average frame ms and the worst in the last quarter second; `S` step (GML),
