@@ -785,13 +785,12 @@ static void N3DSAm2r_applyScreenMode(void) {
     }
 
     // The window the game is given: the screen (400) in Wide and 1x, its own picture (426) in Stretch and 2x. Only the
-    // first two can leave the HUD's offsets overshooting.
+    // first two can leave the HUD's offsets overshooting, and only they state the picture's transform below.
     N3DSScreenMode mode = N3DS_getScreenMode();
-    double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
-    gAm2r.hudInset = (mode == N3DS_SCREEN_WIDE || mode == N3DS_SCREEN_1X) && overflow > 0.0 ? overflow : 0.0;
-    // The columns the picture loses off the left. The HUD is drawn with the picture's own transform, so its left-hand
-    // block (health, tanks, ammo, laid out from x = 0) goes off the left edge by the same amount; the native HUD moves
-    // that block back in by this. 0 unless the picture is given less than 1:1 on the left (Wide: 13).
+    // Both HUD insets are the columns each side of the picture loses. They are set below, once the picture's real
+    // placement is known (from the displayx/display_scale that are written there); the game-sized-window modes
+    // (Stretch, 2x) give the picture its own width, so nothing is lost and they stay 0.
+    gAm2r.hudInset = 0.0;
     gAm2r.hudLeftInset = 0.0;
 
     // The game's own values, before this states anything: what it worked out from the window it was given. Logged so a
@@ -818,9 +817,13 @@ static void N3DSAm2r_applyScreenMode(void) {
         // same for displayy, so the bars come out even top and bottom (1x: 400x225 at y 7, 7 above and 8 below).
         double wantedX = N3DSAm2r_centredDisplayX(pictureW, wantedScale);
         double wantedY = floor((240.0 - 240.0 * wantedScale) * 0.5);
-        // The HUD rides the picture's transform, so however many columns are cut off the left are cut off the HUD's
-        // left-hand block too. (Wide: 13. 1x: 0, its picture starts at 0.)
+        // The game's HUD is laid out in the picture's own coordinates and shares the picture's transform, so each side of
+        // it loses exactly the columns that side of the picture loses. Moving each block back in by its own side's crop
+        // is what gives the two blocks the same margin (Wide: 13 each; 1x: none - its picture starts at 0 and ends at
+        // 400). Using the whole overflow for the right block instead would leave it a crop's worth short of the edge.
         gAm2r.hudLeftInset = wantedX < 0.0 ? -wantedX : 0.0;
+        double rightCrop = wantedX + pictureW * wantedScale - (double) N3DS_AM2R_WIDE_SCREEN_W;
+        gAm2r.hudInset = rightCrop > 0.0 ? rightCrop : 0.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != wantedScale) {
             N3DSGml_setVar(control, "display_scale", wantedScale);

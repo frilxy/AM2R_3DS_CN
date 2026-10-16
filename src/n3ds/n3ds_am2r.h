@@ -29,13 +29,13 @@ int32_t N3DSAm2r_gameWidth(void);
 bool N3DSAm2r_hudEnabled(void);
 void N3DSAm2r_setHudEnabled(bool on);
 
-// How far the game's own HUD offsets (+ widescreen_space) overshoot the window the port gives it. The game lays its
-// right-hand HUD (map, Metroid counter) out for a window as wide as its picture, and in Wide and 1x the window is the
-// 400-wide screen while the picture is wider, so those items would be drawn off the right edge. The native HUD takes
-// this much off them. 0 when nothing is given up (Stretch, 2x, or no widescreen).
+// How far the picture is cut off the right of the screen (Wide: 13; 1x and the game-sized-window modes: 0). The game's
+// HUD rides the picture's transform, so its right-hand block (map, Metroid counter, laid out past widescreen_space)
+// loses those columns too; the native HUD takes this much off that block's x offsets, which is what sets the HUD's
+// right margin.
 double N3DSAm2r_hudRightInset(void);
 
 // How far the picture is cut off the left of the screen (Wide: 13; 1x and the game-sized-window modes: 0). The game's
 // HUD rides the picture's transform, so its left-hand block (health, tanks, ammo) loses those columns too; the native
-// HUD moves that block back in by this much.
+// HUD moves that block back in by this much. Each side uses its own crop, so both blocks keep the same margin.
 double N3DSAm2r_hudLeftInset(void);
