@@ -132,6 +132,9 @@ typedef struct {
 } N3DSAm2rText;
 static N3DSAm2rText* gTextCache = NULL;
 
+// draw_text's original entry point, kept when the hook below replaces it by name (see N3DSAm2r_init).
+static BuiltinFunc gDrawTextBuiltin = NULL;
+
 static RValue hookGetText(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookGetXJoyBtnName(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookGetXJoyBtnSprite(VMContext* ctx, RValue* args, int32_t argCount);
@@ -139,6 +142,7 @@ static RValue hookDamageSamus(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDamageSamusKnockdown(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDamageSamusPush(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookDrawText(VMContext* ctx, RValue* args, int32_t argCount);
 
 static N3DSAm2rHook gHooks[] = {
     { "get_text", hookGetText, -1 },
@@ -159,6 +163,23 @@ static int32_t N3DSAm2r_hookScript(BuiltinFunc hook) {
 
 static RValue N3DSAm2r_callOriginal(BuiltinFunc hook, RValue* args, int32_t argCount) {
     return N3DSGml_callScript(N3DSAm2r_hookScript(hook), args, argCount);
+}
+
+// draw_text(x, y, string). One string the game draws is a literal in its own bytecode, not a language-file key, so no
+// translation can reach it: the pause screen's top layer draws "[Select] -> Logs" (oSubScrTopLayer's Draw event, at
+// 0xd00388 in 1.5.5). It is translated here, and only when the string is exactly that one - every other draw_text in
+// the game passes straight through, so the HUD, dialogue and item screens are untouched.
+static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount == 3 && args[2].type == RVALUE_STRING && args[2].string != NULL &&
+        strcmp(args[2].string, "[Select] -> Logs") == 0) {
+        RValue translated = RValue_makeOwnedString(safeStrdup("[Select] -> 日志"));
+        RValue a[3] = { args[0], args[1], translated };
+        a[2].ownsReference = false;
+        RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, a, 3) : RValue_makeUndefined();
+        RValue_free(&translated);
+        return result;
+    }
+    return gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
 }
 
 // ===[ Nintendo buttons ]===
@@ -519,6 +540,8 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "导弹击中任何目标都会将其摧毁，对 Metroid 也有效",
         // The screen modes' player-facing names (N3DSAm2r_screenModeLabel; "1x" and "2x" are the same either way).
         "宽屏", "拉伸",
+        // The pause screen's "[Select] -> Logs" hint, which the game draws from its own bytecode (hookDrawText).
+        "[Select] -> 日志",
     };
     size_t total = 0;
     for (size_t i = 0; i < sizeof(kPortChinese) / sizeof(kPortChinese[0]); i++) {
@@ -668,7 +691,8 @@ void N3DSAm2r_init(Runner* runner) {
     }
     // font_replace and background_replace have no game script behind them (the loop above only wraps functions the
     // game also defines), so their cached builtins are replaced by name. That must happen before oControl's Create
-    // event, which is where the language pack calls them.
+    // event, which is where the language pack calls them. draw_text is a plain builtin too, and is wrapped the same
+    // way (see hookDrawText: one pause-screen string the game draws from a literal, which no language file holds).
     for (uint32_t i = 0; i < vm->funcCallCacheCount; i++) {
         const char* name = dataWin->func.functions[i].name;
         if (name == NULL) continue;
@@ -678,6 +702,9 @@ void N3DSAm2r_init(Runner* runner) {
         } else if (strcmp(name, "background_replace") == 0) {
             vm->funcCallCache[i].builtin = (void*) hookBackgroundReplace;
             logInfo("AM2R: background_replace goes through the 3DS front end\n");
+        } else if (strcmp(name, "draw_text") == 0) {
+            gDrawTextBuiltin = vm->funcCallCache[i].builtin;
+            vm->funcCallCache[i].builtin = (void*) hookDrawText;
         }
     }
     // Fast scripts default to on; cheats.ini can turn them off.
