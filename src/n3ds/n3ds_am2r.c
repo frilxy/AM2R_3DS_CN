@@ -337,6 +337,9 @@ static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, i
 
 // The screen modes the Display page offers, in order (Wide first: the default).
 static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_WIDE, N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X, N3DS_SCREEN_2X };
+// The modes' names as the saved file and the log use them: kept in English and never translated, because the save
+// (cheats.ini's "screen=Wide") is read back by name - a translated one would stop an old save being understood. The
+// names the player sees are N3DSAm2r_screenModeLabel, below (they are translated).
 static const char* const kScreenModeNames[] = { "Wide", "Stretch", "1x", "2x" };
 #define N3DS_AM2R_SCREEN_MODES ((int) (sizeof(kScreenModes) / sizeof(kScreenModes[0])))
 
@@ -480,6 +483,18 @@ static const char* N3DSAm2r_text(const char* english, const char* chinese) {
     return N3DSAm2r_languageIs("schinese") ? chinese : english;
 }
 
+// The screen mode's name as the Display page shows it. The saved name (kScreenModeNames) stays English - see the note
+// on it - so the player-facing name is separate and translated here. An unknown mode falls back to the saved name.
+static const char* N3DSAm2r_screenModeLabel(N3DSScreenMode mode) {
+    switch (mode) {
+        case N3DS_SCREEN_WIDE: return N3DSAm2r_text("Wide", "宽屏");
+        case N3DS_SCREEN_STRETCH: return N3DSAm2r_text("Stretch", "拉伸");
+        case N3DS_SCREEN_1X: return N3DSAm2r_text("1x", "1x");
+        case N3DS_SCREEN_2X: return N3DSAm2r_text("2x", "2x");
+        default: return N3DSAm2r_screenModeName(mode);
+    }
+}
+
 // Every Chinese character the front end draws. They are in no language file, so without this they would be missing
 // from the atlas the loader builds and would draw as blanks. Call before oControl's first font_replace.
 static void N3DSAm2r_registerPortGlyphs(void) {
@@ -488,10 +503,11 @@ static void N3DSAm2r_registerPortGlyphs(void) {
     // that is missing renders as nothing at all.
     static const char* const kPortChinese[] = {
         // Titles, row labels and row values.
-        "显示", "作弊", "返回", "画面模式", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
+        "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
-        "拉伸填满屏幕；1x/2x 保持方形像素；宽屏显示更多场景",
+        "宽屏以方形像素填满屏幕；拉伸靠压缩填满；1x/2x 以 1:1 或 2x 保持方形像素",
+        "游戏中显示的能量、弹药与地图",
         "保持完整游戏速度下稳定的 30 帧（隔帧绘制）",
         "繁重的游戏脚本改用内置代码运行：更快，行为相同",
         // The Cheats page's rows and tips.
@@ -501,8 +517,8 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "光束击中任何目标都会将其摧毁",
         "炸弹与强力炸弹击中任何目标都会将其摧毁",
         "导弹击中任何目标都会将其摧毁，对 Metroid 也有效",
-        // The screen mode names (this row is the game's own, filled in with these).
-        "拉伸", "宽屏",
+        // The screen modes' player-facing names (N3DSAm2r_screenModeLabel; "1x" and "2x" are the same either way).
+        "宽屏", "拉伸",
     };
     size_t total = 0;
     for (size_t i = 0; i < sizeof(kPortChinese) / sizeof(kPortChinese[0]); i++) {
@@ -725,9 +741,9 @@ static void N3DSAm2r_refreshPage(void) {
     int32_t selected = (int32_t) curropt;
     if (gAm2r.page == PAGE_DISPLAY) {
         Instance* screen = N3DSAm2r_pageRow(DISPLAY_ROW_SCREEN);
-        if (screen != NULL) N3DSGml_setVarString(screen, "optext", kScreenModeNames[N3DSAm2r_screenModeSlot()]);
+        if (screen != NULL) N3DSGml_setVarString(screen, "optext", N3DSAm2r_screenModeLabel(N3DS_getScreenMode()));
         Instance* hud = N3DSAm2r_pageRow(DISPLAY_ROW_HUD);
-        if (hud != NULL) N3DSGml_setVarString(hud, "optext", N3DSAm2r_hudEnabled() ? "ON" : "OFF");
+        if (hud != NULL) N3DSGml_setVarString(hud, "optext", N3DSAm2r_hudEnabled() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         Instance* frameskip = N3DSAm2r_pageRow(DISPLAY_ROW_FRAMESKIP);
         if (frameskip != NULL) N3DSGml_setVarString(frameskip, "optext", N3DS_getFrameskip() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         Instance* native = N3DSAm2r_pageRow(DISPLAY_ROW_NATIVE);
