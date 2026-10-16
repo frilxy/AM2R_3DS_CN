@@ -120,16 +120,20 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     if (ok && gmlCmp(g.ophudshowmetrcount, 2) == 0) ok = globalNum(&v_monstersleft, &g.monstersleft);
     if (!ok) return callOriginal(gCode_draw_gui, args, argCount);
 
-    // The tank frame (the game checks each pair; 29 also takes 30 and up).
-    GMLReal xoff = 33;
-    setNum(self, &v_xoff, 33);
-    if (gmlCmp(g.etanks, 0) == 0) drawBackgroundAt(117, 0, 0);
+    // The tank frame (the game checks each pair; 29 also takes 30 and up). The whole left-hand block rides the picture's
+    // transform in the game's own HUD, so however many columns the picture loses off the left are lost off this block
+    // too: shift it back in by that much (N3DSAm2r_hudLeftInset; 0 unless the picture starts left of the screen). The
+    // shift is a GMLReal (like every other HUD coordinate here) so it stays in the game's own arithmetic.
+    GMLReal hudShift = (GMLReal) N3DSAm2r_hudLeftInset();
+    GMLReal xoff = 33 + hudShift;
+    setNum(self, &v_xoff, xoff);
+    if (gmlCmp(g.etanks, 0) == 0) drawBackgroundAt(117, hudShift, 0);
     for (int32_t pair = 1; pair < 16; pair++) {
         int32_t lo = pair * 2 - 1;
         bool match = gmlCmp(g.etanks, lo) == 0 || (pair == 15 ? gmlCmp(g.etanks, 30) >= 0 : gmlCmp(g.etanks, lo + 1) == 0);
         if (!match) continue;
-        drawBackgroundAt(kTankFrames[pair].bg, 0, 0);
-        xoff = kTankFrames[pair].xoff;
+        drawBackgroundAt(kTankFrames[pair].bg, hudShift, 0);
+        xoff = kTankFrames[pair].xoff + hudShift;
         setNum(self, &v_xoff, xoff);
     }
 
@@ -140,12 +144,12 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     RValue colour[1] = { R(16777215) };
     callVoid(N.drawSetColor, colour, 1);
     RValue health = callScript(gCode_gui_health, NULL, 0);
-    drawText(4, 4, health);
+    drawText(4 + hudShift, 4, health);
     RValue_free(&health);
     if (truthy(hudflash)) {
         setFont(*guifont1a);
         RValue flashText = callScript(gCode_gui_health, NULL, 0);
-        RValue a[8] = { R(4), R(4), flashText, R(16777215), R(16777215), R(16777215), R(16777215), R(hudflashfx / 4) };
+        RValue a[8] = { R(4 + hudShift), R(4), flashText, R(16777215), R(16777215), R(16777215), R(16777215), R(hudflashfx / 4) };
         a[2].ownsReference = false;
         callVoid(N.drawTextColor, a, 8);
         RValue_free(&flashText);
@@ -157,7 +161,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     for (int32_t k = 1; k <= 30; k++) {
         if (gmlCmp(g.etanks, k) < 0) continue;
         GMLReal threshold = k == 1 ? 99.9 : 99.9 + (GMLReal) (100 * (k - 1)) * mult;
-        GMLReal x = k <= 2 ? 0 + etankxoff : (0 + etankxoff) + kTankX[k];
+        GMLReal x = (k <= 2 ? 0 + etankxoff : (0 + etankxoff) + kTankX[k]) + hudShift;
         GMLReal y = (k & 1) ? 4 : 10;
         if (gmlCmp(g.playerhealth, threshold) > 0) drawSprite(511, 1, x, y);
         if (gmlCmp(g.playerhealth, threshold) <= 0) drawSprite(511, 0, x, y);

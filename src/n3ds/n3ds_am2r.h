@@ -34,3 +34,8 @@ void N3DSAm2r_setHudEnabled(bool on);
 // 400-wide screen while the picture is wider, so those items would be drawn off the right edge. The native HUD takes
 // this much off them. 0 when nothing is given up (Stretch, 2x, or no widescreen).
 double N3DSAm2r_hudRightInset(void);
+
+// How far the picture is cut off the left of the screen (Wide: 13; 1x and the game-sized-window modes: 0). The game's
+// HUD rides the picture's transform, so its left-hand block (health, tanks, ammo) loses those columns too; the native
+// HUD moves that block back in by this much.
+double N3DSAm2r_hudLeftInset(void);

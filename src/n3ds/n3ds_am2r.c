@@ -88,9 +88,12 @@ typedef struct {
     // HUD setting is left alone until then.
     bool hud;
     bool hudLoaded;
-    // How far the game's own HUD offsets (+ widescreen_space) overshoot the port's window: the game lays the
-    // right-hand HUD out for a window as wide as its picture, which is wider than the screen in Wide and 1x.
+    // How far the game's own HUD offsets overshoot the port's window on each side. The game draws its HUD into
+    // gui_surface laid out for a window as wide as its picture (426) and blits that surface with displayx, so in Wide
+    // the left-hand block (health, tanks, ammo, from x = 0) is shifted off the left edge while the right-hand block
+    // (map, Metroid counter) stays put. Each block is moved back by the columns its side lost.
     double hudInset;
+    double hudLeftInset;
     // Ground truth for the screen geometry (see N3DSAm2r_applyScreenMode): printed on the first frame and on every
     // mode change, then every few seconds, so a screenshot can be checked against numbers instead of guessed at.
     bool screenLogged;
@@ -736,28 +739,36 @@ static double N3DSAm2r_centredDisplayX(double pictureW, double scale) {
     return floor(((double) N3DS_AM2R_WIDE_SCREEN_W - pictureW * scale) * 0.5);
 }
 
-// The HUD (the game's draw_gui) is drawn in the port's window, not in the game's own picture, and the game lays its
-// right-hand block (the map and Metroid-counter frames, at 250/272/276/296 + widescreen_space) out for a window as wide
-// as that picture. Wide and 1x give the game a 400-wide window while its picture is 426 wide, so that block would sit
-// from 356 to past 400 - off the right edge - with the counter frame and its text never drawn. The columns that do not
-// fit come off those offsets, so the block stays against the right edge exactly where the game put it.
+// The HUD (the game's draw_gui) is drawn into gui_surface, laid out for a window as wide as the game's own picture, and
+// the DrawGUI event then blits that whole surface with the picture's transform (displayx, display_scale). So the columns
+// the picture loses come off the HUD's matching side too: in Wide the left-hand block (health, tanks, ammo, laid out
+// from x = 0) is pushed off the left edge, and the right-hand block (map, Metroid counter, laid out at 250/272/276/296 +
+// widescreen_space) reaches past the right one. Reporting each side's loss lets the native draw_gui move both blocks
+// back in, so each keeps the margin the game gave it.
 double N3DSAm2r_hudRightInset(void) {
     return gAm2r.hudInset;
+}
+
+double N3DSAm2r_hudLeftInset(void) {
+    return gAm2r.hudLeftInset;
 }
 
 static void N3DSAm2r_applyScreenMode(void) {
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
     if (control == NULL) {
         gAm2r.hudInset = 0.0;
+        gAm2r.hudLeftInset = 0.0;
         return;
     }
     double widescreen = 0.0, space = 0.0;
     if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) {
         gAm2r.hudInset = 0.0;
+        gAm2r.hudLeftInset = 0.0;
         return;
     }
     if (!N3DSGml_getVar(control, "widescreen_space", &space) || space <= 0.0) {
         gAm2r.hudInset = 0.0; // widescreen off: the game is 320 wide on its own
+        gAm2r.hudLeftInset = 0.0;
         return;
     }
 
@@ -778,6 +789,10 @@ static void N3DSAm2r_applyScreenMode(void) {
     N3DSScreenMode mode = N3DS_getScreenMode();
     double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
     gAm2r.hudInset = (mode == N3DS_SCREEN_WIDE || mode == N3DS_SCREEN_1X) && overflow > 0.0 ? overflow : 0.0;
+    // The columns the picture loses off the left. The HUD is drawn with the picture's own transform, so its left-hand
+    // block (health, tanks, ammo, laid out from x = 0) goes off the left edge by the same amount; the native HUD moves
+    // that block back in by this. 0 unless the picture is given less than 1:1 on the left (Wide: 13).
+    gAm2r.hudLeftInset = 0.0;
 
     // The game's own values, before this states anything: what it worked out from the window it was given. Logged so a
     // run shows whether the port's values took effect or the game's own are being drawn with.
@@ -803,6 +818,9 @@ static void N3DSAm2r_applyScreenMode(void) {
         // same for displayy, so the bars come out even top and bottom (1x: 400x225 at y 7, 7 above and 8 below).
         double wantedX = N3DSAm2r_centredDisplayX(pictureW, wantedScale);
         double wantedY = floor((240.0 - 240.0 * wantedScale) * 0.5);
+        // The HUD rides the picture's transform, so however many columns are cut off the left are cut off the HUD's
+        // left-hand block too. (Wide: 13. 1x: 0, its picture starts at 0.)
+        gAm2r.hudLeftInset = wantedX < 0.0 ? -wantedX : 0.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != wantedScale) {
             N3DSGml_setVar(control, "display_scale", wantedScale);
