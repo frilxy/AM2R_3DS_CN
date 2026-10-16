@@ -91,6 +91,12 @@ typedef struct {
     // How far the game's own HUD offsets (+ widescreen_space) overshoot the port's window: the game lays the
     // right-hand HUD out for a window as wide as its picture, which is wider than the screen in Wide and 1x.
     double hudInset;
+    // Ground truth for the screen geometry (see N3DSAm2r_applyScreenMode): printed on the first frame and on every
+    // mode change, then every few seconds, so a screenshot can be checked against numbers instead of guessed at.
+    bool screenLogged;
+    int32_t screenLogMode;
+    int32_t screenLogFrame;
+    int32_t screenLogCount;
     // The Display or Cheats page while it is up: instance ids of its title and rows (the last one Exit).
     N3DSAm2rPage page;
     int32_t pageFrames;
@@ -274,6 +280,14 @@ static int N3DSAm2r_screenModeSlot(void) {
         if (kScreenModes[i] == mode) return i;
     }
     return 0;
+}
+
+// The mode's name for the log (the menu's names are the slots' names, so a mode the build doesn't offer logs "?").
+static const char* N3DSAm2r_screenModeName(N3DSScreenMode mode) {
+    for (int i = 0; i < N3DS_AM2R_SCREEN_MODES; i++) {
+        if (kScreenModes[i] == mode) return kScreenModeNames[i];
+    }
+    return "?";
 }
 
 // The saved value is the mode's name, not its slot: the modes were reordered (and one removed) after the first builds,
@@ -689,29 +703,37 @@ int32_t N3DSAm2r_gameWidth(void) {
 }
 
 // AM2R 1.5's own widescreen is 320 + widescreen_space wide, and the game's default space (106) makes a 426x240 (16:9)
-// picture. The top screen is 400x240 (5:3), so 426 columns do not all fit at 1:1 and something has to give: Wide gives
-// up the 26 columns past 400, keeps pixels 1:1 and has no bars.
-//
-// The game lays the picture out itself, in the window it is told about: it reads window_get_width() (the port returns
-// gWindowW, see main.c) and draws the widescreen surface at (displayx, displayy) scaled by display_scale. It computes
-// those in its own Step, from the space and window it had that frame, so this (which runs after the step) has to state
-// the values the picture needs rather than correct a difference:
-//
-//   display_scale = 1        the window is the screen and the picture is to be shown 1:1, not fitted
-//   displayx      = -(pictureW - 400) / 2    centred, so the 26 columns that do not fit are split 13/13
-//
-// displayx is what keeps it centred: leaving the game's own value (0 for its 0.939 fit) would draw the 426-wide
-// picture from x = 0 and cut only the right-hand side.
+// picture. The top screen is 400x240 (5:3), so 426 columns do not all fit at 1:1 and something has to give.
 //
 // The picture width is read from the surface itself rather than assumed: the game keeps its own 426-wide picture (the
-// port does not clamp widescreen_space any more), and reading the surface means the offset stays right whatever width
-// the game's own widescreen ends up at.
+// port does not clamp widescreen_space any more), and reading the surface means the transform stays right whatever
+// width the game's own widescreen ends up at.
+//
+// The game lays its picture out itself, in the window it is told about. Its own Step reads window_get_width()/height()
+// (the port returns gWindowW/gWindowH, see main.c) and window_get_fullscreen(), which this port stubs to 0, so AM2R
+// always takes its window branch and never its display branch:
+//
+//   display_scale = window_get_width() / (320 + widescreen_space)     [when window H < window W]
+//   display_scale = window_get_height() / 240                         [otherwise]
+//   displayx      = window_get_width()  / 2 - (320 + space) * scale / 2
+//   displayy      = window_get_height() / 2 - 240 * scale / 2
+//
+// In Wide and 1x the window is the 400x240 screen, so both branches give scale 1.0 and displayx -13: the game fits the
+// 426-wide picture by scaling it down (0.939) and centres it, which is exactly the same geometry as Wide. That is why
+// 1x and Wide used to look identical - it is not a coincidence, the game cannot produce a 1x fit at a 400-wide window.
+// So for those two modes the port states the transform itself instead of hoping the game picks it:
+//
+//   Wide: scale 1        the picture 1:1, filling the screen, the 26 columns past 400 given up 13/13, no bars
+//   1x:   scale 400/426  the whole picture fitted (400x225), centred, with ~7px bars top and bottom
+//
+// Stretch and 2x leave the game's own values alone: they give it a window as wide as its picture, so its own 1:1 layout
+// is already what those modes want before the port transforms it.
 #define N3DS_AM2R_WIDE_SCREEN_W 400
 
-// Where the picture has to start so that what does not fit is split evenly. 0 when it fits (or is narrower).
-static double N3DSAm2r_centredDisplayX(double pictureW) {
-    double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
-    return overflow > 0.0 ? floor(-overflow * 0.5) : 0.0;
+// Where the picture has to start to be centred on the screen: negative (the overflow split evenly 13/13 for the 426-wide
+// picture) when it is wider than the screen, positive (the bars split evenly) when it is narrower.
+static double N3DSAm2r_centredDisplayX(double pictureW, double scale) {
+    return floor(((double) N3DS_AM2R_WIDE_SCREEN_W - pictureW * scale) * 0.5);
 }
 
 // The HUD (the game's draw_gui) is drawn in the port's window, not in the game's own picture, and the game lays its
@@ -742,7 +764,7 @@ static void N3DSAm2r_applyScreenMode(void) {
     // The picture's real width. widescreen_space is deliberately NOT clamped any more: the game rewrites it from its
     // own logic every Step, so clamping it fights the game and (via checkWidescreenSurface) makes the game's surface -
     // which it sizes from its own space - be freed and rebuilt every frame. Instead the game keeps its 426-wide picture
-    // and this only says where to show it: 1:1, centred, with the overflow split evenly.
+    // and this only says where and how big to show it.
     double pictureW = (double) (320.0 + space);
     double surface = -1.0;
     Renderer* renderer = gAm2r.runner != NULL ? gAm2r.runner->renderer : NULL;
@@ -757,25 +779,70 @@ static void N3DSAm2r_applyScreenMode(void) {
     double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
     gAm2r.hudInset = (mode == N3DS_SCREEN_WIDE || mode == N3DS_SCREEN_1X) && overflow > 0.0 ? overflow : 0.0;
 
-    if (mode != N3DS_SCREEN_WIDE) {
-        // Stretch, 1x and 2x all leave the game's own widescreen alone: it fits it (1x: the game is given the screen as
-        // its window and scales its own picture to it) or the port transforms it (Stretch squashes, 2x zooms), and the
-        // game's own display_scale/displayx already put the picture where those modes want it.
-        return;
-    }
-    double wantedX = N3DSAm2r_centredDisplayX(pictureW);
+    // The game's own values, before this states anything: what it worked out from the window it was given. Logged so a
+    // run shows whether the port's values took effect or the game's own are being drawn with.
+    double gameScale = 0.0, gameX = 0.0, gameY = 0.0;
+    N3DSGml_getVar(control, "display_scale", &gameScale);
+    N3DSGml_getVar(control, "displayx", &gameX);
+    N3DSGml_getVar(control, "displayy", &gameY);
 
-    double scale = 1.0;
-    if (N3DSGml_getVar(control, "display_scale", &scale) && scale != 1.0) {
-        N3DSGml_setVar(control, "display_scale", 1.0);
+    // The scale and offset the picture is drawn with. The game's own values are correct for Stretch and 2x (see the
+    // block comment above), so those modes leave them alone; Wide and 1x state them, because at a 400-wide window the
+    // game produces the same 1:1 layout for both.
+    bool stated = false;
+    double wantedScale = 0.0;
+    if (mode == N3DS_SCREEN_WIDE) {
+        wantedScale = 1.0;
+        stated = true;
+    } else if (mode == N3DS_SCREEN_1X) {
+        wantedScale = (double) N3DS_AM2R_WIDE_SCREEN_W / pictureW;
+        stated = true;
     }
-    double offset = 0.0;
-    if (N3DSGml_getVar(control, "displayx", &offset) && offset != wantedX) {
-        logInfo("AM2R: wide displayx %.0f -> %.0f (picture %.0f wide, %d shown)\n", offset, wantedX, pictureW,
-            N3DS_AM2R_WIDE_SCREEN_W);
-        N3DSGml_setVar(control, "displayx", wantedX);
+    if (stated) {
+        // The picture is truly centred only if the integer column it starts at is derived from the scaled width; the
+        // same for displayy, so the bars come out even top and bottom (1x: 400x225 at y 7, 7 above and 8 below).
+        double wantedX = N3DSAm2r_centredDisplayX(pictureW, wantedScale);
+        double wantedY = floor((240.0 - 240.0 * wantedScale) * 0.5);
+        double value = 0.0;
+        if (N3DSGml_getVar(control, "display_scale", &value) && value != wantedScale) {
+            N3DSGml_setVar(control, "display_scale", wantedScale);
+        }
+        if (N3DSGml_getVar(control, "displayx", &value) && value != wantedX) {
+            N3DSGml_setVar(control, "displayx", wantedX);
+        }
+        if (N3DSGml_getVar(control, "displayy", &value) && value != wantedY) {
+            N3DSGml_setVar(control, "displayy", wantedY);
+        }
     }
-    if (N3DSGml_getVar(control, "displayy", &offset) && offset != 0.0) N3DSGml_setVar(control, "displayy", 0.0);
+
+    // Ground truth, read back out of the instance after the writes above (so it is exactly what the Draw events will
+    // use): the numbers a screenshot has to agree with. Printed on the first frame and on every mode change, then a
+    // few times more, so one run on hardware tells a wrong variable from a wrong blit.
+    int32_t frame = gAm2r.runner != NULL ? gAm2r.runner->frameCount : 0;
+    bool changed = !gAm2r.screenLogged || gAm2r.screenLogMode != (int32_t) mode;
+    if (changed || (gAm2r.screenLogCount < 10 && frame - gAm2r.screenLogFrame >= 600)) {
+        gAm2r.screenLogged = true;
+        gAm2r.screenLogMode = (int32_t) mode;
+        gAm2r.screenLogFrame = frame;
+        gAm2r.screenLogCount++;
+        double scale = 0.0, x = 0.0, y = 0.0;
+        N3DSGml_getVar(control, "display_scale", &scale);
+        N3DSGml_getVar(control, "displayx", &x);
+        N3DSGml_getVar(control, "displayy", &y);
+        // What that means on the 400x240 screen: the rectangle the picture covers and how much falls outside each edge.
+        int32_t ix = (int32_t) x;
+        int32_t iy = (int32_t) y;
+        int32_t drawnW = (int32_t) (pictureW * scale + 0.5);
+        int32_t drawnH = (int32_t) (240.0 * scale + 0.5);
+        int32_t cutLeft = ix < 0 ? -ix : 0;
+        int32_t cutRight = ix + drawnW > N3DS_AM2R_WIDE_SCREEN_W ? ix + drawnW - N3DS_AM2R_WIDE_SCREEN_W : 0;
+        int32_t barTop = iy > 0 ? iy : 0;
+        int32_t barBottom = iy + drawnH < 240 ? 240 - (iy + drawnH) : 0;
+        logInfo("AM2R: screen %d [%s] picture %.0fx240 scale %.4f displayx/y (%d,%d): drawn %dx%d at (%d,%d), "
+                "cut left %d right %d, bars top %d bottom %d (the game's own were scale %.4f x %.0f y %.0f)\n",
+            (int) mode, N3DSAm2r_screenModeName(mode), pictureW, scale, ix, iy, drawnW, drawnH, ix, iy,
+            cutLeft, cutRight, barTop, barBottom, gameScale, gameX, gameY);
+    }
 }
 
 // AM2R 1.5 creates its widescreen surface once, from the widescreen view's width, on its first frame, before the

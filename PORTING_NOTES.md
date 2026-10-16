@@ -72,8 +72,8 @@ into the desktop's `--goto-room <frame>:<room>`.
     side, so nothing is scaled and there are no bars.
   - **Stretch**: the same 426 columns squeezed into 400 (a 0.939 horizontal squash), so the whole view is shown but is
     not square.
-  - **1x**: the game's own fit - the whole 426x240 view at 400x225, centred, with ~7px bars top and bottom. Slightly
-    soft (0.939, not an integer).
+  - **1x**: the whole 426x240 view fitted to the screen at 400x225, centred, with 7px bars top and bottom and 8px
+    below (0.939, so slightly soft). The port states this fit itself - the game cannot produce it, see below.
   - **2x**: 2x, centred, showing the middle of the picture.
 
   AM2R draws its own picture, so the mode works by what the game is told, not by presenting an application surface:
@@ -83,15 +83,25 @@ into the desktop's `--goto-room <frame>:<room>`.
   `(displayx, displayy)` scaled by `display_scale`, and it sizes that surface from `320 + widescreen_space`, reading
   `window_get_width()` (the port's `gWindowW`) to centre it. So `main.c` gives the game the window each mode needs -
   the screen (400) for Wide/1x so the game fits and centres its own picture, the game's own 426 for Stretch/2x so it
-  draws 1:1 and the renderer transforms it - and `N3DSAm2r_applyScreenMode` (once a frame, after the game's step and
-  before its draw) states the invariant only Wide needs: `display_scale` 1 and `displayx` centred at
-  `-(pictureW - 400) / 2`. Leaving the game's own `displayx` (0 for its 0.939 fit) would draw the 426-wide picture from
-  x = 0 and cut only the right-hand side; the offset is what splits the overflow evenly. The picture width is read from
-  the surface itself, and `widescreen_space` is deliberately no longer clamped: the game rewrites it every Step, so
-  clamping fought the game and made `N3DSAm2r_checkWidescreenSurface` free and remake the surface every frame. The
-  other modes leave `display_*` entirely to the game. 1.5 makes `widescreen_surface` once, on its first frame, 320 wide
-  (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a wrong-sized
-  one so the game remakes it.
+  draws 1:1 and the renderer transforms it.
+
+  The game's own Step picks `display_scale`/`displayx`/`displayy` from `window_get_width()`/`height()` and
+  `window_get_fullscreen()`, and this port stubs the latter to 0, so AM2R always takes its *window* branch:
+
+      display_scale = window_get_width() / (320 + space)   [when window H < window W]
+      displayx      = window_get_width()  / 2 - (320 + space) * scale / 2
+
+  At the 400-wide window Wide and 1x both give (its first branch wins because 240 < 400, so the 0.939 fit it computes
+  is discarded and `scale` comes out 1.0 with `displayx` -13). That is why **1x and Wide looked identical**: it is the
+  game's arithmetic, not a mistake in the mode code, and no window the port can give it makes 1x differ. So
+  `N3DSAm2r_applyScreenMode` (once a frame, after the game's step and before its draw) states the transform itself for
+  those two modes - Wide: `display_scale` 1 and `displayx = (400 - pictureW) / 2` (-13, the 26 columns past 400 given
+  up 13 each side); 1x: `display_scale = 400 / pictureW` and the offsets for that fit (`displayx` 0, `displayy` 7).
+  Stretch and 2x leave `display_*` entirely to the game. The picture width is read from the surface itself, and
+  `widescreen_space` is deliberately no longer clamped: the game rewrites it every Step, so clamping fought the game
+  and made `N3DSAm2r_checkWidescreenSurface` free and remake the surface every frame. 1.5 makes `widescreen_surface`
+  once, on its first frame, 320 wide (before the widescreen width is set); on a PC it is lost and remade at startup,
+  here the front end frees a wrong-sized one so the game remakes it.
 - HUD: the game's own switch for it is the global `opshowhud` (its Options page had the `HUDDisplay`/`ShowHUD` row, which
   this port's Display page replaced), and the native `draw_gui` already honours it (`n3ds_am2r_native_hud.inc` returns
   early when it is off). The port's Display page therefore just puts the row back; the choice is kept in `cheats.ini`

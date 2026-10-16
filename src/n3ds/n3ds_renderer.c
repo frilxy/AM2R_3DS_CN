@@ -5601,6 +5601,23 @@ static void N3DSRenderer_beginGUI(Renderer* base, int32_t guiW, int32_t guiH, in
         N3DSRenderer_setViewport(renderer, (float) portX, (float) portY, (float) portW, (float) portH);
     }
     N3DSRenderer_applyGuiCamera(base, guiW, guiH);
+    // Ground truth for the layer the HUD and (in AM2R) the top-level surface go through: the canvas size, the viewport
+    // it maps to and how the port transforms that. One line per canvas size, so a mode change is covered too.
+    static int32_t guiLogs;
+    static int32_t lastGuiW = -1, lastGuiH = -1, lastPortW = -1;
+    if (targetSurfaceId == RENDER_TARGET_HOST_FRAMEBUFFER && guiLogs < 24 &&
+        (guiW != lastGuiW || guiH != lastGuiH || portW != lastPortW)) {
+        guiLogs++;
+        lastGuiW = guiW;
+        lastGuiH = guiH;
+        lastPortW = portW;
+        float dx, dy, dw, dh;
+        N3DSRenderer_screenRect(renderer, guiW, guiH, &dx, &dy, &dw, &dh);
+        logInfo("AM2R: gui canvas %dx%d, window %dx%d -> viewport (%.0f,%.0f) %.0fx%.0f, scale %.4f "
+                "(stretch %d, fixedScale %d)\n",
+            guiW, guiH, portW, portH, dx, dy, dw, dh, dw / (float) (guiW > 0 ? guiW : 1),
+            (int) renderer->stretchToScreen, renderer->fixedScale);
+    }
 }
 
 static void N3DSRenderer_setGuiProjection(Renderer* base, int32_t guiW, int32_t guiH, MAYBE_UNUSED int32_t portW, MAYBE_UNUSED int32_t portH, MAYBE_UNUSED bool renderingToUserSurface) {
@@ -5720,6 +5737,24 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     }
 #endif
     if (surface == NULL) return;
+    // Ground truth for the screen geometry, the other half of N3DSAm2r_applyScreenMode's line: what the blit really
+    // does with the picture. AM2R's picture is its 426x240 widescreen surface (the room's own 618x256 layers are not
+    // it), so only a surface that tall is logged.
+    if (surface->height == N3DS_TOP_HEIGHT && surface->width > N3DS_TOP_WIDTH) {
+        static int32_t pictureLogs;
+        if (pictureLogs < 8) {
+            pictureLogs++;
+            float drawW = (float) (srcWidth > 0 ? srcWidth : surface->width) * xscale;
+            float drawH = (float) (srcHeight > 0 ? srcHeight : surface->height) * yscale;
+            float rectX = 0.0f, rectY = 0.0f, rectW = 0.0f, rectH = 0.0f;
+            N3DSRenderer_transformScreenRect(renderer, x, y, drawW, drawH, &rectX, &rectY, &rectW, &rectH);
+            logInfo("AM2R: picture blit surface %d (%dx%d, backed %d) src %d,%d %dx%d at (%.1f,%.1f) scale %.4f -> "
+                    "screen (%.1f,%.1f) %.0fx%.0f, so %d columns off the left and %d off the right of the %d-wide screen\n",
+                (int) surfaceID, surface->width, surface->height, surface->backedW, (int) srcLeft, (int) srcTop,
+                (int) srcWidth, (int) srcHeight, x, y, xscale, rectX, rectY, rectW, rectH,
+                (int) (0.0f - rectX), (int) (rectX + rectW - (float) N3DS_TOP_WIDTH), N3DS_TOP_WIDTH);
+        }
+    }
     if (surfaceID == renderer->currentTargetSurface) {
         surface = N3DSRenderer_feedbackCopy(base, surfaceID);
         if (surface == NULL) return;
