@@ -359,6 +359,9 @@ typedef struct {
     bool stretchToScreen;
     int32_t fixedScale; // 1x / 2x screen modes: the game's picture at this scale, centred (0: fit)
     C3D_RenderTarget* topTarget;
+    // The bottom screen, kept only so that it can be cleared to black every frame. Nothing is ever drawn to it: a
+    // screen the GPU is never told to present keeps whatever was in its framebuffer, which is not reliably black.
+    C3D_RenderTarget* bottomTarget;
     N3DSLoadedAtlasPage* atlasPages;
     N3DSAtlasItem* atlasItems;
     N3DSAtlasItemV3* atlasItemsV3;
@@ -3482,6 +3485,7 @@ static void N3DSRenderer_init(Renderer* base, DataWin* dataWin) {
     }
     renderer->baseTPAGCount = dataWin != NULL ? dataWin->tpag.count : 0u;
     renderer->topTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+    renderer->bottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
     renderer->blendEnabled = true;
     renderer->blendEquation = bm_normal;
     renderer->blendSrcFactor = bm_src_alpha;
@@ -3593,6 +3597,9 @@ static void N3DSRenderer_destroy(Renderer* base) {
         }
         arrfree(renderer->tileLayerChunkCaches);
         renderer->tileLayerChunkCaches = NULL;
+    }
+    if (renderer->bottomTarget != NULL) {
+        C3D_RenderTargetDelete(renderer->bottomTarget);
     }
     if (renderer->topTarget != NULL) {
         C3D_RenderTargetDelete(renderer->topTarget);
@@ -5494,6 +5501,14 @@ static void N3DSRenderer_beginFrame(Renderer* base, int32_t gameW, int32_t gameH
     }
 
     N3DSRenderer_setDefaultGPUState(renderer);
+    // The bottom screen is black, always. It has to be bound for the frame to present it (a screen the GPU is never
+    // told to draw to keeps its previous contents, which is not reliably black), then cleared. Nothing else is ever
+    // drawn to it: no GUI, no map, no snapshot.
+    if (renderer->bottomTarget != NULL) {
+        C2D_TargetClear(renderer->bottomTarget, C2D_Color32(0, 0, 0, 255));
+        C2D_SceneBegin(renderer->bottomTarget);
+        renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
+    }
     C2D_TargetClear(renderer->topTarget, C2D_Color32(0, 0, 0, 255));
     N3DSRenderer_bindTarget(renderer, base->runner->applicationSurfaceId, true);
 #ifdef N3DS_DIAG_PATTERN

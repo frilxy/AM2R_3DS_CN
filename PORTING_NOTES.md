@@ -84,6 +84,10 @@ into the desktop's `--goto-room <frame>:<room>`.
   into `rm_subscreen`), which `main.c` uses to pin the window height (the pause screen lays itself out for a tall
   320x568 surface, which would letterbox the picture away). There is no touch handling, no queued presses, no frozen
   frame and no bottom screen.
+- Bottom screen: black and nothing else. The screen's render target is still created, cleared to black and bound once
+  a frame (`N3DSRenderer_beginFrame`): a screen the GPU is never told to draw to keeps its previous framebuffer, which
+  is not reliably black, so simply not making a target is not the same as a black screen. No GUI, map, snapshot or
+  frozen frame draws to it any more.
 - AM2R adjustments from the front end (`n3ds_am2r.c`; the game's files are unchanged): calls to the game's
   `get_text`, `get_xjoybtnname` and `get_xjoybtnsprite` go through C hooks that call the game's script and adjust
   the result (Nintendo button names, A/B and X/Y icons swapped by position, "XBox 360 Joypad" -> "Nintendo 3DS",
