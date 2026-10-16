@@ -57,7 +57,6 @@ typedef struct {
     bool* seen;
 } N3DSGlyphSet;
 
-static uint32_t gSharedAtlasNextY = 0;
 static char* gExtraText = NULL;
 
 // The game asks for the same font file at the same size more than once: 04b09.ttf is requested for fontGUI and
@@ -661,18 +660,19 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
         free(bitmaps);
         return false;
     }
-    if (gSharedAtlasNextY + stripHeight > N3DS_FONT_SHARED_ATLAS_H) {
-        // Filling the shared texture would mean a second one, which is what makes particular strings vanish, so this
-        // size is dropped rather than silently breaking the ones already in it.
+    uint32_t nextY = N3DSRenderer_sharedFontAtlasNextY(renderer);
+    if (nextY + stripHeight > N3DS_FONT_SHARED_ATLAS_H) {
+        // Filling the shared texture would mean a second one, and a second one is what makes particular strings
+        // vanish, so this size is dropped rather than silently breaking the sizes already in the texture.
         logError("AM2R: the font texture is full (%u of %u rows used, %u more wanted)\n",
-            gSharedAtlasNextY, (unsigned) N3DS_FONT_SHARED_ATLAS_H, stripHeight);
+            nextY, (unsigned) N3DS_FONT_SHARED_ATLAS_H, stripHeight);
         free(rectW); free(rectH); free(order); free(placedX); free(placedY);
         for (uint32_t k = 0; k < bitmapCount; k++) free(bitmaps[k].bits);
         free(bitmaps);
         return false;
     }
-    int32_t shelfY = (int32_t) gSharedAtlasNextY;
-    gSharedAtlasNextY += stripHeight;
+    int32_t shelfY = (int32_t) nextY;
+    N3DSRenderer_setSharedFontAtlasNextY(renderer, nextY + stripHeight);
 
     // Compose this size's strip: a glyph's ink sits at the bottom of its rect, the blank rows above it.
     uint8_t* rgba = (uint8_t*) safeCalloc((size_t) N3DS_FONT_SHARED_ATLAS_W * (size_t) stripHeight * 4u, 1u);

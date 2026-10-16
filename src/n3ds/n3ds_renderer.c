@@ -258,9 +258,10 @@ typedef struct {
 // it and leave a second one behind.
 typedef struct {
     bool used;
-    C3D_Tex texture;
-    Tex3DS_SubTexture subtex;
-    C2D_Image image;
+    // The dynamic TPAG entry that owns the texture. Keeping the C3D_Tex in the pool and only recording its index here
+    // means there is exactly one owner, so the texture is deleted by the same code that deletes a surface capture
+    // instead of being freed twice (or left behind).
+    int32_t tpagIndex;
 } N3DSRuntimeFontAtlas;
 
 typedef struct {
@@ -500,6 +501,7 @@ typedef struct {
     // The shared runtime font atlas, and the TPAG index the fonts are pointed at (-1 until one is allocated).
     N3DSRuntimeFontAtlas sharedFontAtlas;
     int32_t sharedFontAtlasTPAG;
+    uint32_t sharedFontAtlasNextY; // first free row of the shared texture
     bool bottomScreenGuiActive;
     bool topScreenGuiActive;
     bool topScreenGui2xActive;
@@ -2436,6 +2438,16 @@ static N3DSDynamicCaptureTPAG* N3DSRenderer_getDynamicCaptureTPAG(N3DSRenderer* 
     return capture;
 }
 
+// The pool entry for a runtime TPAG, without the "is it ready" check getDynamicCaptureTPAG does: the allocation
+// paths below have to reach an entry that is still being filled in.
+static N3DSDynamicCaptureTPAG* N3DSRenderer_poolTPAG(N3DSRenderer* renderer, int32_t tpagIndex) {
+    if (renderer == NULL) return NULL;
+    if (tpagIndex < 0 || (uint32_t) tpagIndex < renderer->baseTPAGCount) return NULL;
+    uint32_t dynamicIndex = (uint32_t) tpagIndex - renderer->baseTPAGCount;
+    if (dynamicIndex >= renderer->dynamicCaptureTPAGCount) return NULL;
+    return &renderer->dynamicCaptureTPAGs[dynamicIndex];
+}
+
 static void N3DSRenderer_freeDynamicCaptureTPAG(N3DSRenderer* renderer, N3DSDynamicCaptureTPAG* capture) {
     if (renderer == NULL || capture == NULL || !capture->used) return;
 
@@ -2472,6 +2484,16 @@ static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer) {
     dw->tpag.items = safeRealloc(dw->tpag.items, (size_t) newTPAGCount * sizeof(TexturePageItem));
     memset(&dw->tpag.items[newTPAGCount - 1u], 0, sizeof(TexturePageItem));
     dw->tpag.count = newTPAGCount;
+
+    // A C2D_Image holds pointers into its own entry, so growing (and therefore moving) the array invalidates every
+    // one of them: they are pointed at their entry again here, which is the only place the array can move.
+    repeat(renderer->dynamicCaptureTPAGCount, i) {
+        N3DSDynamicCaptureTPAG* entry = &renderer->dynamicCaptureTPAGs[i];
+        entry->image.tex = &entry->texture;
+        entry->image.subtex = &entry->subtex;
+    }
+    renderer->lastDirectTPAGImage = NULL;
+    renderer->lastDirectTPAGIndex = -1;
     return (int32_t) (newTPAGCount - 1u);
 }
 
@@ -2519,36 +2541,28 @@ int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* base) {
     int32_t tpagIndex = N3DSRenderer_allocDynamicCaptureTPAG(renderer);
     if (tpagIndex < 0) return -1;
 
-    // The image and sub-texture have to point at this entry's own fields, and a later realloc moves the array, so they
-    // are re-pointed after every allocation (see allocRuntimeImage).
-    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_getDynamicCaptureTPAG(renderer, tpagIndex);
+    // The image and sub-texture point at this entry's own fields, and a later realloc moves the array, so they are
+    // re-pointed after every allocation (see allocRuntimeImage).
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, tpagIndex);
     if (capture == NULL) return -1;
 
-    N3DSRuntimeFontAtlas* atlas = &renderer->sharedFontAtlas;
-    memset(atlas, 0, sizeof(*atlas));
     // citro3d only takes power-of-two textures between 8 and 1024, so the shared texture is exactly 1024x1024.
-    if (!C3D_TexInit(&atlas->texture, N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE, GPU_RGBA8)) {
+    if (!C3D_TexInit(&capture->texture, N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE, GPU_RGBA8)) {
         logError("N3DS: could not allocate the %ux%u font texture\n", N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE);
         return -1;
     }
-    C3D_TexSetFilter(&atlas->texture, GPU_NEAREST, GPU_NEAREST);
-    C3D_TexSetWrap(&atlas->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    C3D_TexSetFilter(&capture->texture, GPU_NEAREST, GPU_NEAREST);
+    C3D_TexSetWrap(&capture->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     // 0 so that a glyph sampled outside what has been uploaded stays invisible rather than picking up noise.
-    atlas->texture.border = 0x00000000u;
-    N3DSRenderer_setRuntimeSubtex(&atlas->subtex, N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE,
+    capture->texture.border = 0x00000000u;
+    N3DSRenderer_setRuntimeSubtex(&capture->subtex, N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE,
         N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE);
-    atlas->image.tex = &atlas->texture;
-    atlas->image.subtex = &atlas->subtex;
-    atlas->used = true;
-
+    capture->image.tex = &capture->texture;
+    capture->image.subtex = &capture->subtex;
     capture->used = true;
     capture->ownerSpriteIndex = -1;
     capture->logicalWidth = N3DS_FONT_ATLAS_TEXTURE_SIZE;
     capture->logicalHeight = N3DS_FONT_ATLAS_TEXTURE_SIZE;
-    capture->texture = atlas->texture;
-    capture->subtex = atlas->subtex;
-    capture->image.tex = &capture->texture;
-    capture->image.subtex = &capture->subtex;
 
     // The font TPAG covers the whole texture: a glyph's rectangle is placed on the baseline by the glyph's own
     // coordinates, so the item's size only has to be large enough not to clip them.
@@ -2565,6 +2579,9 @@ int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* base) {
     tpag->boundingWidth = (uint16_t) N3DS_FONT_ATLAS_TEXTURE_SIZE;
     tpag->boundingHeight = (uint16_t) N3DS_FONT_ATLAS_TEXTURE_SIZE;
 
+    renderer->sharedFontAtlas.used = true;
+    renderer->sharedFontAtlas.tpagIndex = tpagIndex;
+    renderer->sharedFontAtlasNextY = 0;
     renderer->sharedFontAtlasTPAG = tpagIndex;
     logInfo("N3DS: shared font texture %ux%u (tpag %d)\n", N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE, (int) tpagIndex);
     return tpagIndex;
@@ -2584,15 +2601,28 @@ int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* base) {
 bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     if (renderer == NULL || rgba == NULL || w == 0u || h == 0u) return false;
-    N3DSRuntimeFontAtlas* atlas = &renderer->sharedFontAtlas;
-    if (!atlas->used || atlas->texture.data == NULL) return false;
+    if (!renderer->sharedFontAtlas.used) return false;
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, renderer->sharedFontAtlas.tpagIndex);
+    if (capture == NULL || !capture->used || capture->texture.data == NULL) return false;
     if (x0 + w > N3DS_FONT_ATLAS_TEXTURE_SIZE || y0 + h > N3DS_FONT_ATLAS_TEXTURE_SIZE) return false;
 
     N3DSRenderer_frameGate(); // the GPU may still be sampling the texture from the previous frame
-    N3DSRenderer_writeTileRGBAPixels((uint32_t*) atlas->texture.data, rgba, N3DS_FONT_ATLAS_TEXTURE_SIZE,
+    N3DSRenderer_writeTileRGBAPixels((uint32_t*) capture->texture.data, rgba, N3DS_FONT_ATLAS_TEXTURE_SIZE,
         N3DS_FONT_ATLAS_TEXTURE_SIZE, x0, y0, w, h, true);
-    GSPGPU_FlushDataCache(atlas->texture.data, atlas->texture.size);
+    GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
     return true;
+}
+
+// The next free row of the shared texture. Kept here (not in the font loader) so that reallocating the atlas resets
+// it in the same place the atlas is created.
+uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* base) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    return renderer != NULL ? renderer->sharedFontAtlasNextY : 0u;
+}
+
+void N3DSRenderer_setSharedFontAtlasNextY(Renderer* base, uint32_t y) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer != NULL) renderer->sharedFontAtlasNextY = y;
 }
 
 // Allocates a texture for a whole image (a language pack's title or header PNG) and hands back its TPAG. Unlike the
@@ -2610,18 +2640,7 @@ int32_t N3DSRenderer_allocRuntimeImage(Renderer* base, const uint8_t* rgba, uint
     int32_t tpagIndex = N3DSRenderer_allocDynamicCaptureTPAG(renderer);
     if (tpagIndex < 0) return -1;
 
-    // safeRealloc above may have moved the array, so every earlier entry's image pointers have to be re-pointed at its
-    // own fields. Missing this left every font atlas pointing at freed memory and made all text disappear.
-    repeat(renderer->dynamicCaptureTPAGCount, i) {
-        N3DSDynamicCaptureTPAG* other = &renderer->dynamicCaptureTPAGs[i];
-        if (!other->used) continue;
-        other->image.tex = &other->texture;
-        other->image.subtex = &other->subtex;
-    }
-    renderer->lastDirectTPAGImage = NULL;
-    renderer->lastDirectTPAGIndex = -1;
-
-    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_getDynamicCaptureTPAG(renderer, tpagIndex);
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, tpagIndex);
     if (capture == NULL) return -1;
     if (!C3D_TexInit(&capture->texture, (u16) texW, (u16) texH, GPU_RGBA8)) return -1;
     C3D_TexSetFilter(&capture->texture, GPU_NEAREST, GPU_NEAREST);
