@@ -22,3 +22,15 @@ void N3DSAm2r_update(void);
 // widescreen is on (426), 0 otherwise. The game centres that picture in the window it is told about, so the window
 // has to be this wide for it to land on screen.
 int32_t N3DSAm2r_gameWidth(void);
+
+// The game's own HUD switch (the global opshowhud, whose Options row this port's Display page carries instead). The
+// port keeps the player's choice and pushes it onto the game every frame, because the game's own option loader would
+// otherwise put its saved value back. Until the player sets it here the game's own setting is left alone.
+bool N3DSAm2r_hudEnabled(void);
+void N3DSAm2r_setHudEnabled(bool on);
+
+// How far the game's own HUD offsets (+ widescreen_space) overshoot the window the port gives it. The game lays its
+// right-hand HUD (map, Metroid counter) out for a window as wide as its picture, and in Wide and 1x the window is the
+// 400-wide screen while the picture is wider, so those items would be drawn off the right edge. The native HUD takes
+// this much off them. 0 when nothing is given up (Stretch, 2x, or no widescreen).
+double N3DSAm2r_hudRightInset(void);

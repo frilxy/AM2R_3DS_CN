@@ -212,7 +212,11 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         if (styleToggle) drawSprite(506, gmlCmp(g.currentweapon, 3) == 0 ? 1 : 0, ix, 4);
     }
 
-    // Map and Metroid counter frames (moved right by the widescreen width).
+    // Map and Metroid counter frames (moved right by the widescreen width, less the columns the port's window gives up:
+    // see N3DSAm2r_hudRightInset - the game lays these out for a window as wide as its 426-wide picture, and in Wide
+    // and 1x the window is the 400-wide screen).
+    // ws is GMLReal (float) and -Werror=double-promotion is on, so the inset is narrowed rather than promoting ws.
+    ws -= (GMLReal) N3DSAm2r_hudRightInset();
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
         drawBackgroundAt(123, 250 + ws, 0);

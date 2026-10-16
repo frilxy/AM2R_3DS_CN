@@ -53,10 +53,15 @@ Saves, `cheats.ini` (the 3DS options) and `log.txt` go in `sdmc:/3ds/am2r/`.
   can rebind it.
 - **One screen:** the game runs on the **top** screen, and so does its pause menu (`rm_subscreen`), driven with the
   game's own buttons (D-pad, A = OK, B = back). The bottom screen stays black and the touch screen is not used.
-  AM2R's own widescreen picture (426x240) is clamped to the top screen's width, so it lands as 400x240 with square
-  pixels: nothing is cropped and nothing is scaled.
 - **Options → Display** is a 3DS page:
-  - *Screen:* Stretch (default), 1x, 2x or Wide.
+  - *Screen:* AM2R's own widescreen picture (426x240) is wider than the top screen (400x240), so this picks what gives:
+    - **Wide** (default) — the picture 1:1 and centred: square pixels, no scaling, no bars, with the 26 columns past
+      400 given up 13 at each edge.
+    - **Stretch** — the whole 426 columns squeezed into 400, so nothing is lost but the picture is 6% narrower.
+    - **1x** — the whole picture fitted and centred (400x225, bars top and bottom), slightly soft.
+    - **2x** — 2x, centred on the middle of the picture.
+  - *HUD:* on by default. The game's own switch for the energy, ammo and map display during play (its Options page had
+    the row; this page carries it now). Off draws no HUD at all.
   - *Frameskip:* a steady 30 fps at full game speed.
   - *Fast scripts:* on by default. Runs the game's busiest scripts (HUD, minimap, collision checks, the Area 6 light
     map, ...) as built-in code: same result, much faster. "N/A" for game versions it wasn't written for.

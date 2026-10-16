@@ -92,6 +92,17 @@ into the desktop's `--goto-room <frame>:<room>`.
   other modes leave `display_*` entirely to the game. 1.5 makes `widescreen_surface` once, on its first frame, 320 wide
   (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a wrong-sized
   one so the game remakes it.
+- HUD: the game's own switch for it is the global `opshowhud` (its Options page had the `HUDDisplay`/`ShowHUD` row, which
+  this port's Display page replaced), and the native `draw_gui` already honours it (`n3ds_am2r_native_hud.inc` returns
+  early when it is off). The port's Display page therefore just puts the row back; the choice is kept in `cheats.ini`
+  (`hud=`) and stated to the game every frame, because the game's own `load_gameoptions` would otherwise restore the
+  value from the save. Until the player sets it here, the game's own value is left alone.
+  The HUD is drawn in the port's window, not in the game's picture, and the game lays its right-hand block (map and
+  Metroid-counter frames, at 250/272/276/296 + `widescreen_space`) out for a window as wide as that picture. In Wide and
+  1x the window is the 400-wide screen while the picture is 426 wide, so that block would reach 402 and be drawn off the
+  right edge. `N3DSAm2r_hudRightInset` reports the columns that do not fit (26) and the native HUD takes them off its
+  offsets, which keeps the block's right margin as the game intended. Only the native (Fast scripts) draw_gui does this,
+  so with Fast scripts off the game's own code still lays the block out for the wider window.
 - Pause screen (`n3ds_pause.c`): AM2R's `rm_subscreen` is the pause menu and the game draws and operates it like any
   other room - on the top screen, with its own Menu1/Menu2 (A/B) and D-pad bindings. The front end does nothing for
   it: `N3DSPause_update` only tracks whether the game is in the pause room (following `rm_transition`'s `targetroom`

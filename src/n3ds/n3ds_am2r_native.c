@@ -1,5 +1,6 @@
 #include "n3ds_am2r_native.h"
 
+#include "n3ds_am2r.h"
 #include "n3ds_gml.h"
 
 #include "../instance.h"

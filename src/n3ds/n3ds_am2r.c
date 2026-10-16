@@ -14,6 +14,7 @@
 #include <stb/ds/stb_ds.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // What this works with in AM2R (1.1 and the Community Updates):
@@ -34,7 +35,16 @@
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
 
 enum { CHEAT_MASTER, CHEAT_HEALTH, CHEAT_AMMO, CHEAT_BEAM, CHEAT_BOMBS, CHEAT_MISSILES, CHEAT_COUNT };
-enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_CHEATS, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+enum {
+    DISPLAY_ROW_SCREEN,
+    DISPLAY_ROW_HUD,
+    DISPLAY_ROW_FRAMESKIP,
+    DISPLAY_ROW_NATIVE,
+    DISPLAY_ROW_FPS,
+    DISPLAY_ROW_CHEATS,
+    DISPLAY_ROW_EXIT,
+    DISPLAY_ROW_COUNT
+};
 
 typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_CHEATS } N3DSAm2rPage;
 
@@ -73,6 +83,14 @@ typedef struct {
     char* keyboardLabel; // what get_text gave for the Keyboard settings row
     int32_t lastControlPage;
     bool cheats[CHEAT_COUNT];
+    // The game's own HUD switch (the global opshowhud; the game's Options page had the row, this port's Display page
+    // has it now). Only pushed onto the game once the player sets it here, so a save that carries the game's own
+    // HUD setting is left alone until then.
+    bool hud;
+    bool hudLoaded;
+    // How far the game's own HUD offsets (+ widescreen_space) overshoot the port's window: the game lays the
+    // right-hand HUD out for a window as wide as its picture, which is wider than the screen in Wide and 1x.
+    double hudInset;
     // The Display or Cheats page while it is up: instance ids of its title and rows (the last one Exit).
     N3DSAm2rPage page;
     int32_t pageFrames;
@@ -258,6 +276,19 @@ static int N3DSAm2r_screenModeSlot(void) {
     return 0;
 }
 
+// The saved value is the mode's name, not its slot: the modes were reordered (and one removed) after the first builds,
+// so an old "screen=<slot>" would silently mean a different mode. A name the build no longer offers is ignored and the
+// default stands.
+static bool N3DSAm2r_screenModeFromName(const char* name, N3DSScreenMode* out) {
+    for (int i = 0; i < N3DS_AM2R_SCREEN_MODES; i++) {
+        if (strcmp(name, kScreenModeNames[i]) == 0) {
+            *out = kScreenModes[i];
+            return true;
+        }
+    }
+    return false;
+}
+
 // ===[ Cheats file (and the screen mode) ]===
 
 static void N3DSAm2r_loadCheats(void) {
@@ -266,12 +297,24 @@ static void N3DSAm2r_loadCheats(void) {
     char line[64];
     while (fgets(line, sizeof(line), f) != NULL) {
         char name[32];
+        char text[32];
         int value = 0;
-        if (sscanf(line, "%31[^=]=%d", name, &value) != 2) continue;
-        if (strcmp(name, "screen") == 0 && value >= 0 && value < N3DS_AM2R_SCREEN_MODES) N3DS_setScreenMode(kScreenModes[value]);
+        // The value is read as text as well as a number: "screen" is a mode name (see N3DSAm2r_screenModeFromName).
+        if (sscanf(line, "%31[^=]=%31s", name, text) != 2) continue;
+        value = atoi(text) != 0;
+        if (strcmp(name, "screen") == 0) {
+            // Only the name. Older builds saved a slot number and the slots have since been reordered (Stretch was 0
+            // then, Wide is 0 now), so a number would name the wrong mode; it is ignored and the default stands.
+            N3DSScreenMode mode = N3DS_SCREEN_WIDE;
+            if (N3DSAm2r_screenModeFromName(text, &mode)) N3DS_setScreenMode(mode);
+        }
         if (strcmp(name, "frameskip") == 0) N3DS_setFrameskip(value != 0);
         if (strcmp(name, "native") == 0) N3DSAm2rNative_setEnabled(value != 0);
         if (strcmp(name, "fps") == 0) N3DS_setFpsCounter(value != 0);
+        if (strcmp(name, "hud") == 0) {
+            gAm2r.hud = value != 0;
+            gAm2r.hudLoaded = true;
+        }
         for (int i = 0; i < CHEAT_COUNT; i++) {
             if (strcmp(name, kCheatNames[i]) == 0) gAm2r.cheats[i] = value != 0;
         }
@@ -283,15 +326,48 @@ static void N3DSAm2r_saveCheats(void) {
     FILE* f = fopen(N3DS_AM2R_CHEATS_FILE, "w");
     if (f == NULL) return;
     for (int i = 0; i < CHEAT_COUNT; i++) fprintf(f, "%s=%d\n", kCheatNames[i], gAm2r.cheats[i] ? 1 : 0);
-    fprintf(f, "screen=%d\n", N3DSAm2r_screenModeSlot());
+    // The name, not the slot: the modes were reordered after the first builds, so a slot would not mean the same mode
+    // to an older or newer build (see N3DSAm2r_loadCheats).
+    fprintf(f, "screen=%s\n", kScreenModeNames[N3DSAm2r_screenModeSlot()]);
     fprintf(f, "frameskip=%d\n", N3DS_getFrameskip() ? 1 : 0);
     fprintf(f, "native=%d\n", N3DSAm2rNative_enabled() ? 1 : 0);
     fprintf(f, "fps=%d\n", N3DS_getFpsCounter() ? 1 : 0);
+    // Only once the player has set it: writing the game's own value here would make a choice the player never made here
+    // look like one (and would then be pushed onto the game).
+    if (gAm2r.hudLoaded) fprintf(f, "hud=%d\n", gAm2r.hud ? 1 : 0);
     fclose(f);
 }
 
 static bool N3DSAm2r_cheat(int which) {
     return gAm2r.cheats[CHEAT_MASTER] && gAm2r.cheats[which];
+}
+
+// ===[ The game's own HUD switch ]===
+
+// The game draws its HUD from the global opshowhud (and its own Options page had the row for it, which this port
+// replaced with its Display page). The port keeps the choice and states it to the game every frame: the game's own
+// option loader (load_gameoptions, called when a save is loaded) would put its saved value back otherwise. Until the
+// player sets it here, the game's own value is left as it is.
+void N3DSAm2r_setHudEnabled(bool on) {
+    gAm2r.hud = on;
+    gAm2r.hudLoaded = true;
+    N3DSGml_setGlobal("opshowhud", on ? 1.0 : 0.0);
+}
+
+bool N3DSAm2r_hudEnabled(void) {
+    if (gAm2r.hudLoaded) return gAm2r.hud;
+    // The player has not set it here: what the game itself has (the game's own Options page had the row, and a save
+    // carries its value). Nothing to show as the row's state means the game's default, on.
+    double shown = 1.0;
+    if (N3DSGml_getGlobal("opshowhud", -1, &shown)) return shown > 0.5;
+    return true;
+}
+
+static void N3DSAm2r_applyHud(void) {
+    if (!gAm2r.hudLoaded) return;
+    double shown = 0.0;
+    if (!N3DSGml_getGlobal("opshowhud", -1, &shown)) return; // the global is not there yet: nothing to state it to
+    if ((shown > 0.5) != gAm2r.hud) N3DSGml_setGlobal("opshowhud", gAm2r.hud ? 1.0 : 0.0);
 }
 
 // ===[ Init ]===
@@ -408,6 +484,8 @@ static void N3DSAm2r_refreshPage(void) {
     if (gAm2r.page == PAGE_DISPLAY) {
         Instance* screen = N3DSAm2r_pageRow(DISPLAY_ROW_SCREEN);
         if (screen != NULL) N3DSGml_setVarString(screen, "optext", kScreenModeNames[N3DSAm2r_screenModeSlot()]);
+        Instance* hud = N3DSAm2r_pageRow(DISPLAY_ROW_HUD);
+        if (hud != NULL) N3DSGml_setVarString(hud, "optext", N3DSAm2r_hudEnabled() ? "ON" : "OFF");
         Instance* frameskip = N3DSAm2r_pageRow(DISPLAY_ROW_FRAMESKIP);
         if (frameskip != NULL) N3DSGml_setVarString(frameskip, "optext", N3DS_getFrameskip() ? "ON" : "OFF");
         Instance* native = N3DSAm2r_pageRow(DISPLAY_ROW_NATIVE);
@@ -417,6 +495,7 @@ static void N3DSAm2r_refreshPage(void) {
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? "ON" : "OFF");
         const char* tip = selected == DISPLAY_ROW_SCREEN ? "Wide fills the screen with square pixels; Stretch fills it by squashing; 1x and 2x keep square pixels at 1:1 or 2x"
+            : selected == DISPLAY_ROW_HUD ? "The energy, ammo and map display during play"
             : selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
             : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
                 : "Busy game scripts run as built-in code: faster, same behaviour")
@@ -444,10 +523,11 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
-        bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
-            i == DISPLAY_ROW_FPS) : i < CHEAT_COUNT;
+        bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_HUD || i == DISPLAY_ROW_FRAMESKIP ||
+            i == DISPLAY_ROW_NATIVE || i == DISPLAY_ROW_FPS) : i < CHEAT_COUNT;
         const char* label = i == count - 1 ? "Exit"
-            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
+            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_HUD ? "HUD"
+                : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
                 : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Cheats")
             : kCheatLabels[i];
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
@@ -517,6 +597,9 @@ static void N3DSAm2r_updatePage(void) {
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_SCREEN && (menu1 || left || right)) {
         int slot = N3DSAm2r_screenModeSlot() + (left ? N3DS_AM2R_SCREEN_MODES - 1 : 1);
         N3DS_setScreenMode(kScreenModes[slot % N3DS_AM2R_SCREEN_MODES]);
+        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+    } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_HUD && (menu1 || left || right)) {
+        N3DSAm2r_setHudEnabled(!N3DSAm2r_hudEnabled());
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_FRAMESKIP && (menu1 || left || right)) {
         N3DS_setFrameskip(!N3DS_getFrameskip());
@@ -631,18 +714,28 @@ static double N3DSAm2r_centredDisplayX(double pictureW) {
     return overflow > 0.0 ? floor(-overflow * 0.5) : 0.0;
 }
 
+// The HUD (the game's draw_gui) is drawn in the port's window, not in the game's own picture, and the game lays its
+// right-hand block (the map and Metroid-counter frames, at 250/272/276/296 + widescreen_space) out for a window as wide
+// as that picture. Wide and 1x give the game a 400-wide window while its picture is 426 wide, so that block would sit
+// from 356 to past 400 - off the right edge - with the counter frame and its text never drawn. The columns that do not
+// fit come off those offsets, so the block stays against the right edge exactly where the game put it.
+double N3DSAm2r_hudRightInset(void) {
+    return gAm2r.hudInset;
+}
+
 static void N3DSAm2r_applyScreenMode(void) {
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
-    if (control == NULL) return;
+    if (control == NULL) {
+        gAm2r.hudInset = 0.0;
+        return;
+    }
     double widescreen = 0.0, space = 0.0;
-    if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) return;
-    if (!N3DSGml_getVar(control, "widescreen_space", &space)) return;
-    if (space <= 0.0) return; // widescreen off: the game is 320 wide on its own
-
-    if (N3DS_getScreenMode() != N3DS_SCREEN_WIDE) {
-        // Stretch, 1x and 2x all leave the game's own widescreen alone: it fits it (1x: the game is given the screen as
-        // its window and scales its own picture to it) or the port transforms it (Stretch squashes, 2x zooms), and the
-        // game's own display_scale/displayx already put the picture where those modes want it.
+    if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) {
+        gAm2r.hudInset = 0.0;
+        return;
+    }
+    if (!N3DSGml_getVar(control, "widescreen_space", &space) || space <= 0.0) {
+        gAm2r.hudInset = 0.0; // widescreen off: the game is 320 wide on its own
         return;
     }
 
@@ -656,6 +749,19 @@ static void N3DSAm2r_applyScreenMode(void) {
     if (renderer != NULL && N3DSGml_getVar(control, "widescreen_surface", &surface) && surface >= 0.0) {
         double width = (double) Renderer_getSurfaceWidth(renderer, (int32_t) surface);
         if (width > 0.0) pictureW = width;
+    }
+
+    // The window the game is given: the screen (400) in Wide and 1x, its own picture (426) in Stretch and 2x. Only the
+    // first two can leave the HUD's offsets overshooting.
+    N3DSScreenMode mode = N3DS_getScreenMode();
+    double overflow = pictureW - (double) N3DS_AM2R_WIDE_SCREEN_W;
+    gAm2r.hudInset = (mode == N3DS_SCREEN_WIDE || mode == N3DS_SCREEN_1X) && overflow > 0.0 ? overflow : 0.0;
+
+    if (mode != N3DS_SCREEN_WIDE) {
+        // Stretch, 1x and 2x all leave the game's own widescreen alone: it fits it (1x: the game is given the screen as
+        // its window and scales its own picture to it) or the port transforms it (Stretch squashes, 2x zooms), and the
+        // game's own display_scale/displayx already put the picture where those modes want it.
+        return;
     }
     double wantedX = N3DSAm2r_centredDisplayX(pictureW);
 
@@ -744,6 +850,7 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_applyScreenMode();
+    N3DSAm2r_applyHud();
     N3DSAm2r_checkWidescreenSurface();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();
