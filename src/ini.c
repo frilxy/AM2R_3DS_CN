@@ -78,6 +78,13 @@ IniFile* Ini_parse(const char* text) {
         return ini;
     }
 
+    // The language files start with a UTF-8 BOM. It sat in front of the opening "[" of the very first section header,
+    // so "[Header]" was not recognized as a section and the whole block -- including its Language line -- was dropped.
+    // Only the parameter is moved: the copy below is still the pointer that gets freed.
+    if ((unsigned char) text[0] == 0xEFu && (unsigned char) text[1] == 0xBBu && (unsigned char) text[2] == 0xBFu) {
+        text += 3;
+    }
+
     // Make a mutable copy to tokenize
     char* data = safeStrdup(text);
     IniSection* currentSection = nullptr;
