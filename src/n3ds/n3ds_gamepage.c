@@ -155,12 +155,12 @@ static bool N3DSGamePage_drawInto(N3DSGamePage page) {
 }
 
 bool N3DSGamePage_draw(N3DSGamePage page) {
-    if (!gPage.ready || page < 0 || page >= N3DS_GAMEPAGE_COUNT) return false;
+    if (!gPage.ready || page >= N3DS_GAMEPAGE_COUNT) return false;
     if (!N3DSGamePage_drawInto(page)) return false;
     // The surface is a 320x240 picture: the bottom-screen pass shows it 1:1.
     N3DSRenderer_beginBottomScreenGUI(gPage.renderer, 320, 240);
-    gPage.renderer->drawSurface(gPage.renderer, gPage.surface, 0, 0, 320, 240, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
-        0xFFFFFF, 1.0f);
+    gPage.renderer->vtable->drawSurface(gPage.renderer, gPage.surface, 0, 0, 320, 240, 0.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 0xFFFFFF, 1.0f);
     N3DSRenderer_endBottomScreenGUI(gPage.renderer);
     return true;
 }
