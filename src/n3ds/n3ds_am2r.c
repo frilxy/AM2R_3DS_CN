@@ -207,8 +207,10 @@ static char* N3DSAm2r_nintendoText(const char* text) {
 static RValue hookGetText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     const char* section = argCount > 0 && args[0].type == RVALUE_STRING ? args[0].string : "";
     const char* key = argCount > 1 && args[1].type == RVALUE_STRING ? args[1].string : "";
+    // The main menu's hint for the Display entry. The port adds that entry (the game has no screen-mode page), so its
+    // hint is the port's own text and has to be translated like the rest of the front end.
     if (strcmp(section, "OptionsMain") == 0 && strcmp(key, "Display_Tip") == 0) {
-        return RValue_makeOwnedString(safeStrdup("Screen mode and cheats"));
+        return RValue_makeOwnedString(safeStrdup(N3DSAm2r_text("Screen mode and cheats", "画面模式与作弊")));
     }
     char cacheKey[256] = "";
     if (argCount == 2 && args[0].type == RVALUE_STRING && args[1].type == RVALUE_STRING) {
@@ -532,7 +534,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
     static const char* const kPortChinese[] = {
         // Titles, row labels and row values.
         // The bottom screen's own two buttons - they are drawn by this port, so nothing else registers them.
-        "萨姆斯", "地图",
+        "萨姆斯", "地图", "画面模式与作弊",
         "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
