@@ -204,6 +204,9 @@ static char* N3DSAm2r_nintendoText(const char* text) {
     return NULL;
 }
 
+// Declared here because the main menu's own hint below needs it before the front end's helpers are defined.
+static const char* N3DSAm2r_text(const char* english, const char* chinese);
+
 static RValue hookGetText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     const char* section = argCount > 0 && args[0].type == RVALUE_STRING ? args[0].string : "";
     const char* key = argCount > 1 && args[1].type == RVALUE_STRING ? args[1].string : "";
