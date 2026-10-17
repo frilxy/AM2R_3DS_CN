@@ -56,14 +56,13 @@ static const int32_t kZoomSteps[] = { 4, 8, 16, 24 };
 #define N3DS_STATUS_TEXT_Y (N3DS_TITLE_BAR_TOP - 1.0f)
 // The value font is fontGUI2: digits are 6 wide with shift 7, so a rendered digit is 7 pixels.
 #define N3DS_STATUS_DIGIT_W 7
-// The energy icon: there is no stand-alone sprite for the green "E" plate the game's own HUD shows (its plate is a
-// black 33x20 background, coloured at draw time), so the port draws the plate itself. It sits on the bar, so it is
-// the brighter green the bar's highlight uses rather than the bar's own dark fill, or it would vanish into it.
+// The energy plate. data.win has no stand-alone green "E" to borrow - its bgGUIHealth backgrounds are near-transparent
+// shadow plates and the bar's bright green appears in no texture page, so the game builds this at draw time and so
+// does the port. Size and colour come from a console screenshot of the game's own bar: there the plate is 19x16
+// screenshot pixels against a 45-pixel-tall bar, and the bar is 14 game pixels, so the plate is about 6x5.
 //
 // Colours here are BGR, not RGB (the renderer unpacks them with BGR_R/BGR_G/BGR_B), so a value read as RGB off a
 // screenshot has its red and blue swapped: 0x84e629 pasted in straight draws cyan instead of green.
-// 6x5, measured off a console screenshot of the game's own bar: at that bar's scale the plate is 19x16 screenshot
-// pixels against a 45-pixel-tall bar, and the bar is 14 game pixels, so the plate is about 6x5 in game pixels.
 #define N3DS_STATUS_ETANK_W 6
 #define N3DS_STATUS_ETANK_H 5
 // The E is a vertical gradient, which is what the reference has: a light green top stroke, a mid green middle and a
@@ -493,8 +492,13 @@ static void N3DSLiveMap_drawStatus(void) {
     // still centring would push the last entry off the screen.
     float start = gap;
     if (gap < N3DS_STATUS_MIN_GAP) {
-        gap = N3DS_STATUS_MIN_GAP;
         start = 0.0f;
+        // Four counters of nine characters each come to 314 of the 320 pixels, and three 4-pixel gaps would push the
+        // last one 6 pixels off the edge. The floor gives way to what actually fits: between them the entries still
+        // leave at least a pixel of space each.
+        float room = (float) N3DS_LIVEMAP_W - total;
+        float fit = shown > 1 ? room / (float) (shown - 1) : 0.0f;
+        gap = fit < N3DS_STATUS_MIN_GAP ? (fit > 0.0f ? fit : 0.0f) : N3DS_STATUS_MIN_GAP;
     }
 
     int32_t font = r->drawFont, halign = r->drawHalign;
