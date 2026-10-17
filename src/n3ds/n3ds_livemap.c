@@ -67,7 +67,12 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.bgGrid = N3DSGml_backgroundIndex("bgMapScreenBG");
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
     gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
-    gLive.font = N3DSGml_fontIndex("fontGUI2");
+    // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
+    // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
+    // symbols but no title, no play time and no counter.
+    gLive.font = N3DSGml_fontIndex("fontGUI2Default");
+    if (gLive.font < 0) gLive.font = N3DSGml_fontIndex("fontGUI2");
+    if (gLive.font < 0) logInfo("Live map: no fontGUI2Default in this game, the map's text is off\n");
     gLive.scriptText = N3DSGml_scriptIndex("get_text");
     gLive.lastPx = gLive.lastPy = INT32_MIN;
     DataWin* dataWin = runner->dataWin;
@@ -222,9 +227,14 @@ static void N3DSLiveMap_drawFrame(void) {
         }
         N3DSLiveMap_text(gLive.time, 17.0f, 197.0f, 0);
     }
-    char left[8], area[8];
+    char left[8], area[8], collected[8];
     N3DSLiveMap_twoDigits(left, sizeof(left), "monstersleft");
     N3DSLiveMap_twoDigits(area, sizeof(area), "monstersarea");
+    // Items collected, as the percentage the game keeps in global.percent.
+    double percent = 0.0;
+    N3DSGml_getGlobal("percent", -1, &percent);
+    snprintf(collected, sizeof(collected), "%d%%", (int) percent);
+    N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
     r->drawFont = font;
