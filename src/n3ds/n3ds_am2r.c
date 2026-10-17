@@ -102,6 +102,7 @@ typedef struct {
     // HUD setting is left alone until then.
     bool hud;
     bool hudLoaded;
+    bool fontsEnabled; // diagnostic (cheats.ini's "fonts="): false keeps the game's own fonts
     // How far the game's own HUD offsets overshoot the port's window on each side. The game draws its HUD into
     // gui_surface laid out for a window as wide as its picture (426) and blits that surface with displayx, so in Wide
     // the left-hand block (health, tanks, ammo, from x = 0) is shifted off the left edge while the right-hand block
@@ -315,6 +316,7 @@ static RValue hookDamageSamusPush(MAYBE_UNUSED VMContext* ctx, RValue* args, int
 // numbers) and only the first three matter here.
 static RValue hookFontReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (argCount < 3 || args[1].type != RVALUE_STRING || args[1].string == NULL) return RValue_makeUndefined();
+    if (!gAm2r.fontsEnabled) return RValue_makeUndefined(); // diagnostic: leave the game's own fonts in place
     int32_t fontIndex = RValue_toInt32(args[0]);
     float emSize = (float) RValue_toReal(args[2]);
     bool bold = argCount > 3 && RValue_toBool(args[3]);
@@ -578,6 +580,9 @@ static void N3DSAm2r_loadCheats(void) {
         if (strcmp(name, "frameskip") == 0) N3DS_setFrameskip(value != 0);
         if (strcmp(name, "native") == 0) N3DSAm2rNative_setEnabled(value != 0);
         if (strcmp(name, "fps") == 0) N3DS_setFpsCounter(value != 0);
+        // A diagnostic switch: fonts=0 keeps the game's own fonts, so a text problem can be split in half - the
+        // swapped-in font and its texture, or the renderer drawing it.
+        if (strcmp(name, "fonts") == 0) gAm2r.fontsEnabled = value != 0;
         if (strcmp(name, "hud") == 0) {
             gAm2r.hud = value != 0;
             gAm2r.hudLoaded = true;
@@ -642,6 +647,7 @@ static void N3DSAm2r_applyHud(void) {
 void N3DSAm2r_init(Runner* runner) {
     memset(&gAm2r, 0, sizeof(gAm2r));
     gAm2r.runner = runner;
+    gAm2r.fontsEnabled = true; // cheats.ini's "fonts=0" turns the font swapping off (a diagnostic)
     gAm2r.lastControlPage = -1;
     gAm2r.objOptionsMain = N3DSGml_objectIndex("oOptionsMain");
     gAm2r.objOptionsDisplay = N3DSGml_objectIndex("oOptionsDisplay");
