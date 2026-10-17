@@ -243,7 +243,10 @@ static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t
 // The zoom control along the bottom margin: one "[1x]" per step, the current step highlighted. The brackets follow
 // the settings pages' convention for a selected value, and the enabled/disabled colouring is theirs too.
 static void N3DSLiveMap_drawZoomControl(void) {
-    static const char* kLabels[N3DS_ZOOM_COUNT] = { "0.75x", "1x", "1.5x", "2x" };
+    // The step's cell size in pixels, which is what actually changes: 6, 8, 12, 16 against the sprites' native 8.
+    // A scale such as "0.75x" is unreadable at this font's size on a 320-pixel screen, and naming the cell size is
+    // the more useful of the two anyway. Each label fits its 80-pixel slice with room to spare.
+    static const char* kLabels[N3DS_ZOOM_COUNT] = { "6", "8", "12", "16" };
     Renderer* r = gLive.renderer;
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
@@ -373,8 +376,23 @@ typedef struct {
 
 // Digits in fontGUI2 are 6 wide with shift 7 (the game advances 7), and '/' is the same, so a value's width is
 // simply its length. Anything that is not a digit or a slash (a ten-pixel '%', say) is not used here.
+// How wide a string draws in the map's font. Summed from each glyph's own advance rather than counted per character:
+// in fontGUI2 a digit is 7 pixels wide but '1' and '.' are 3, and the brackets are 5, so a fixed 7 is wrong for any
+// string with those in it - which is every zoom label ("0.75x" came out far too wide and the steps overlapped).
 static float N3DSLiveMap_statusTextWidth(const char* text) {
-    return (float) strlen(text) * (float) N3DS_STATUS_DIGIT_W;
+    if (text == NULL || gLive.font < 0) return 0.0f;
+    DataWin* dataWin = gLive.runner->dataWin;
+    if (dataWin == NULL || (uint32_t) gLive.font >= dataWin->font.count) return 0.0f;
+    Font* font = &dataWin->font.fonts[gLive.font];
+    float width = 0.0f;
+    for (const char* c = text; *c != '\0'; c++) {
+        // The kerning table's shiftModifier is not applied: the map's own strings are digits and punctuation, and the
+        // game's HUD uses the same plain advance.
+        const FontGlyph* glyph = ((unsigned char) *c) < 128u ? font->glyphLUT[(unsigned char) *c] : NULL;
+        // A glyph with no advance in this font still takes a small step, so text cannot collapse onto itself.
+        width += glyph != NULL && glyph->shift > 0 ? (float) glyph->shift : (float) N3DS_STATUS_DIGIT_W;
+    }
+    return width;
 }
 
 // The drawn size of an entry's icon. Measured from the sprite, not assumed: the ammo icons are 16x12 while the
@@ -401,20 +419,19 @@ static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW
 static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
     Renderer* r = gLive.renderer;
     const float w = (float) N3DS_STATUS_ETANK_W, h = (float) N3DS_STATUS_ETANK_H;
-    // The plate sits on the green bar now, so it is the light green with a dark edge: a black border here would read
-    // as a hole punched through the bar rather than as an icon.
+    // A green square with a dark E, the shape the game's own HUD uses for the energy bar. The proportions come from a
+    // console screenshot of that bar scaled to this 12-pixel plate: a 2-pixel stroke, a 2-pixel margin at the edges,
+    // and the arms evenly spaced - top, middle and bottom at rows 1, 5 and 9, the middle one stopping short of the
+    // right edge the way the reference does.
     r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_COLOUR, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top, x + 1.0f, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, x + w - 1.0f, top, x + w, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    // The E in near-black, matching the dark glyphs the bar's own text uses.
-    const float left = x + 3.0f;
-    const float right = x + w - 3.0f;
-    r->vtable->drawRectangle(r, left, top + 3.0f, left + 1.0f, top + h - 3.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 3.0f, right, top + 4.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 6.0f, right - 1.0f, top + 7.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + h - 4.0f, right, top + h - 3.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    const uint32_t e = N3DS_STATUS_ETANK_EDGE;
+    const float left = x + 2.0f;
+    const float right = x + w - 1.0f;
+    const float stroke = 2.0f;
+    r->vtable->drawRectangle(r, left, top + 1.0f, left + stroke, top + h - 1.0f, e, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 1.0f, right, top + 1.0f + stroke, e, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 5.0f, right - 1.0f, top + 5.0f + stroke, e, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + h - 3.0f, right, top + h - 1.0f, e, 1.0f, false);
 }
 
 // value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
