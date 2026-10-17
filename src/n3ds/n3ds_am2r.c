@@ -1034,6 +1034,9 @@ int32_t N3DSAm2r_gameWidth(void) {
 // Stretch and 2x leave the game's own values alone: they give it a window as wide as its picture, so its own 1:1 layout
 // is already what those modes want before the port transforms it.
 #define N3DS_AM2R_WIDE_SCREEN_W 400
+// The game's own widescreen space (its 426-wide picture is 320 + this). The HUD's right-hand block is laid out in
+// those coordinates, so turning the widescreen off has to give it this much back.
+#define N3DS_AM2R_HUD_SPACE 106
 
 // Where the picture has to start to be centred on the screen: negative (the overflow split evenly 13/13 for the 426-wide
 // picture) when it is wider than the screen, positive (the bars split evenly) when it is narrower.
@@ -1113,10 +1116,11 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // No HUD correction: the game's own blocks (33 from the left, 250..320 on the right) are already laid out for
-        // a 320-wide picture, and with the widescreen off its own widescreen_space is 0, so they sit where it means
-        // them to be.
-        gAm2r.hudInset = 0.0;
+        // The HUD's right-hand block is laid out at 250 + widescreen_space, measured in the game's 426-wide picture.
+        // With the widescreen off that space is 0, so the block would land at 250 - the right edge of a 320-wide
+        // picture rather than the margin the game gives it. Reporting the picture's missing 106 columns as the right
+        // inset puts the block back where the game's own geometry expects it.
+        gAm2r.hudInset = (double) N3DS_AM2R_HUD_SPACE;
         gAm2r.hudLeftInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
