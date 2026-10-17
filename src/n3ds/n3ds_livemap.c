@@ -37,6 +37,8 @@ typedef struct {
     int32_t bgGrid, bgTopBar, bgBottomBar, font, scriptText;
     uint32_t frame;
     int32_t lastPx, lastPy;
+    // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
+    float panX, panY;
     // The black bands cover everything the bars and text draw: the saved picture has the previous frame's in it.
     float topBandEnd, bottomBandStart;
     char* title;
@@ -158,8 +160,35 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
 }
 
 static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t py, float* x, float* y) {
-    *x = (float) (N3DS_LIVEMAP_W / 2 - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL);
-    *y = (float) (N3DS_LIVEMAP_H / 2 - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL);
+    *x = (float) (N3DS_LIVEMAP_W / 2 - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL) + gLive.panX;
+    *y = (float) (N3DS_LIVEMAP_H / 2 - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL) + gLive.panY;
+}
+
+// Drags the map by a screen-space delta. The pan is clamped so the map cannot be flung off the screen: it may move
+// one screenful away from Samus at most in either direction.
+void N3DSLiveMap_panBy(float dx, float dy) {
+    gLive.panX += dx;
+    gLive.panY += dy;
+    if (gLive.panX > (float) N3DS_LIVEMAP_W) gLive.panX = (float) N3DS_LIVEMAP_W;
+    if (gLive.panX < -(float) N3DS_LIVEMAP_W) gLive.panX = -(float) N3DS_LIVEMAP_W;
+    if (gLive.panY > (float) N3DS_LIVEMAP_H) gLive.panY = (float) N3DS_LIVEMAP_H;
+    if (gLive.panY < -(float) N3DS_LIVEMAP_H) gLive.panY = -(float) N3DS_LIVEMAP_H;
+}
+
+// Puts the map back on Samus.
+void N3DSLiveMap_resetPan(void) {
+    gLive.panX = 0.0f;
+    gLive.panY = 0.0f;
+}
+
+// A screen point turned into a map cell, with the pan taken into account. Used by the touch handling.
+void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* outY) {
+    double pxd = 0.0, pyd = 0.0;
+    if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
+    float fx = (float) sx - gLive.panX;
+    float fy = (float) sy - gLive.panY;
+    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) (N3DS_LIVEMAP_W / 2)) / (float) N3DS_LIVEMAP_CELL);
+    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) (N3DS_LIVEMAP_H / 2)) / (float) N3DS_LIVEMAP_CELL);
 }
 
 static void N3DSLiveMap_background(int32_t background, float x, float y, float xscale) {
