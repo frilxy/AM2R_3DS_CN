@@ -1032,9 +1032,9 @@ int32_t N3DSAm2r_gameWidth(void) {
 // Stretch and 2x leave the game's own values alone: they give it a window as wide as its picture, so its own 1:1 layout
 // is already what those modes want before the port transforms it.
 #define N3DS_AM2R_WIDE_SCREEN_W 400
-// The game's own widescreen space (its 426-wide picture is 320 + this). The HUD's right-hand block is laid out in
-// those coordinates, so turning the widescreen off has to give it this much back.
-#define N3DS_AM2R_HUD_SPACE 106
+// The game's default widescreen space is 106 (its 426-wide picture is 320 + it). It is NOT a HUD inset: the HUD is
+// laid out at 250 + the space the game currently reports, so the inset has to be that live value - see the
+// point-for-point branch in N3DSAm2r_applyScreenMode.
 
 // Where the picture has to start to be centred on the screen: negative (the overflow split evenly 13/13 for the 426-wide
 // picture) when it is wider than the screen, positive (the bars split evenly) when it is narrower.
@@ -1114,11 +1114,17 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // The HUD's right-hand block is laid out at 250 + widescreen_space, measured in the game's 426-wide picture.
-        // With the widescreen off that space is 0, so the block would land at 250 - the right edge of a 320-wide
-        // picture rather than the margin the game gives it. Reporting the picture's missing 106 columns as the right
-        // inset puts the block back where the game's own geometry expects it.
-        gAm2r.hudInset = (double) N3DS_AM2R_HUD_SPACE;
+        // The HUD's right-hand block is laid out at 250 + widescreen_space, and the game sizes its GUI canvas from
+        // that same space: with its widescreen off it calls display_set_gui_size(320, 240) and drops the space to 0,
+        // so the block already ends at 250 + 70 = 320, flush with a 320-wide canvas. The inset only has to cancel
+        // whatever space the layout actually used, which is what the game's own variable holds.
+        //
+        // It used to be the constant 106. That was right only while the game still reported space = 106 here; once it
+        // reports 0 the constant cancels a space that was never added, and the block lands 106 columns left of where
+        // it belongs - which is exactly what the console showed in both this mode and Stretch.
+        double space = 0.0;
+        N3DSGml_getVar(control, "widescreen_space", &space);
+        gAm2r.hudInset = space > 0.0 ? space : 0.0;
         gAm2r.hudLeftInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
