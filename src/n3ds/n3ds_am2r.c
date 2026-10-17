@@ -536,7 +536,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
-        "宽屏以方形像素填满屏幕；拉伸靠压缩填满；点对点为 320x240 原生像素、左右黑边",
+        "宽屏填满屏幕；拉伸压缩填满；点对点原生 320x240",
         "游戏中显示的能量、弹药与地图",
         "保持完整游戏速度下稳定的 30 帧（隔帧绘制）",
         "繁重的游戏脚本改用内置代码运行：更快，行为相同",
@@ -794,8 +794,8 @@ static void N3DSAm2r_refreshPage(void) {
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         const char* tip = selected == DISPLAY_ROW_SCREEN
-                ? N3DSAm2r_text("Wide fills the screen with square pixels; Stretch fills it by squashing; Point shows the game's own 320x240 at 1:1 with side bars",
-                    "宽屏以方形像素填满屏幕；拉伸靠压缩填满；点对点为 320x240 原生像素、左右黑边")
+                ? N3DSAm2r_text("Wide fills the screen; Stretch squashes; Point is the native 320x240",
+                    "宽屏填满屏幕；拉伸压缩填满；点对点原生 320x240")
             : selected == DISPLAY_ROW_HUD
                 ? N3DSAm2r_text("The energy, ammo and map display during play", "游戏中显示的能量、弹药与地图")
             : selected == DISPLAY_ROW_FRAMESKIP
