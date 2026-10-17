@@ -868,25 +868,28 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
     (void) bold;
     (void) italic; // a pixel font has one face; the game's own bold is just a thicker outline
 
-    // A pixel font carries exactly one bitmap strike, but the game asks 04b09.ttf for two sizes: fontGUI at 12px and
-    // fontSubScr at 8px. The 8px request got the file's 12px strike, so that font's text was drawn with glyphs twice
-    // the intended size - which is what made the panel headings look like a smear. It gets the 8px file instead, at
-    // the same size, so fontMenuTiny has already put that strip in the texture and this reuses it.
+    const float sizeFromIni = emSize; // what sizes.ini asked for, for the log when it is overridden below
+
+    // A pixel font carries exactly one bitmap strike, so the size a font is asked for has to match the strike of the
+    // file it reads. 04b09.ttf only has 12px, and the game asks it for both fontGUI (12px) and fontSubScr (8px); the
+    // 8px request got the 12px strike, which is what made the panel headings look like a smear. The size is pinned
+    // here rather than left to sizes.ini: that file is SD data the player has to keep in step with the build, and a
+    // stale copy silently brought the old sizes back.
     const char* path = ttfPath;
     if (font->name != NULL) {
-        static const struct { const char* fontName; const char* path; } kOverrides[] = {
-            { "fontSubScr", "lang/fonts/uni_05_53.ttf" },        // 10px panel headings (装备/光束/综合能力)
-            { "fontMenuTiny", "lang/fonts/uni_05_53.ttf" },      // 10px item names (it used to draw at 8px, too small)
+        static const struct { const char* fontName; const char* path; float emSize; } kOverrides[] = {
+            { "fontSubScr", "lang/fonts/uni_05_53.ttf", 10.0f },   // panel headings (装备/光束/综合能力)
+            { "fontMenuTiny", "lang/fonts/uni_05_53.ttf", 10.0f }, // item names, which drew too small at 8px
         };
         for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
             size_t length = strlen(kOverrides[i].fontName);
-            // fontSubScr and fontSubScrDefault both count; a longer name that merely starts the same way does not.
             if (strncmp(font->name, kOverrides[i].fontName, length) != 0) continue;
             const char* rest = font->name + length;
             if (*rest != '\0' && strcmp(rest, "Default") != 0) continue;
             path = kOverrides[i].path;
-            logInfo("AM2R: %s is the %gpx face, so it loads %s instead of %s\n",
-                font->name, (double) emSize, path, ttfPath);
+            emSize = kOverrides[i].emSize;
+            logInfo("AM2R: %s loads %s at %gpx (the game asked for %gpx from %s)\n",
+                font->name, path, (double) emSize, (double) sizeFromIni, ttfPath);
             break;
         }
     }
