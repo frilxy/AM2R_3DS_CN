@@ -193,9 +193,9 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
     // The panel sprite's own title strip is only about six pixels tall, which is not enough for a Chinese heading, so
     // the heading sits just under it and the rows start below that.
     char* heading = N3DSItemsScreen_text("ItemsMenu", box->heading);
-    // One pixel below the box top, which with the font's own -1 nudge puts the heading one pixel above where it sat
-    // before the nudge existed.
-    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 1.0f);
+    // Two pixels below the box top, cancelling the font's own -2 nudge so the heading stays where it was designed to
+    // sit. The nudge is a whole-font one (fontGUI2 draws the game's numbers too) and this page cannot opt out of it.
+    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 2.0f, 1.0f);
     free(heading);
 
     for (int32_t row = 0; row < box->rowCount; row++) {

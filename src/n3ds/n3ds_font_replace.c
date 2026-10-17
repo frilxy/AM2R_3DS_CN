@@ -561,7 +561,7 @@ static void N3DSFontReplace_applyVerticalNudge(Font* font) {
         { "fontMenuTiny", -2 }, // item names crowded the block heading above them (5 was too far)
         // The save slot's play time runs a pixel into the bottom edge of its box. This font draws it, but it also draws
         // the in-game HUD numbers and the menus, so this moves those a pixel too - to be judged on hardware.
-        { "fontGUI2", -1 },
+        { "fontGUI2", -2 },
     };
     for (size_t i = 0; i < sizeof(kVertical) / sizeof(kVertical[0]); i++) {
         size_t length = strlen(kVertical[i].fontName);
