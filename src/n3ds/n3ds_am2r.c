@@ -1139,12 +1139,11 @@ static void N3DSAm2r_applyScreenMode(void) {
         if (width > 0.0) pictureW = width;
     }
 
-    // The window the game is given: the screen (400) in Wide and 1x, its own picture (426) in Stretch and 2x. Only the
-    // first two can leave the HUD's offsets overshooting, and only they state the picture's transform below.
-    N3DSScreenMode mode = N3DS_getScreenMode();
+    // The window the game is given: the screen (400) in Wide, its own picture (426) in Stretch. Wide can leave the
+    // HUD's offsets overshooting, and it states the picture's transform below.
     // Both HUD insets are the columns each side of the picture loses. They are set below, once the picture's real
-    // placement is known (from the displayx/display_scale that are written there); the game-sized-window modes
-    // (Stretch, 2x) give the picture its own width, so nothing is lost and they stay 0.
+    // placement is known (from the displayx/display_scale that are written there); Stretch gives the picture its own
+    // width, so nothing is lost and they stay 0.
     gAm2r.hudInset = 0.0;
     gAm2r.hudLeftInset = 0.0;
 
