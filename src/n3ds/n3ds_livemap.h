@@ -15,3 +15,7 @@ bool N3DSLiveMap_available(void);
 void N3DSLiveMap_beginFrame(void);
 // Draws the map on the bottom screen (call after the game's frame, during play).
 void N3DSLiveMap_draw(void);
+// Touch: drag moves the map away from Samus, a tap turns a screen point into the cell under it.
+void N3DSLiveMap_panBy(float dx, float dy);
+void N3DSLiveMap_resetPan(void);
+void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* outY);

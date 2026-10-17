@@ -1,6 +1,7 @@
 #include "n3ds_pause.h"
 
 #include "n3ds_gml.h"
+#include "n3ds_livemap.h"
 #include "n3ds_input.h"
 
 #include "../log.h"
@@ -27,7 +28,6 @@ static struct {
     bool paused;
     bool inGame; // the game's own global.ingame: a save is loaded, so there is play (and a map) to show
     int32_t roomSubscreen, roomTransition;
-    int32_t objMapCamera, objMapCursor;
     // Touch on the bottom-screen map: dragging pans it, a tap puts the marker down (or lifts it again). A drag has to
     // be told from a tap, or every pan would drop a marker where the finger went down.
     bool touchDown;
@@ -42,8 +42,6 @@ void N3DSPause_init(Runner* runner, Renderer* renderer) {
     N3DSGml_init(runner);
     gPause.roomSubscreen = N3DSGml_roomIndex("rm_subscreen");
     gPause.roomTransition = N3DSGml_roomIndex("rm_transition");
-    gPause.objMapCamera = N3DSGml_objectIndex("oMapCamera");
-    gPause.objMapCursor = N3DSGml_objectIndex("oMapCursor");
     if (gPause.roomSubscreen < 0) logInfo("Pause: no rm_subscreen in this game, pause tracking off\n");
 }
 
@@ -59,33 +57,17 @@ bool N3DSPause_inPlay(void) {
 }
 
 // ===[ Touch on the bottom-screen map ]===
-// The map follows Samus until the player drags it, which is what oMapCamera's targetx/targety do: the camera clamps
-// its own target every step, so the values are nudged rather than set outright.
+// The map is drawn by this port, not by the game, so the pan is kept here too. The game has no map camera during play
+// (oMapCamera only exists on its own pause map page), which is why driving that object could never work: there is no
+// instance to drive. A drag moves the port's own offset and the drawing follows it.
 
 // A move shorter than this is a tap: without it a slightly wobbly finger would pan the map and still drop a marker.
 #define N3DS_MAP_TOUCH_SLOP 6
 
-static void N3DSPause_dragMap(int32_t dx, int32_t dy) {
-    Instance* camera = N3DSGml_firstInstance(gPause.objMapCamera);
-    Instance* cursor = N3DSGml_firstInstance(gPause.objMapCursor);
-    double state = 0.0, tx = 0.0, ty = 0.0;
-    // While the cursor is placing a marker (state 1) the game is driving the camera itself.
-    if (camera == NULL || cursor == NULL || !N3DSGml_getVar(cursor, "state", &state) || (int32_t) state == 1) return;
-    if (!N3DSGml_getVar(camera, "targetx", &tx) || !N3DSGml_getVar(camera, "targety", &ty)) return;
-    N3DSGml_setVar(camera, "targetx", tx - (double) dx);
-    N3DSGml_setVar(camera, "targety", ty - (double) dy);
-}
-
-// A tap on the map puts the marker on that cell, or lifts it if it is already there. The cell comes from the screen
-// point through the live map's own mapping: the map is drawn 1:1 with Samus's cell in the middle of the screen.
+// A tap on the map puts the marker on that cell, or lifts it if it is already there.
 static void N3DSPause_tapMap(int32_t sx, int32_t sy) {
-    Instance* cursor = N3DSGml_firstInstance(gPause.objMapCursor);
-    if (cursor == NULL) return;
-    double pxd = 0.0, pyd = 0.0;
-    if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
-    // Same geometry the live map draws with: 8px cells, Samus's cell centred in the 320x240 screen.
-    int32_t cx = (int32_t) pxd + (sx - N3DS_MAP_SCREEN_W / 2) / N3DS_MAP_CELL;
-    int32_t cy = (int32_t) pyd + (sy - N3DS_MAP_SCREEN_H / 2) / N3DS_MAP_CELL;
+    int32_t cx = 0, cy = 0;
+    N3DSLiveMap_screenToCell(sx, sy, &cx, &cy);
     // The map is 74 x 57 cells inside its border; the game's own pause screen clamps to the same range.
     if (cx < 3) cx = 3;
     if (cx > 76) cx = 76;
@@ -116,6 +98,7 @@ void N3DSPause_updateMapTouch(void) {
         gPause.dragging = false;
         gPause.touchStartX = gPause.touchLastX = x;
         gPause.touchStartY = gPause.touchLastY = y;
+        logInfo("Live map: touch down at %d,%d\n", (int) x, (int) y);
         return;
     }
     if (held) {
@@ -123,9 +106,14 @@ void N3DSPause_updateMapTouch(void) {
             int32_t adx = x - gPause.touchStartX, ady = y - gPause.touchStartY;
             if (adx < 0) adx = -adx;
             if (ady < 0) ady = -ady;
-            if (adx > N3DS_MAP_TOUCH_SLOP || ady > N3DS_MAP_TOUCH_SLOP) gPause.dragging = true;
+            if (adx > N3DS_MAP_TOUCH_SLOP || ady > N3DS_MAP_TOUCH_SLOP) {
+                gPause.dragging = true;
+                logInfo("Live map: dragging\n");
+            }
         }
-        if (gPause.dragging) N3DSPause_dragMap(x - gPause.touchLastX, y - gPause.touchLastY);
+        if (gPause.dragging) {
+            N3DSLiveMap_panBy((float) (x - gPause.touchLastX), (float) (y - gPause.touchLastY));
+        }
         gPause.touchLastX = x;
         gPause.touchLastY = y;
         return;
