@@ -443,6 +443,7 @@ typedef struct {
     uint32_t frameSpriteDrawCalls;
     uint32_t frameSpritePartDrawCalls;
     uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
+    uint32_t textCallLogCount; // diagnostic: how many draw_text calls have been logged
     uint32_t frameDirectSpriteHits;
     uint32_t frameDirectAssetLoads;
     uint32_t frameTextureSwitches;
@@ -5095,6 +5096,18 @@ static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float
 
 static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float x, float y, float xscale, float yscale, float angleDeg, bool gradient, int32_t c1, int32_t c2, int32_t c3, int32_t c4, float alpha, float lineSeparation) {
     DataWin* dw = base->dataWin;
+    {
+        // Diagnostic: every draw_text the game makes, before anything can drop it. If these lines never appear, the
+        // game is not drawing text at all; if they appear but nothing is painted, the fault is past this point.
+        N3DSRenderer* r = (N3DSRenderer*) base;
+        if (r->textCallLogCount < 16u) {
+            r->textCallLogCount++;
+            const char* fontName = (base->drawFont >= 0 && (uint32_t) base->drawFont < dw->font.count &&
+                dw->font.fonts[base->drawFont].name != NULL) ? dw->font.fonts[base->drawFont].name : "?";
+            logInfo("N3DS: draw_text font %d (%s) at %g,%g scale %g,%g [%.24s]\n", (int) base->drawFont, fontName,
+                (double) x, (double) y, (double) xscale, (double) yscale, text != NULL ? text : "");
+        }
+    }
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
