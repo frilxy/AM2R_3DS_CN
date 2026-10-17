@@ -153,6 +153,18 @@ static void N3DSItemsScreen_sprite(int32_t sprite, float x, float y, float alpha
     Renderer_drawSpriteExt(gItems.renderer, sprite, 0, x, y, 1.0f, 1.0f, 0.0f, 0xFFFFFF, alpha);
 }
 
+// The same, but x/y are the sprite's top-left corner rather than its origin. The game's panel sprites put their
+// origin at (0,33) and Samus at (0,48), so passing a corner straight through would move them up by that much - which
+// is exactly what the first version of this page did.
+static void N3DSItemsScreen_spriteAt(int32_t sprite, float left, float top, float alpha) {
+    if (sprite < 0) return;
+    DataWin* dataWin = gItems.runner->dataWin;
+    if (dataWin == NULL || (uint32_t) sprite >= dataWin->sprt.count) return;
+    Sprite* sp = &dataWin->sprt.sprites[sprite];
+    Renderer_drawSpriteExt(gItems.renderer, sprite, 0, left + (float) sp->originX, top + (float) sp->originY,
+        1.0f, 1.0f, 0.0f, 0xFFFFFF, alpha);
+}
+
 // The energy / missile strip along the top: the game's own numbers, laid out as its page does it.
 static void N3DSItemsScreen_drawStatus(void) {
     N3DSItemsScreen_rect(0.0f, (float) N3DS_ITEMS_STATUS_Y, (float) N3DS_ITEMS_W,
@@ -174,7 +186,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
     const N3DSItemBox* box = &kBoxes[index];
     // The game's own background when it is there, otherwise a plain panel of the same size.
     if (gItems.boxSprite[index] >= 0) {
-        N3DSItemsScreen_sprite(gItems.boxSprite[index], box->x, box->y, 1.0f);
+        N3DSItemsScreen_spriteAt(gItems.boxSprite[index], box->x, box->y, 1.0f);
     } else {
         N3DSItemsScreen_rect(box->x, box->y, box->x + (float) box->width, box->y + (float) box->height,
             N3DS_ITEMS_PANEL_COLOUR);
@@ -192,7 +204,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
             N3DSItemsScreen_rect(box->x + 2.0f, rowY - 1.0f, box->x + (float) box->width - 2.0f,
                 rowY + (float) N3DS_ITEMS_ROW_H - 2.0f, N3DS_ITEMS_HIGHLIGHT_COLOUR);
         }
-        N3DSItemsScreen_sprite(gItems.sprItem, box->x + 4.0f, rowY + 1.0f, 1.0f);
+        N3DSItemsScreen_spriteAt(gItems.sprItem, box->x + 4.0f, rowY + 1.0f, 1.0f);
         char* label = N3DSItemsScreen_text("ItemsMenu", item->key);
         // Three-quarter size: the boxes are 67 wide, which fits the game's own English names (PLASMA BEAM) but not
         // their Chinese ones, where 等离子光束 is five full-width characters. At 0.75 the longest still fits.
@@ -207,7 +219,7 @@ static void N3DSItemsScreen_drawSamus(void) {
     DataWin* dataWin = gItems.runner->dataWin;
     if (dataWin == NULL || (uint32_t) gItems.sprPlayer >= dataWin->sprt.count) return;
     int32_t w = (int32_t) dataWin->sprt.sprites[gItems.sprPlayer].width;
-    N3DSItemsScreen_sprite(gItems.sprPlayer, (float) (N3DS_ITEMS_W / 2 - w / 2), 64.0f, 1.0f);
+    N3DSItemsScreen_spriteAt(gItems.sprPlayer, (float) (N3DS_ITEMS_W / 2 - w / 2), 64.0f, 1.0f);
 }
 
 // The selected item's description, along the bottom, and the button hints under it.
