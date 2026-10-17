@@ -633,7 +633,10 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     uint32_t maxGlyphHeight = 0;
     for (uint32_t i = 0; i < bitmapCount; i++) {
         N3DSFontGlyphBitmap* g = &bitmaps[i];
-        int32_t left = g->bearingX < 0 ? -(int32_t) g->bearingX : 0;
+        // The ink's left edge inside its rect. A negative bearing hangs to the left of the origin, so the rect grows
+        // to the left; a positive one starts inside it. Ignoring the positive case put the ink hard against the rect's
+        // left edge, which left its bearing as a gap on the right - the stray space after 「《」 and before 「》」.
+        int32_t left = g->bearingX < 0 ? -(int32_t) g->bearingX : (int32_t) g->bearingX;
         rectW[i] = (uint16_t) (left + (int32_t) g->width);
         int32_t above = (int32_t) ascent - (int32_t) g->bearingY;
         rectH[i] = (uint16_t) (above + (int32_t) g->height);
@@ -707,7 +710,8 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     for (uint32_t i = 0; i < bitmapCount; i++) {
         N3DSFontGlyphBitmap* g = &bitmaps[i];
         N3DSFontPackedGlyph* p = &packed[i];
-        int32_t left = g->bearingX < 0 ? -(int32_t) g->bearingX : 0;
+        // Same left edge the rect was sized with above, so the ink lands inside its own rect.
+        int32_t left = g->bearingX < 0 ? -(int32_t) g->bearingX : (int32_t) g->bearingX;
         uint32_t above = (uint32_t) ((int32_t) ascent - (int32_t) g->bearingY);
         p->sourceX = (uint16_t) placedX[i];
         p->sourceY = (uint16_t) placedY[i];
@@ -715,8 +719,9 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
         p->sourceHeight = rectH[i];
         p->shift = g->advance;
         // The game's own fonts nudge a glyph right by one (offset=1 in the dumped data), which is where the pixel
-        // font's left side bearing lands; a negative bearing needs the same nudge to stay inside its rect.
-        p->offset = (int16_t) (1 - left);
+        // font's left side bearing lands. The rect already covers the bearing, so that nudge is all that is left to
+        // account for - a negative bearing grows the rect instead of shifting the ink.
+        p->offset = (int16_t) (1 - (g->bearingX < 0 ? -(int32_t) g->bearingX : 0));
         if (g->width == 0u || g->height == 0u) continue;
         // The rect is line-top aligned, so the ink starts `above` rows down from the rect's own top, and the rect sits
         // at placedY: both offsets are needed, or every glyph lands on its shelf's first row.
@@ -845,7 +850,8 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
     const char* path = ttfPath;
     if (font->name != NULL) {
         static const struct { const char* fontName; const char* path; } kOverrides[] = {
-            { "fontSubScr", "lang/fonts/04b24.ttf" }, // 8px, the file the 8px request was always meant for
+            { "fontSubScr", "lang/fonts/04b24.ttf" },   // 8px panel headings: the file that 8px request was meant for
+            { "fontMenuTiny", "lang/fonts/uni_05_53.ttf" }, // 10px item names (it used to draw at 8px, too small)
         };
         for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
             size_t length = strlen(kOverrides[i].fontName);
