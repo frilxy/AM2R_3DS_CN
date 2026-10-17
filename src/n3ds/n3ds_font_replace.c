@@ -548,6 +548,29 @@ static bool N3DSFontReplace_readGlyph(const uint8_t* d, size_t size, const N3DSF
 
 // ===[ Font building ]===
 
+// Vertical nudge, in pixels, for the fonts where the pixel face sits a little high or low in a line the game already
+// laid out. ascenderOffset is subtracted from the cursor, so a negative value moves the text down. The field is free
+// here: it is only read from data.win at WAD 17 and this game is WAD 15, so it was always 0.
+//
+// This has to run on both paths out of buildAndInstall - the one that rasterizes a size and the one that reuses a
+// strip another font already put in the texture - or a font that happens to load second silently keeps the old
+// position.
+static void N3DSFontReplace_applyVerticalNudge(Font* font) {
+    if (font == NULL || font->name == NULL) return;
+    static const struct { const char* fontName; int32_t pixels; } kVertical[] = {
+        { "fontMenuTiny", -5 }, // item names crowded the block heading above them
+    };
+    for (size_t i = 0; i < sizeof(kVertical) / sizeof(kVertical[0]); i++) {
+        size_t length = strlen(kVertical[i].fontName);
+        if (strncmp(font->name, kVertical[i].fontName, length) != 0) continue;
+        const char* rest = font->name + length;
+        if (*rest != '\0' && strcmp(rest, "Default") != 0) continue;
+        font->ascenderOffset = kVertical[i].pixels;
+        logInfo("AM2R: %s shifted %d px vertically\n", font->name, (int) kVertical[i].pixels);
+        return;
+    }
+}
+
 // Packs the glyphs of one size into a strip of the shared texture and writes the font's glyph array. Every glyph's
 // rect is the ink plus the blank rows above it up to the line top, matching how the game's own fonts are packed:
 // the runner draws a glyph at cursorY, which is the line top, so a rect that starts at the line top puts the ink
@@ -577,6 +600,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
         uint32_t originalStride = font->maxGlyphHeight;
         font->maxGlyphHeight = originalStride > cached->maxGlyphHeight ? originalStride : cached->maxGlyphHeight;
         font->tpagIndex = N3DSRenderer_sharedFontAtlasTPAG(runner->renderer);
+        N3DSFontReplace_applyVerticalNudge(font);
         N3DSRenderer_invalidateTextLayoutCache(runner->renderer);
         logInfo("AM2R: %s -> %u glyphs at %dpx, reusing the strip at y=%d, stride %u\n",
             font->name != NULL ? font->name : "font", font->glyphCount, (int) requested, (int) cached->shelfY,
@@ -788,22 +812,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     // The bitmaps are drawn one pixel per pixel. The game asks for the tier it wants through sizes.ini and the closest
     // strike is used as it is: scaling a pixel font makes its strokes grey (and only 0.5 is even tolerable).
     font->tpagIndex = N3DSRenderer_sharedFontAtlasTPAG(renderer);
-    // Vertical nudge, in pixels, for the fonts where the pixel font sits a little high or low in a line the game
-    // already laid out. ascenderOffset is subtracted from the cursor, so a positive value moves the text up.
-    if (font->name != NULL) {
-        static const struct { const char* fontName; int32_t pixels; } kVertical[] = {
-            { "fontMenuTiny", -2 }, // item names sat 2px high inside their rows
-        };
-        for (size_t i = 0; i < sizeof(kVertical) / sizeof(kVertical[0]); i++) {
-            size_t length = strlen(kVertical[i].fontName);
-            if (strncmp(font->name, kVertical[i].fontName, length) != 0) continue;
-            const char* rest = font->name + length;
-            if (*rest != '\0' && strcmp(rest, "Default") != 0) continue;
-            font->ascenderOffset = kVertical[i].pixels;
-            logInfo("AM2R: %s shifted %d px vertically\n", font->name, (int) kVertical[i].pixels);
-            break;
-        }
-    }
+    N3DSFontReplace_applyVerticalNudge(font);
 
     // Remember the strip (in strip-local coordinates, so a later font can shift it by this shelf itself) so that the
     // same file at the same size does not get rasterized into the texture a second time.
