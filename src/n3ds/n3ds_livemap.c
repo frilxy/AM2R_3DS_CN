@@ -45,7 +45,7 @@
 
 // The bottom strip's three buttons, left to right: items, map, mission log. That is the game's own pause cross with
 // its right, up and left arms laid out in a row, which is where the icons come from.
-#define N3DS_MAP_BUTTON_COUNT 3
+#define N3DS_MAP_BUTTON_COUNT 2
 
 typedef struct {
     Runner* runner;
@@ -88,9 +88,8 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
     gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
     // The three buttons' icons, in left-to-right order: items, map, mission log.
-    gLive.buttonSprite[0] = N3DSGml_spriteIndex("sSubScrSuit");     // the items panel's own emblem
-    gLive.buttonSprite[1] = N3DSGml_spriteIndex("sMapMarkerMove");  // a map marker
-    gLive.buttonSprite[2] = N3DSGml_spriteIndex("sLogTrigger");     // a log entry
+    gLive.buttonSprite[0] = N3DSGml_spriteIndex("sItemVariaSuit");  // the suit, for the equipment page
+    gLive.buttonSprite[1] = N3DSGml_spriteIndex("sMapMarkerMove");  // the marker, for the map
     // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
     // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
     // symbols but no title, no play time and no counter.
@@ -316,7 +315,7 @@ void N3DSLiveMap_drawBar(float y, float height) {
 // gets a brighter border so the bottom screen says where it is.
 void N3DSLiveMap_drawButtons(int32_t current) {
     Renderer* r = gLive.renderer;
-    const float slotW = (float) N3DS_LIVEMAP_W / 3.0f;
+    const float slotW = (float) N3DS_LIVEMAP_W / (float) N3DS_MAP_BUTTON_COUNT;
     const float top = (float) N3DS_BUTTON_TOP;
     const float h = (float) N3DS_LIVEMAP_BUTTON_H;
     for (int32_t i = 0; i < N3DS_MAP_BUTTON_COUNT; i++) {
@@ -331,11 +330,20 @@ void N3DSLiveMap_drawButtons(int32_t current) {
         // Stretched to one size so the three read as a set: the icons they borrow come from different sprites and are
         // not the same size (67x44, 24x24, 32x32).
         if (gLive.buttonSprite[i] >= 0) {
-            const float icon = 24.0f;
+            // Drawn at twice its own size: the item icons are 16x16 and the marker 24x24, both too small to read on a
+            // 320-wide screen otherwise, and doubling keeps them pixel-exact.
+            const float scale = 2.0f;
             float cx = x + slotW * 0.5f;
             float cy = top + h * 0.5f;
-            Renderer_drawSpriteStretched(r, gLive.buttonSprite[i], 0, cx - icon * 0.5f, cy - icon * 0.5f, icon, icon,
-                0xFFFFFF, active ? 1.0f : 0.75f);
+            DataWin* dataWin = r->dataWin;
+            if (dataWin != NULL && (uint32_t) gLive.buttonSprite[i] < dataWin->sprt.count) {
+                Sprite* sp = &dataWin->sprt.sprites[gLive.buttonSprite[i]];
+                float iw = (float) sp->width * scale;
+                float ih = (float) sp->height * scale;
+                Renderer_drawSpriteExt(r, gLive.buttonSprite[i], 0, cx - iw * 0.5f + (float) sp->originX * scale,
+                    cy - ih * 0.5f + (float) sp->originY * scale, scale, scale, 0.0f, 0xFFFFFF,
+                    active ? 1.0f : 0.75f);
+            }
         }
     }
 }

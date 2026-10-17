@@ -19,7 +19,6 @@ typedef struct Renderer Renderer;
 typedef enum {
     N3DS_BOTTOM_PAGE_MAP = 0,
     N3DS_BOTTOM_PAGE_ITEMS,
-    N3DS_BOTTOM_PAGE_LOGS,
     N3DS_BOTTOM_PAGE_COUNT,
 } N3DSBottomPage;
 

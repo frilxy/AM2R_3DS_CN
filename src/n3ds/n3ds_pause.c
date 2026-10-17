@@ -2,7 +2,6 @@
 
 #include "n3ds_gml.h"
 #include "n3ds_itemsscreen.h"
-#include "n3ds_logscreen.h"
 #include "n3ds_livemap.h"
 #include "n3ds_input.h"
 
@@ -116,9 +115,8 @@ static bool N3DSPause_tapButton(int32_t x, int32_t y) {
     int32_t slot = x * N3DS_BOTTOM_BUTTON_COUNT / N3DS_BOTTOM_WIDTH;
     if (slot < 0) slot = 0;
     if (slot >= N3DS_BOTTOM_BUTTON_COUNT) slot = N3DS_BOTTOM_BUTTON_COUNT - 1;
-    // Left to right: items, map, log.
-    N3DSPause_setBottomPage(slot == 0 ? N3DS_BOTTOM_PAGE_ITEMS
-        : (slot == 1 ? N3DS_BOTTOM_PAGE_MAP : N3DS_BOTTOM_PAGE_LOGS));
+    // Left to right: equipment, map.
+    N3DSPause_setBottomPage(slot == 0 ? N3DS_BOTTOM_PAGE_ITEMS : N3DS_BOTTOM_PAGE_MAP);
     return true;
 }
 
@@ -158,8 +156,6 @@ void N3DSPause_updateMapTouch(void) {
                 if (gPause.page == N3DS_BOTTOM_PAGE_MAP) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
                 else if (gPause.page == N3DS_BOTTOM_PAGE_ITEMS) {
                     N3DSItemsScreen_tap(gPause.touchStartX, gPause.touchStartY);
-                } else if (gPause.page == N3DS_BOTTOM_PAGE_LOGS) {
-                    N3DSLogScreen_tap(gPause.touchStartX, gPause.touchStartY);
                 }
             }
         }
