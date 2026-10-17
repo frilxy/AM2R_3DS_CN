@@ -2503,6 +2503,12 @@ int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* base) {
     C3D_TexSetWrap(&capture->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     // 0 so that a glyph sampled outside what has been uploaded stays invisible rather than picking up noise.
     capture->texture.border = 0x00000000u;
+    // C3D_TexInit hands back whatever was in that memory, so the atlas starts as transparent black: every size fills
+    // in its own rows later, and anything left over (below the last strip) reads as nothing instead of noise.
+    if (capture->texture.data != NULL) {
+        memset(capture->texture.data, 0, capture->texture.size);
+        GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
+    }
     N3DSRenderer_setRuntimeSubtex(&capture->subtex, N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE,
         N3DS_FONT_ATLAS_TEXTURE_SIZE, N3DS_FONT_ATLAS_TEXTURE_SIZE);
     capture->image.tex = &capture->texture;
@@ -2555,8 +2561,12 @@ bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uin
     if (x0 + w > N3DS_FONT_ATLAS_TEXTURE_SIZE || y0 + h > N3DS_FONT_ATLAS_TEXTURE_SIZE) return false;
 
     N3DSRenderer_frameGate(); // the GPU may still be sampling the texture from the previous frame
+    // Every pixel, the transparent ones around the ink included: C3D_TexInit does not clear the memory it hands out,
+    // so a strip that wrote only its ink left the rest of its rows holding whatever was there - and the glyphs then
+    // drew with coloured noise between and around them. The strip buffer is already zeroed, so writing those pixels
+    // puts transparent black in the gaps, which is exactly what a glyph's background has to be.
     N3DSRenderer_writeTileRGBAPixels((uint32_t*) capture->texture.data, rgba, N3DS_FONT_ATLAS_TEXTURE_SIZE,
-        N3DS_FONT_ATLAS_TEXTURE_SIZE, x0, y0, w, h, true);
+        N3DS_FONT_ATLAS_TEXTURE_SIZE, x0, y0, w, h, false);
     GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
     return true;
 }
