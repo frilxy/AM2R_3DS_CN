@@ -444,6 +444,7 @@ typedef struct {
     uint32_t frameSpritePartDrawCalls;
     uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
     uint32_t textCallLogCount; // diagnostic: how many draw_text calls have been logged
+    uint32_t textPathLogCount; // diagnostic: how many text path decisions have been logged
     uint32_t frameDirectSpriteHits;
     uint32_t frameDirectAssetLoads;
     uint32_t frameTextureSwitches;
@@ -5135,6 +5136,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         !useDirectFontAsset &&
         !font->isSpriteFont &&
         N3DSRenderer_tryResolveSingleFragmentFontPage(renderer, font->tpagIndex, &fontFragment, &fontPage);
+    {
+        // Diagnostic: which of the three text paths this call takes, and the state that decides it.
+        if (renderer->textPathLogCount < 16u) {
+            renderer->textPathLogCount++;
+            logInfo("N3DS: text path direct=%d fastFragment=%d spriteFont=%d tpag=%d glyphs=%u stride=%u [%.16s]\n",
+                (int) useDirectFontAsset, (int) useSingleFragmentFontFastPath, (int) font->isSpriteFont,
+                (int) font->tpagIndex, font->glyphCount, font->maxGlyphHeight, text != NULL ? text : "");
+        }
+    }
     if (useDirectFontAsset || useSingleFragmentFontFastPath) {
         if (N3DSRenderer_tryDrawSingleGlyphTextFast(
                 base,
