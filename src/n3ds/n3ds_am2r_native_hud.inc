@@ -248,6 +248,27 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
             (int) hudScreenMode, (double) rawSpace, (double) ws, (double) (250 + ws), (double) (276 + ws),
             (double) (296 + ws));
     }
+    // Diagnostic markers: a red bar at the GUI canvas's x = 0 and a blue one at its right edge, plus a magenta pair
+    // 40 columns in. On a screenshot they say where the canvas lands relative to the game picture, which separates a
+    // HUD drawn in the wrong place from a canvas blitted in the wrong place.
+    {
+        RValue saved[1] = { R(colourHsv(0, 0, 1)) };
+        callVoid(N.drawSetColor, saved, 1);
+        RValue red[5] = { R(0), R(0), R(3), R(60), R(0) };
+        callVoid(N.drawRectangle, red, 5);
+        RValue blue[5] = { R(317), R(0), R(320), R(60), R(0) };
+        callVoid(N.drawRectangle, blue, 5);
+        RValue other[1] = { R(colourHsv(0.83f, 1, 1)) };
+        callVoid(N.drawSetColor, other, 1);
+        RValue m1[5] = { R(40), R(60), R(43), R(120), R(0) };
+        callVoid(N.drawRectangle, m1, 5);
+        RValue m2[5] = { R(277), R(60), R(280), R(120), R(0) };
+        callVoid(N.drawRectangle, m2, 5);
+        // Put the colour back: the HUD below sets its own before drawing, but leaving magenta behind would tint
+        // anything that does not.
+        RValue white[1] = { R(colourHsv(0, 0, 1)) };
+        callVoid(N.drawSetColor, white, 1);
+    }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
         drawBackgroundAt(123, 250 + ws, 0);
