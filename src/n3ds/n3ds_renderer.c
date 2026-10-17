@@ -5153,9 +5153,9 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         // Only when a clock is on screen: the save slot and the file select both draw one, and that is the text whose
         // font is being looked for. Logging every call would be thousands of lines; the first 16 of the run are the
         // attract screen and say nothing about this.
-        // Every clock-shaped text, up to a generous cap: the save slot, the file select and the pause screen all show a
-        // play time, and they use different fonts. Coordinates included so the lines can be told apart.
-        if (text != NULL && strchr(text, ':') != NULL && r->textCallLogCount < 400u) {
+        // Clock-shaped text below the top of the picture. The title screen draws one at y 2..44, every frame, and would
+        // otherwise fill the log before the save slot is opened; the one that matters sits in the middle of the screen.
+        if (text != NULL && strchr(text, ':') != NULL && y > 60.0f && r->textCallLogCount < 60u) {
             r->textCallLogCount++;
             const char* fontName = (base->drawFont >= 0 && (uint32_t) base->drawFont < dw->font.count &&
                 dw->font.fonts[base->drawFont].name != NULL) ? dw->font.fonts[base->drawFont].name : "?";
