@@ -442,6 +442,7 @@ typedef struct {
     uint32_t frameFragmentDraws;
     uint32_t frameSpriteDrawCalls;
     uint32_t frameSpritePartDrawCalls;
+    uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
     uint32_t frameDirectSpriteHits;
     uint32_t frameDirectAssetLoads;
     uint32_t frameTextureSwitches;
@@ -4189,6 +4190,15 @@ static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32
         float texW = (float) dynamicCapture->subtex.width;
         float texH = (float) dynamicCapture->subtex.height;
         if (logicalW <= 0.0f || logicalH <= 0.0f || texW <= 0.0f || texH <= 0.0f) return;
+        // Diagnostic: what the game actually asks the shared font texture for. The first few draws of each size say
+        // whether the glyph rectangles are sane before the UV maths ever runs.
+        if (renderer->sharedFontAtlas.used && tpagIndex == renderer->sharedFontAtlas.tpagIndex &&
+            renderer->fontPartLogCount < 12u) {
+            renderer->fontPartLogCount++;
+            logInfo("N3DS: font part src %d,%d %dx%d at %g,%g scale %g,%g; page logical %gx%g content %gx%g\n",
+                (int) srcOffX, (int) srcOffY, (int) srcW, (int) srcH, (double) x, (double) y,
+                (double) xscale, (double) yscale, (double) logicalW, (double) logicalH, (double) texW, (double) texH);
+        }
 
         Tex3DS_SubTexture subtex = dynamicCapture->subtex;
         float u0 = (float) srcOffX / logicalW;
