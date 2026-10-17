@@ -77,9 +77,7 @@ static u32 gKeysHeldPrev = 0;
 static bool gExitRequested = false;
 static N3DSChordButton gChordStart, gChordSelect;
 static bool gChordLatched = false;
-static bool gShoulderPrev[2]; // ZR, ZL last frame, for the edge
 static bool gMonitorToggle = false;
-static int32_t gBottomPageRequest = -1; // -1: none, else the bottom-screen page a shoulder button asked for
 static bool gStartComing = false;
 static bool gRawStartPrev = false;
 static bool gTouchHeld = false;
@@ -231,14 +229,6 @@ static u32 N3DSInput_filterChord(u32 held) {
     }
     gStartComing = start && !gRawStartPrev && !gChordLatched;
     gRawStartPrev = start;
-    // The shoulder buttons pick the bottom screen's page while playing: ZL the equipment page, ZR the map. Neither is
-    // bound by the game, so they are free, and the edge is what matters - holding must not keep re-selecting. The
-    // request is the page index the bottom screen uses: 0 equipment, 1 map.
-    bool zl = (held & KEY_ZL) != 0, zr = (held & KEY_ZR) != 0;
-    if (zl && !gShoulderPrev[1]) gBottomPageRequest = 0;
-    if (zr && !gShoulderPrev[0]) gBottomPageRequest = 1;
-    gShoulderPrev[0] = zr;
-    gShoulderPrev[1] = zl;
     bool gameStart = N3DSInput_chordButton(&gChordStart, start);
     bool gameSelect = N3DSInput_chordButton(&gChordSelect, select);
     if (gChordLatched && !start && !select) gChordLatched = false;
@@ -256,12 +246,6 @@ bool N3DSInput_takeMonitorToggle(void) {
     bool toggle = gMonitorToggle;
     gMonitorToggle = false;
     return toggle;
-}
-
-int32_t N3DSInput_takeBottomPage(void) {
-    int32_t page = gBottomPageRequest;
-    gBottomPageRequest = -1;
-    return page;
 }
 
 bool N3DSInput_touch(int32_t* x, int32_t* y) {

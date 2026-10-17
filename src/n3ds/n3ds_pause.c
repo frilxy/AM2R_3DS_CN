@@ -1,8 +1,6 @@
 #include "n3ds_pause.h"
 
 #include "n3ds_gml.h"
-#include "n3ds_itemsscreen.h"
-#include "n3ds_livemap.h"
 #include "n3ds_input.h"
 
 #include "../log.h"
@@ -15,7 +13,6 @@
 #define N3DS_MAP_CELL 8
 #define N3DS_MAP_SCREEN_W 320
 #define N3DS_MAP_SCREEN_H 240
-
 
 // Whether the game is in its own pause screen.
 //
@@ -30,12 +27,12 @@ static struct {
     bool paused;
     bool inGame; // the game's own global.ingame: a save is loaded, so there is play (and a map) to show
     int32_t roomSubscreen, roomTransition;
+    int32_t objMapCamera, objMapCursor;
     // Touch on the bottom-screen map: dragging pans it, a tap puts the marker down (or lifts it again). A drag has to
     // be told from a tap, or every pan would drop a marker where the finger went down.
     bool touchDown;
     bool dragging;
     int32_t touchStartX, touchStartY, touchLastX, touchLastY;
-    N3DSBottomPage page;    // what the bottom screen shows: the live map, or a page opened with the buttons
 } gPause;
 
 void N3DSPause_init(Runner* runner, Renderer* renderer) {
@@ -45,7 +42,8 @@ void N3DSPause_init(Runner* runner, Renderer* renderer) {
     N3DSGml_init(runner);
     gPause.roomSubscreen = N3DSGml_roomIndex("rm_subscreen");
     gPause.roomTransition = N3DSGml_roomIndex("rm_transition");
-    gPause.page = N3DS_BOTTOM_PAGE_MAP;
+    gPause.objMapCamera = N3DSGml_objectIndex("oMapCamera");
+    gPause.objMapCursor = N3DSGml_objectIndex("oMapCursor");
     if (gPause.roomSubscreen < 0) logInfo("Pause: no rm_subscreen in this game, pause tracking off\n");
 }
 
@@ -61,17 +59,33 @@ bool N3DSPause_inPlay(void) {
 }
 
 // ===[ Touch on the bottom-screen map ]===
-// The map is drawn by this port, not by the game, so the pan is kept here too. The game has no map camera during play
-// (oMapCamera only exists on its own pause map page), which is why driving that object could never work: there is no
-// instance to drive. A drag moves the port's own offset and the drawing follows it.
+// The map follows Samus until the player drags it, which is what oMapCamera's targetx/targety do: the camera clamps
+// its own target every step, so the values are nudged rather than set outright.
 
 // A move shorter than this is a tap: without it a slightly wobbly finger would pan the map and still drop a marker.
 #define N3DS_MAP_TOUCH_SLOP 6
 
-// A tap on the map puts the marker on that cell, or lifts it if it is already there.
+static void N3DSPause_dragMap(int32_t dx, int32_t dy) {
+    Instance* camera = N3DSGml_firstInstance(gPause.objMapCamera);
+    Instance* cursor = N3DSGml_firstInstance(gPause.objMapCursor);
+    double state = 0.0, tx = 0.0, ty = 0.0;
+    // While the cursor is placing a marker (state 1) the game is driving the camera itself.
+    if (camera == NULL || cursor == NULL || !N3DSGml_getVar(cursor, "state", &state) || (int32_t) state == 1) return;
+    if (!N3DSGml_getVar(camera, "targetx", &tx) || !N3DSGml_getVar(camera, "targety", &ty)) return;
+    N3DSGml_setVar(camera, "targetx", tx - (double) dx);
+    N3DSGml_setVar(camera, "targety", ty - (double) dy);
+}
+
+// A tap on the map puts the marker on that cell, or lifts it if it is already there. The cell comes from the screen
+// point through the live map's own mapping: the map is drawn 1:1 with Samus's cell in the middle of the screen.
 static void N3DSPause_tapMap(int32_t sx, int32_t sy) {
-    int32_t cx = 0, cy = 0;
-    N3DSLiveMap_screenToCell(sx, sy, &cx, &cy);
+    Instance* cursor = N3DSGml_firstInstance(gPause.objMapCursor);
+    if (cursor == NULL) return;
+    double pxd = 0.0, pyd = 0.0;
+    if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
+    // Same geometry the live map draws with: 8px cells, Samus's cell centred in the 320x240 screen.
+    int32_t cx = (int32_t) pxd + (sx - N3DS_MAP_SCREEN_W / 2) / N3DS_MAP_CELL;
+    int32_t cy = (int32_t) pyd + (sy - N3DS_MAP_SCREEN_H / 2) / N3DS_MAP_CELL;
     // The map is 74 x 57 cells inside its border; the game's own pause screen clamps to the same range.
     if (cx < 3) cx = 3;
     if (cx > 76) cx = 76;
@@ -93,29 +107,7 @@ static void N3DSPause_tapMap(int32_t sx, int32_t sy) {
     logInfo("Live map: marker set at %d,%d\n", (int) cx, (int) cy);
 }
 
-N3DSBottomPage N3DSPause_bottomPage(void) {
-    return gPause.page;
-}
-
-void N3DSPause_setBottomPage(N3DSBottomPage page) {
-    if (page >= N3DS_BOTTOM_PAGE_COUNT || page == gPause.page) return;
-    gPause.page = page;
-    logInfo("Bottom screen: page %d\n", (int) page);
-}
-
-// A tap in the button strip along the bottom edge switches page.
-static bool N3DSPause_tapButton(int32_t x, int32_t y) {
-    if (y < N3DS_BOTTOM_BUTTON_TOP) return false;
-    int32_t slot = x * N3DS_BUTTON_COUNT / N3DS_BOTTOM_WIDTH;
-    if (slot < 0) slot = 0;
-    if (slot >= N3DS_BUTTON_COUNT) slot = N3DS_BUTTON_COUNT - 1;
-    // Left to right: equipment, map.
-    N3DSPause_setBottomPage(slot == 0 ? N3DS_BOTTOM_PAGE_ITEMS : N3DS_BOTTOM_PAGE_MAP);
-    return true;
-}
-
-// Called once a frame while the bottom screen is live: the buttons along the bottom edge switch pages, and the page
-// under the finger gets the rest.
+// Called once a frame while the map is on the bottom screen.
 void N3DSPause_updateMapTouch(void) {
     int32_t x, y;
     bool held = N3DSInput_touch(&x, &y);
@@ -133,26 +125,14 @@ void N3DSPause_updateMapTouch(void) {
             if (ady < 0) ady = -ady;
             if (adx > N3DS_MAP_TOUCH_SLOP || ady > N3DS_MAP_TOUCH_SLOP) gPause.dragging = true;
         }
-        // Only the map pans; the other pages are picked from, not dragged.
-        if (gPause.dragging && gPause.page == N3DS_BOTTOM_PAGE_MAP) {
-            N3DSLiveMap_panBy((float) (x - gPause.touchLastX), (float) (y - gPause.touchLastY));
-        }
+        if (gPause.dragging) N3DSPause_dragMap(x - gPause.touchLastX, y - gPause.touchLastY);
         gPause.touchLastX = x;
         gPause.touchLastY = y;
         return;
     }
     if (gPause.touchDown) {
         gPause.touchDown = false;
-        if (!gPause.dragging) {
-            logInfo("Touch: tap at %d,%d page %d\n", (int) gPause.touchStartX, (int) gPause.touchStartY,
-                (int) gPause.page);
-            if (!N3DSPause_tapButton(gPause.touchStartX, gPause.touchStartY)) {
-                if (gPause.page == N3DS_BOTTOM_PAGE_MAP) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
-                else if (gPause.page == N3DS_BOTTOM_PAGE_ITEMS) {
-                    N3DSItemsScreen_tap(gPause.touchStartX, gPause.touchStartY);
-                }
-            }
-        }
+        if (!gPause.dragging) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
         gPause.dragging = false;
     }
 }
