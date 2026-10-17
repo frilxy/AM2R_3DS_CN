@@ -253,6 +253,19 @@ static void N3DSLiveMap_drawFrame(void) {
     // call the items and log pages make, so all three bars are the same picture.
     N3DSLiveMap_drawBar(0.0f, (float) N3DS_LIVEMAP_TITLE_H);
     N3DSLiveMap_drawBar((float) N3DS_INFO_TOP, (float) N3DS_LIVEMAP_INFO_H);
+    // The game's own bottom bar over the flat colour: it carries the clock, the item and the Metroid glyphs the row's
+    // numbers sit beside, which a plain rectangle has no way to show.
+    if (gLive.bgBottomBar >= 0) {
+        int32_t tpag = Renderer_resolveBackgroundTPAGIndex(r->dataWin, gLive.bgBottomBar);
+        if (tpag >= 0 && (uint32_t) tpag < r->dataWin->tpag.count) {
+            float bw = (float) r->dataWin->tpag.items[tpag].boundingWidth;
+            float bh = (float) r->dataWin->tpag.items[tpag].boundingHeight;
+            if (bw > 0.0f && bh > 0.0f) {
+                r->vtable->drawSprite(r, tpag, 0.0f, (float) N3DS_INFO_TOP, 0.0f, 0.0f,
+                    (float) N3DS_LIVEMAP_W / bw, (float) N3DS_LIVEMAP_INFO_H / bh, 0.0f, 0xFFFFFF, 1.0f);
+            }
+        }
+    }
 
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);

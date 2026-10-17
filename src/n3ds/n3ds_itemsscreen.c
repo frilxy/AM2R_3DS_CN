@@ -26,8 +26,8 @@
 #define N3DS_ITEMS_STATUS_H N3DS_BOTTOM_BAR_H
 #define N3DS_ITEMS_ROW_H 9        // one item row
 #define N3DS_ITEMS_HEADER_H 14    // the box's own title strip
-#define N3DS_ITEMS_DESC_Y (N3DS_BOTTOM_BUTTON_TOP - N3DS_ITEMS_DESC_H)  // sits directly above the buttons
-#define N3DS_ITEMS_DESC_H 28  // the description strip: taller than the shared footer so a tip fits on one line
+#define N3DS_ITEMS_DESC_Y N3DS_BOTTOM_CONTENT_BOTTOM  // where the shared frame puts the footer
+#define N3DS_ITEMS_DESC_H N3DS_BOTTOM_FOOTER_H  // the same height as the map page's footer
 #define N3DS_ITEMS_HINT_Y 212     // the button hints
 
 // Colours sampled from the game's page: the panel fill, its title strip, and the selected row.
@@ -314,7 +314,7 @@ static void N3DSItemsScreen_drawDescription(void) {
         *out = '\0';
         // Ten-pixel text: the strip is 28 tall and the shared font draws larger than that at 1.0.
         const float tipScale = 10.0f / 12.0f;
-        N3DSItemsScreen_text1(description, 6.0f, (float) N3DS_ITEMS_DESC_Y + 3.0f, tipScale);
+        N3DSItemsScreen_text1(description, 6.0f, (float) N3DS_ITEMS_DESC_Y + 4.0f, tipScale);
         free(description);
     }
     // The hints the game's own items page puts along the bottom, in this port's terms.
