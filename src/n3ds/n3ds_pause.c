@@ -104,7 +104,7 @@ N3DSBottomPage N3DSPause_bottomPage(void) {
 }
 
 void N3DSPause_setBottomPage(N3DSBottomPage page) {
-    if (page < 0 || page >= N3DS_BOTTOM_PAGE_COUNT || page == gPause.page) return;
+    if (page >= N3DS_BOTTOM_PAGE_COUNT || page == gPause.page) return;
     gPause.page = page;
     logInfo("Bottom screen: page %d\n", (int) page);
 }
