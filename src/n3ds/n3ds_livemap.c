@@ -328,37 +328,39 @@ void N3DSLiveMap_drawBar(float y, float height) {
 // gets a brighter border so the bottom screen says where it is.
 void N3DSLiveMap_drawButtons(int32_t current) {
     Renderer* r = gLive.renderer;
-    const float slotW = (float) N3DS_LIVEMAP_W / (float) N3DS_MAP_BUTTON_COUNT;
-    const float top = (float) N3DS_BUTTON_TOP;
-    const float h = (float) N3DS_LIVEMAP_BUTTON_H;
-    for (int32_t i = 0; i < N3DS_MAP_BUTTON_COUNT; i++) {
+    const float slotW = (float) N3DS_LIVEMAP_W / (float) N3DS_BUTTON_COUNT;
+    const float top = (float) N3DS_BOTTOM_BUTTON_TOP;
+    const float h = (float) N3DS_BOTTOM_BUTTON_H;
+    // The two pages' names, in the order the strip lays them out.
+    static const char* const names[N3DS_BUTTON_COUNT] = { "装备", "地图" };
+    int32_t font = r->drawFont, halign = r->drawHalign;
+    uint32_t colour = r->drawColor;
+    float alpha = r->drawAlpha;
+    for (int32_t i = 0; i < N3DS_BUTTON_COUNT; i++) {
         float x = (float) i * slotW;
         bool active = i == current;
-        // The game's button look: a dark panel with a lighter border, drawn with rectangles so it survives a missing
-        // sprite.
+        // A dark panel with a lighter top edge; the active one is brighter, so the strip says which page is up.
         r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + h - 3.0f,
             active ? 0x1d3a10u : 0x12200a, 1.0f, false);
         r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + 4.0f,
             active ? 0x5fae2eu : 0x2f5c14, 1.0f, false);
-        // Stretched to one size so the three read as a set: the icons they borrow come from different sprites and are
-        // not the same size (67x44, 24x24, 32x32).
-        if (gLive.buttonSprite[i] >= 0) {
-            // Drawn at twice its own size: the item icons are 16x16 and the marker 24x24, both too small to read on a
-            // 320-wide screen otherwise, and doubling keeps them pixel-exact.
-            const float scale = 2.0f;
+        // The page's name centred in the button, with a dark copy behind it like every other label on these pages.
+        if (gLive.font >= 0) {
+            r->drawFont = gLive.font;
+            r->drawHalign = 1;
+            r->drawAlpha = 1.0f;
             float cx = x + slotW * 0.5f;
-            float cy = top + h * 0.5f;
-            DataWin* dataWin = r->dataWin;
-            if (dataWin != NULL && (uint32_t) gLive.buttonSprite[i] < dataWin->sprt.count) {
-                Sprite* sp = &dataWin->sprt.sprites[gLive.buttonSprite[i]];
-                float iw = (float) sp->width * scale;
-                float ih = (float) sp->height * scale;
-                Renderer_drawSpriteExt(r, gLive.buttonSprite[i], 0, cx - iw * 0.5f + (float) sp->originX * scale,
-                    cy - ih * 0.5f + (float) sp->originY * scale, scale, scale, 0.0f, 0xFFFFFF,
-                    active ? 1.0f : 0.75f);
-            }
+            float cy = top + h * 0.5f - 6.0f;
+            r->drawColor = 0x000000;
+            r->vtable->drawText(r, names[i], cx + 1.0f, cy + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
+            r->drawColor = active ? 0xffffffu : 0x8fb890u;
+            r->vtable->drawText(r, names[i], cx, cy, 1.0f, 1.0f, 0.0f, -1.0f);
         }
     }
+    r->drawFont = font;
+    r->drawHalign = halign;
+    r->drawColor = colour;
+    r->drawAlpha = alpha;
 }
 
 static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {

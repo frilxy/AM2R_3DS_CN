@@ -532,6 +532,8 @@ static void N3DSAm2r_registerPortGlyphs(void) {
     // that is missing renders as nothing at all.
     static const char* const kPortChinese[] = {
         // Titles, row labels and row values.
+        // The bottom screen's own two buttons - they are drawn by this port, so nothing else registers them.
+        "装备", "地图",
         "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
