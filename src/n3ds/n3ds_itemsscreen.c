@@ -193,7 +193,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
     // The panel sprite's own title strip is only about six pixels tall, which is not enough for a Chinese heading, so
     // the heading sits just under it and the rows start below that.
     char* heading = N3DSItemsScreen_text("ItemsMenu", box->heading);
-    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 1.0f);
+    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y, 1.0f);
     free(heading);
 
     for (int32_t row = 0; row < box->rowCount; row++) {

@@ -16,8 +16,8 @@ u32 N3DSInput_update(Runner* runner);
 bool N3DSInput_exitRequested(void);
 // True once per Start+Select chord (the chord never reaches the game).
 bool N3DSInput_takeMonitorToggle(void);
-// The bottom-screen page the player asked for with a shoulder button: 0 for the equipment page (ZR), 1 for the map
-// (ZL), -1 for neither. Taken once, so holding the button does not keep switching pages.
+// The bottom-screen page the player asked for with a shoulder button: 0 for the equipment page (ZL), 1 for the map
+// (ZR), -1 for neither. Taken once, so holding the button does not keep switching pages.
 int32_t N3DSInput_takeBottomPage(void);
 // True on the frame a Start press goes into the chord delay line: the game gets it N3DS_CHORD_FRAMES frames later.
 bool N3DSInput_startComing(void);

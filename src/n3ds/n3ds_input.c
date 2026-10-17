@@ -231,11 +231,12 @@ static u32 N3DSInput_filterChord(u32 held) {
     }
     gStartComing = start && !gRawStartPrev && !gChordLatched;
     gRawStartPrev = start;
-    // The shoulder buttons pick the bottom screen's page while playing: ZR the equipment page, ZL the map. Neither is
-    // bound by the game, so they are free, and the edge is what matters - holding must not keep re-selecting.
+    // The shoulder buttons pick the bottom screen's page while playing: ZL the equipment page, ZR the map. Neither is
+    // bound by the game, so they are free, and the edge is what matters - holding must not keep re-selecting. The
+    // request is the page index the bottom screen uses: 0 equipment, 1 map.
     bool zl = (held & KEY_ZL) != 0, zr = (held & KEY_ZR) != 0;
-    if (zr && !gShoulderPrev[0]) gBottomPageRequest = 0;
-    if (zl && !gShoulderPrev[1]) gBottomPageRequest = 1;
+    if (zl && !gShoulderPrev[1]) gBottomPageRequest = 0;
+    if (zr && !gShoulderPrev[0]) gBottomPageRequest = 1;
     gShoulderPrev[0] = zr;
     gShoulderPrev[1] = zl;
     bool gameStart = N3DSInput_chordButton(&gChordStart, start);
