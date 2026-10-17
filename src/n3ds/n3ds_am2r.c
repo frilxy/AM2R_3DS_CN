@@ -365,11 +365,11 @@ static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, i
 // ===[ Screen mode ]===
 
 // The screen modes the Display page offers, in order (Wide first: the default).
-static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_WIDE, N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X, N3DS_SCREEN_2X };
+static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_WIDE, N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X };
 // The modes' names as the saved file and the log use them: kept in English and never translated, because the save
 // (cheats.ini's "screen=Wide") is read back by name - a translated one would stop an old save being understood. The
 // names the player sees are N3DSAm2r_screenModeLabel, below (they are translated).
-static const char* const kScreenModeNames[] = { "Wide", "Stretch", "1x", "2x" };
+static const char* const kScreenModeNames[] = { "Wide", "Stretch", "Point" };
 #define N3DS_AM2R_SCREEN_MODES ((int) (sizeof(kScreenModes) / sizeof(kScreenModes[0])))
 
 static int N3DSAm2r_screenModeSlot(void) {
@@ -518,8 +518,7 @@ static const char* N3DSAm2r_screenModeLabel(N3DSScreenMode mode) {
     switch (mode) {
         case N3DS_SCREEN_WIDE: return N3DSAm2r_text("Wide", "宽屏");
         case N3DS_SCREEN_STRETCH: return N3DSAm2r_text("Stretch", "拉伸");
-        case N3DS_SCREEN_1X: return N3DSAm2r_text("1x", "1x");
-        case N3DS_SCREEN_2X: return N3DSAm2r_text("2x", "2x");
+        case N3DS_SCREEN_1X: return N3DSAm2r_text("Point", "点对点");
         default: return N3DSAm2r_screenModeName(mode);
     }
 }
@@ -537,7 +536,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
-        "宽屏以方形像素填满屏幕；拉伸靠压缩填满；1x/2x 以 1:1 或 2x 保持方形像素",
+        "宽屏以方形像素填满屏幕；拉伸靠压缩填满；点对点为 320x240 原生像素、左右黑边",
         "游戏中显示的能量、弹药与地图",
         "保持完整游戏速度下稳定的 30 帧（隔帧绘制）",
         "繁重的游戏脚本改用内置代码运行：更快，行为相同",
@@ -548,7 +547,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "光束击中任何目标都会将其摧毁",
         "炸弹与强力炸弹击中任何目标都会将其摧毁",
         "导弹击中任何目标都会将其摧毁，对 Metroid 也有效",
-        // The screen modes' player-facing names (N3DSAm2r_screenModeLabel; "1x" and "2x" are the same either way).
+        // The screen modes' player-facing names (N3DSAm2r_screenModeLabel; "Point" is 点对点 in either language).
         "宽屏", "拉伸",
         // The pause screen's "[Select] -> Logs" hint, which the game draws from its own bytecode (hookDrawText).
         "[Select] -> 日志",
@@ -795,8 +794,8 @@ static void N3DSAm2r_refreshPage(void) {
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         const char* tip = selected == DISPLAY_ROW_SCREEN
-                ? N3DSAm2r_text("Wide fills the screen with square pixels; Stretch fills it by squashing; 1x and 2x keep square pixels at 1:1 or 2x",
-                    "宽屏以方形像素填满屏幕；拉伸靠压缩填满；1x/2x 以 1:1 或 2x 保持方形像素")
+                ? N3DSAm2r_text("Wide fills the screen with square pixels; Stretch fills it by squashing; Point shows the game's own 320x240 at 1:1 with side bars",
+                    "宽屏以方形像素填满屏幕；拉伸靠压缩填满；点对点为 320x240 原生像素、左右黑边")
             : selected == DISPLAY_ROW_HUD
                 ? N3DSAm2r_text("The energy, ammo and map display during play", "游戏中显示的能量、弹药与地图")
             : selected == DISPLAY_ROW_FRAMESKIP
@@ -1051,11 +1050,69 @@ double N3DSAm2r_hudLeftInset(void) {
     return gAm2r.hudLeftInset;
 }
 
+// Ground truth, read back out of the instance after the writes: the numbers a screenshot has to agree with. Printed on
+// the first frame and on every mode change, then a few times more, so one run on hardware tells a wrong variable from a
+// wrong blit.
+static void N3DSAm2r_logScreenGeometry(Instance* control, double pictureW, N3DSScreenMode mode) {
+    int32_t frame = gAm2r.runner != NULL ? gAm2r.runner->frameCount : 0;
+    bool changed = !gAm2r.screenLogged || gAm2r.screenLogMode != (int32_t) mode;
+    if (!changed && !(gAm2r.screenLogCount < 10 && frame - gAm2r.screenLogFrame >= 600)) return;
+    gAm2r.screenLogged = true;
+    gAm2r.screenLogMode = (int32_t) mode;
+    gAm2r.screenLogFrame = frame;
+    gAm2r.screenLogCount++;
+    double scale = 0.0, x = 0.0, y = 0.0;
+    N3DSGml_getVar(control, "display_scale", &scale);
+    N3DSGml_getVar(control, "displayx", &x);
+    N3DSGml_getVar(control, "displayy", &y);
+    // What that means on the 400x240 screen: the rectangle the picture covers and how much falls outside each edge.
+    int32_t ix = (int32_t) x;
+    int32_t iy = (int32_t) y;
+    int32_t drawnW = (int32_t) (pictureW * scale + 0.5);
+    int32_t drawnH = (int32_t) (240.0 * scale + 0.5);
+    int32_t cutLeft = ix < 0 ? -ix : 0;
+    int32_t cutRight = ix + drawnW > N3DS_AM2R_WIDE_SCREEN_W ? ix + drawnW - N3DS_AM2R_WIDE_SCREEN_W : 0;
+    int32_t barTop = iy > 0 ? iy : 0;
+    int32_t barBottom = iy + drawnH < 240 ? 240 - (iy + drawnH) : 0;
+    logInfo("AM2R: screen %d [%s] picture %.0fx240 scale %.4f displayx/y (%d,%d): drawn %dx%d at (%d,%d), "
+            "cut left %d right %d, bars top %d bottom %d\n",
+        (int) mode, N3DSAm2r_screenModeName(mode), pictureW, scale, ix, iy, drawnW, drawnH, ix, iy,
+        cutLeft, cutRight, barTop, barBottom);
+}
+
 static void N3DSAm2r_applyScreenMode(void) {
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
     if (control == NULL) {
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
+        return;
+    }
+    // Point-for-point wants the game's own 4:3 picture, not its widescreen one. Turning the game's widescreen off is
+    // the way to get it: the game then lays out a plain 320x240 picture, which fits the 400-wide top screen at 1:1 with
+    // 40 columns of bar either side - no scaling, so no blur, and nothing cropped. Set here because the game rewrites
+    // the flag itself (its own options page has a widescreen toggle), so it has to be restated every frame. The other
+    // modes leave it alone and get the game's widescreen picture as before.
+    N3DSScreenMode mode = N3DS_getScreenMode();
+    if (mode == N3DS_SCREEN_1X) {
+        double flag = 0.0;
+        if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) {
+            N3DSGml_setVar(control, "widescreen", 0.0);
+        }
+        // A 320-wide picture at 1:1 on a 400-wide screen: 40 columns of bar each side, which is the centring the game
+        // would work out for itself, stated here so it is exact.
+        gAm2r.hudInset = 0.0;
+        gAm2r.hudLeftInset = 0.0;
+        double value = 0.0;
+        if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
+            N3DSGml_setVar(control, "display_scale", 1.0);
+        }
+        if (N3DSGml_getVar(control, "displayx", &value) && value != 40.0) {
+            N3DSGml_setVar(control, "displayx", 40.0);
+        }
+        if (N3DSGml_getVar(control, "displayy", &value) && value != 0.0) {
+            N3DSGml_setVar(control, "displayy", 0.0);
+        }
+        N3DSAm2r_logScreenGeometry(control, 320.0, mode);
         return;
     }
     double widescreen = 0.0, space = 0.0;
@@ -1091,23 +1148,13 @@ static void N3DSAm2r_applyScreenMode(void) {
     gAm2r.hudInset = 0.0;
     gAm2r.hudLeftInset = 0.0;
 
-    // The game's own values, before this states anything: what it worked out from the window it was given. Logged so a
-    // run shows whether the port's values took effect or the game's own are being drawn with.
-    double gameScale = 0.0, gameX = 0.0, gameY = 0.0;
-    N3DSGml_getVar(control, "display_scale", &gameScale);
-    N3DSGml_getVar(control, "displayx", &gameX);
-    N3DSGml_getVar(control, "displayy", &gameY);
-
-    // The scale and offset the picture is drawn with. The game's own values are correct for Stretch and 2x (see the
-    // block comment above), so those modes leave them alone; Wide and 1x state them, because at a 400-wide window the
-    // game produces the same 1:1 layout for both.
+    // The scale and offset the picture is drawn with. The game's own values are right for Stretch (it is given a
+    // window as wide as its picture), so that mode leaves them alone; Wide states them, because at a 400-wide window
+    // the game would scale its 426-wide picture down instead of filling the screen with it.
     bool stated = false;
     double wantedScale = 0.0;
     if (mode == N3DS_SCREEN_WIDE) {
         wantedScale = 1.0;
-        stated = true;
-    } else if (mode == N3DS_SCREEN_1X) {
-        wantedScale = (double) N3DS_AM2R_WIDE_SCREEN_W / pictureW;
         stated = true;
     }
     if (stated) {
@@ -1134,34 +1181,7 @@ static void N3DSAm2r_applyScreenMode(void) {
         }
     }
 
-    // Ground truth, read back out of the instance after the writes above (so it is exactly what the Draw events will
-    // use): the numbers a screenshot has to agree with. Printed on the first frame and on every mode change, then a
-    // few times more, so one run on hardware tells a wrong variable from a wrong blit.
-    int32_t frame = gAm2r.runner != NULL ? gAm2r.runner->frameCount : 0;
-    bool changed = !gAm2r.screenLogged || gAm2r.screenLogMode != (int32_t) mode;
-    if (changed || (gAm2r.screenLogCount < 10 && frame - gAm2r.screenLogFrame >= 600)) {
-        gAm2r.screenLogged = true;
-        gAm2r.screenLogMode = (int32_t) mode;
-        gAm2r.screenLogFrame = frame;
-        gAm2r.screenLogCount++;
-        double scale = 0.0, x = 0.0, y = 0.0;
-        N3DSGml_getVar(control, "display_scale", &scale);
-        N3DSGml_getVar(control, "displayx", &x);
-        N3DSGml_getVar(control, "displayy", &y);
-        // What that means on the 400x240 screen: the rectangle the picture covers and how much falls outside each edge.
-        int32_t ix = (int32_t) x;
-        int32_t iy = (int32_t) y;
-        int32_t drawnW = (int32_t) (pictureW * scale + 0.5);
-        int32_t drawnH = (int32_t) (240.0 * scale + 0.5);
-        int32_t cutLeft = ix < 0 ? -ix : 0;
-        int32_t cutRight = ix + drawnW > N3DS_AM2R_WIDE_SCREEN_W ? ix + drawnW - N3DS_AM2R_WIDE_SCREEN_W : 0;
-        int32_t barTop = iy > 0 ? iy : 0;
-        int32_t barBottom = iy + drawnH < 240 ? 240 - (iy + drawnH) : 0;
-        logInfo("AM2R: screen %d [%s] picture %.0fx240 scale %.4f displayx/y (%d,%d): drawn %dx%d at (%d,%d), "
-                "cut left %d right %d, bars top %d bottom %d (the game's own were scale %.4f x %.0f y %.0f)\n",
-            (int) mode, N3DSAm2r_screenModeName(mode), pictureW, scale, ix, iy, drawnW, drawnH, ix, iy,
-            cutLeft, cutRight, barTop, barBottom, gameScale, gameX, gameY);
-    }
+    N3DSAm2r_logScreenGeometry(control, pictureW, mode);
 }
 
 // AM2R 1.5 creates its widescreen surface once, from the widescreen view's width, on its first frame, before the

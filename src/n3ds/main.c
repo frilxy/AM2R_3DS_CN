@@ -496,8 +496,7 @@ static const char* N3DS_screenModeName(N3DSScreenMode mode) {
     switch (mode) {
         case N3DS_SCREEN_WIDE: return "wide (1:1, fills the screen)";
         case N3DS_SCREEN_STRETCH: return "stretch (fills the screen, squashed)";
-        case N3DS_SCREEN_1X: return "1x (1:1, bars)";
-        case N3DS_SCREEN_2X: return "2x (2x, zoomed in)";
+        case N3DS_SCREEN_1X: return "point-for-point (320x240, 1:1, side bars)";
         default: return "pillarbox (1:1)";
     }
 }
@@ -921,13 +920,12 @@ int main(int argc, char** argv) {
                 gameW = targetW;
             }
         }
-        // The "window" the game sees. Stretch and 2x give it a window as wide as its own picture, so it draws 1:1 and
-        // the port transforms that onto the screen (squashed, or zoomed). Wide and 1x give it the screen instead, so it
-        // scales and centres its picture itself (Wide then overrides that to 1:1, see N3DSAm2r_applyScreenMode).
+        // The "window" the game sees. Stretch gives it a window as wide as its own picture, so it draws 1:1 and the
+        // port squashes that onto the screen. Wide and point-for-point give it the screen instead, so it scales and
+        // centres its picture itself (both then override that, see N3DSAm2r_applyScreenMode).
         bool stretch = gScreenMode == N3DS_SCREEN_STRETCH;
-        bool scale2x = gScreenMode == N3DS_SCREEN_2X;
-        int32_t fixedScale = scale2x ? 2 : 0;
-        bool gameSizedWindow = stretch || scale2x;
+        int32_t fixedScale = 0;
+        bool gameSizedWindow = stretch;
         gWindowW = gameSizedWindow ? (ownGameW > 0 ? ownGameW : runner->usingAppSurface ? runner->applicationWidth : (int32_t) gen8->defaultWindowWidth) : N3DS_TOP_SCREEN_W;
         gWindowH = gameSizedWindow ? (runner->usingAppSurface ? runner->applicationHeight : (int32_t) gen8->defaultWindowHeight) : N3DS_TOP_SCREEN_H;
         // The pause screen (rm_options) lays itself out for a 320x568 surface. In a game-sized window (stretch, 2x)
