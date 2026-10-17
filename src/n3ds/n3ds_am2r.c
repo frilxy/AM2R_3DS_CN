@@ -1079,10 +1079,12 @@ static void N3DSAm2r_logScreenGeometry(Instance* control, double pictureW, N3DSS
     int32_t cutRight = ix + drawnW > N3DS_AM2R_WIDE_SCREEN_W ? ix + drawnW - N3DS_AM2R_WIDE_SCREEN_W : 0;
     int32_t barTop = iy > 0 ? iy : 0;
     int32_t barBottom = iy + drawnH < 240 ? 240 - (iy + drawnH) : 0;
+    Runner* runner = gAm2r.runner;
     logInfo("AM2R: screen %d [%s] picture %.0fx240 scale %.4f displayx/y (%d,%d): drawn %dx%d at (%d,%d), "
-            "cut left %d right %d, bars top %d bottom %d\n",
+            "cut left %d right %d, bars top %d bottom %d (guicanvas %dx%d)\n",
         (int) mode, N3DSAm2r_screenModeName(mode), pictureW, scale, ix, iy, drawnW, drawnH, ix, iy,
-        cutLeft, cutRight, barTop, barBottom);
+        cutLeft, cutRight, barTop, barBottom,
+        runner != NULL ? runner->guiWidth : 0, runner != NULL ? runner->guiHeight : 0);
 }
 
 static void N3DSAm2r_applyScreenMode(void) {
@@ -1106,18 +1108,20 @@ static void N3DSAm2r_applyScreenMode(void) {
         if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) {
             N3DSGml_setVar(control, "widescreen", 0.0);
         }
-        // The picture is the game's own 320x240. Point-for-point shows it at 1:1; Stretch lets the renderer fill the
-        // screen with it. Either way displayx/y stay 0: the renderer centres a canvas narrower than the screen
-        // (N3DSRenderer_screenRect puts a 320-wide canvas at x = 40), and setting displayx as well offset everything
-        // twice. Stretch overrides that centring itself with stretchToScreen.
+        // The picture is the game's own 320x240 and it is placed by displayx, not by the renderer's viewport: the
+        // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
+        // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
+        // 0, not 40: the renderer centres the 320-wide canvas itself (screenRect), and adding 40 here as well is what
+        // pushed everything right in the previous attempt.
+        double wantedX = 0.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
             N3DSGml_setVar(control, "display_scale", 1.0);
         }
-        if (N3DSGml_getVar(control, "displayx", &value) && value != 0.0) {
-            N3DSGml_setVar(control, "displayx", 0.0);
+        if (N3DSGml_getVar(control, "displayx", &value) && value != wantedX) {
+            N3DSGml_setVar(control, "displayx", wantedX);
         }
         if (N3DSGml_getVar(control, "displayy", &value) && value != 0.0) {
             N3DSGml_setVar(control, "displayy", 0.0);
