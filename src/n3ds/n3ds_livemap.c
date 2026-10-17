@@ -29,18 +29,33 @@
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
+// Vertical layout, from the top of the bottom screen down. The bands are the game's own map-page furniture, but the
+// heights are this port's: the title bar and the information bar are squeezed to a line each so the map keeps the
+// room, and the buttons get a strip of their own at the bottom.
+#define N3DS_LIVEMAP_TITLE_H 16    // title bar (贴顶)
+#define N3DS_LIVEMAP_INFO_H 20     // play time / items / Metroids row
+#define N3DS_LIVEMAP_BUTTON_H 40   // the three touch buttons
+#define N3DS_MAP_TOP N3DS_LIVEMAP_TITLE_H
+#define N3DS_MAP_BOTTOM (N3DS_LIVEMAP_H - N3DS_LIVEMAP_BUTTON_H - N3DS_LIVEMAP_INFO_H)
+#define N3DS_INFO_TOP N3DS_MAP_BOTTOM
+#define N3DS_BUTTON_TOP (N3DS_LIVEMAP_H - N3DS_LIVEMAP_BUTTON_H)
+
+// The bottom strip's three buttons, left to right: items, map, mission log. That is the game's own pause cross with
+// its right, up and left arms laid out in a row, which is where the icons come from.
+#define N3DS_MAP_BUTTON_COUNT 3
+
 typedef struct {
     Runner* runner;
     Renderer* renderer;
     int32_t sprBlock, sprCorner, sprHLine, sprVLine, sprHPass, sprVPass, sprSP, sprHilight, sprMarker;
     int32_t objControl;
     int32_t bgGrid, bgTopBar, bgBottomBar, font, scriptText;
+    // One sprite per bottom button (items / map / log); -1 for one this game does not have.
+    int32_t buttonSprite[N3DS_MAP_BUTTON_COUNT];
     uint32_t frame;
     int32_t lastPx, lastPy;
     // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
     float panX, panY;
-    // The black bands cover everything the bars and text draw: the saved picture has the previous frame's in it.
-    float topBandEnd, bottomBandStart;
     char* title;
     double titleLanguage;
     bool titleFetched;
@@ -69,6 +84,10 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.bgGrid = N3DSGml_backgroundIndex("bgMapScreenBG");
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
     gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
+    // The three buttons' icons, in left-to-right order: items, map, mission log.
+    gLive.buttonSprite[0] = N3DSGml_spriteIndex("sSubScrSuit");     // the items panel's own emblem
+    gLive.buttonSprite[1] = N3DSGml_spriteIndex("sMapMarkerMove");  // a map marker
+    gLive.buttonSprite[2] = N3DSGml_spriteIndex("sLogTrigger");     // a log entry
     // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
     // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
     // symbols but no title, no play time and no counter.
@@ -77,14 +96,6 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     if (gLive.font < 0) logInfo("Live map: no fontGUI2Default in this game, the map's text is off\n");
     gLive.scriptText = N3DSGml_scriptIndex("get_text");
     gLive.lastPx = gLive.lastPy = INT32_MIN;
-    DataWin* dataWin = runner->dataWin;
-    float barH = 0.0f, fontH = 0.0f;
-    int32_t barTpag = gLive.bgTopBar >= 0 ? Renderer_resolveBackgroundTPAGIndex(dataWin, gLive.bgTopBar) : -1;
-    if (barTpag >= 0 && (uint32_t) barTpag < dataWin->tpag.count) barH = (float) dataWin->tpag.items[barTpag].boundingHeight;
-    if (gLive.font >= 0 && (uint32_t) gLive.font < dataWin->font.count) fontH = (float) dataWin->font.fonts[gLive.font].maxGlyphHeight;
-    // The title at y 29 and the time at y 197 (+1 for the shadow), the top bar from y 30.
-    gLive.topBandEnd = fmaxf(41.0f, fmaxf(30.0f + barH, 29.0f + fontH + 1.0f));
-    gLive.bottomBandStart = 197.0f;
     if (gLive.sprBlock < 0 || gLive.sprCorner < 0 || gLive.sprHLine < 0 || gLive.sprVLine < 0 || gLive.sprHPass < 0 ||
         gLive.sprVPass < 0 || gLive.sprSP < 0) {
         logInfo("Live map: map sprites not in this game, off\n");
@@ -159,9 +170,14 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
     if (explored == 11.0) N3DSLiveMap_sprite(gLive.sprSP, 7, x, y, 1.0f);
 }
 
+// The centre of the map area, not of the screen: the title bar and the button strip take their own rows, and the map
+// has to be centred in what is left or Samus sits off-centre.
+#define N3DS_MAP_CENTRE_X (N3DS_LIVEMAP_W / 2)
+#define N3DS_MAP_CENTRE_Y (N3DS_MAP_TOP + (N3DS_MAP_BOTTOM - N3DS_MAP_TOP) / 2)
+
 static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t py, float* x, float* y) {
-    *x = (float) (N3DS_LIVEMAP_W / 2 - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL) + gLive.panX;
-    *y = (float) (N3DS_LIVEMAP_H / 2 - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL) + gLive.panY;
+    *x = (float) (N3DS_MAP_CENTRE_X - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL) + gLive.panX;
+    *y = (float) (N3DS_MAP_CENTRE_Y - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL) + gLive.panY;
 }
 
 // Drags the map by a screen-space delta. The pan is clamped so the map cannot be flung off the screen: it may move
@@ -187,8 +203,8 @@ void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* ou
     if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
     float fx = (float) sx - gLive.panX;
     float fy = (float) sy - gLive.panY;
-    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) (N3DS_LIVEMAP_W / 2)) / (float) N3DS_LIVEMAP_CELL);
-    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) (N3DS_LIVEMAP_H / 2)) / (float) N3DS_LIVEMAP_CELL);
+    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) N3DS_MAP_CENTRE_X) / (float) N3DS_LIVEMAP_CELL);
+    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) N3DS_MAP_CENTRE_Y) / (float) N3DS_LIVEMAP_CELL);
 }
 
 static void N3DSLiveMap_background(int32_t background, float x, float y, float xscale) {
@@ -223,16 +239,24 @@ static void N3DSLiveMap_twoDigits(char* out, size_t size, const char* global) {
     snprintf(out, size, "%02d", (int) value);
 }
 
+static void N3DSLiveMap_drawButtons(void);
+
 static void N3DSLiveMap_drawFrame(void) {
     Renderer* r = gLive.renderer;
     // The game's draw state is left as it was.
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, gLive.topBandEnd, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 30.0f, 10.0f);
-    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
+
+    // Three bands across the bottom screen: the title at the very top, the map in the middle, the counters and the
+    // buttons below it. The black behind them is what the game's own map page uses; the map area is left clear.
+    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_TITLE_H, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, 0.0f, (float) N3DS_INFO_TOP, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H,
+        0x000000, 1.0f, false);
+    // The game's own bars, squeezed into the new heights (they were drawn for a taller layout).
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 0.0f, 10.0f);
+    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, (float) N3DS_INFO_TOP, 1.0f);
+
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);
     // Once per language, whatever comes back (a failing call isn't retried every frame).
@@ -243,7 +267,10 @@ static void N3DSLiveMap_drawFrame(void) {
         gLive.titleLanguage = language;
         gLive.titleFetched = true;
     }
-    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, 29.0f, 1);
+    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", (float) (N3DS_LIVEMAP_W / 2), 2.0f, 1);
+
+    // The counters sit on the information row's own baseline.
+    const float infoY = (float) N3DS_INFO_TOP + 2.0f;
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
         // steps_to_time2(gametime): gametime counts steps (60 a second), shown as HH:MM:SS. Done here, not by calling
@@ -254,7 +281,7 @@ static void N3DSLiveMap_drawFrame(void) {
             snprintf(gLive.time, sizeof(gLive.time), "%02d:%02d:%02d", (int) (seconds / 3600), (int) (seconds / 60 % 60), (int) (seconds % 60));
             gLive.timeSeconds = seconds;
         }
-        N3DSLiveMap_text(gLive.time, 17.0f, 197.0f, 0);
+        N3DSLiveMap_text(gLive.time, 17.0f, infoY, 0);
     }
     char left[8], area[8], collected[8];
     N3DSLiveMap_twoDigits(left, sizeof(left), "monstersleft");
@@ -263,13 +290,41 @@ static void N3DSLiveMap_drawFrame(void) {
     double percent = 0.0;
     N3DSGml_getGlobal("percent", -1, &percent);
     snprintf(collected, sizeof(collected), "%d%%", (int) percent);
-    N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
-    N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
-    N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
+    N3DSLiveMap_text(collected, 227.0f, infoY, 0);
+    N3DSLiveMap_text(left, 259.0f, infoY, 0);
+    N3DSLiveMap_text(area, 303.0f, infoY, 0);
+
+    N3DSLiveMap_drawButtons();
+
     r->drawFont = font;
     r->drawHalign = halign;
     r->drawColor = color;
     r->drawAlpha = alpha;
+}
+
+// The three touch buttons. Left to right they open the items panel, the map and the mission log - the same three the
+// game's own pause cross offers right, up and left. Each is a panel with the game's own icon in it.
+static void N3DSLiveMap_drawButtons(void) {
+    Renderer* r = gLive.renderer;
+    const float slotW = (float) N3DS_LIVEMAP_W / 3.0f;
+    const float top = (float) N3DS_BUTTON_TOP;
+    const float h = (float) N3DS_LIVEMAP_BUTTON_H;
+    for (int32_t i = 0; i < N3DS_MAP_BUTTON_COUNT; i++) {
+        float x = (float) i * slotW;
+        // The game's button look: a dark panel with a lighter border, drawn with rectangles so it survives a missing
+        // sprite.
+        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + h - 3.0f, 0x12200a, 1.0f, false);
+        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + 4.0f, 0x2f5c14, 1.0f, false);
+        // Stretched to one size so the three read as a set: the icons they borrow come from different sprites and are
+        // not the same size (67x44, 24x24, 32x32).
+        if (gLive.buttonSprite[i] >= 0) {
+            const float icon = 24.0f;
+            float cx = x + slotW * 0.5f;
+            float cy = top + h * 0.5f;
+            Renderer_drawSpriteStretched(r, gLive.buttonSprite[i], 0, cx - icon * 0.5f, cy - icon * 0.5f, icon, icon,
+                0xFFFFFF, 1.0f);
+        }
+    }
 }
 
 static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
