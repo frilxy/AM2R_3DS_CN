@@ -5146,23 +5146,6 @@ static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float
 
 static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float x, float y, float xscale, float yscale, float angleDeg, bool gradient, int32_t c1, int32_t c2, int32_t c3, int32_t c4, float alpha, float lineSeparation) {
     DataWin* dw = base->dataWin;
-    {
-        // Diagnostic: every draw_text the game makes, before anything can drop it. If these lines never appear, the
-        // game is not drawing text at all; if they appear but nothing is painted, the fault is past this point.
-        N3DSRenderer* r = (N3DSRenderer*) base;
-        // Only when a clock is on screen: the save slot and the file select both draw one, and that is the text whose
-        // font is being looked for. Logging every call would be thousands of lines; the first 16 of the run are the
-        // attract screen and say nothing about this.
-        // Clock-shaped text below the top of the picture. The title screen draws one at y 2..44, every frame, and would
-        // otherwise fill the log before the save slot is opened; the one that matters sits in the middle of the screen.
-        if (text != NULL && strchr(text, ':') != NULL && y > 60.0f && r->textCallLogCount < 60u) {
-            r->textCallLogCount++;
-            const char* fontName = (base->drawFont >= 0 && (uint32_t) base->drawFont < dw->font.count &&
-                dw->font.fonts[base->drawFont].name != NULL) ? dw->font.fonts[base->drawFont].name : "?";
-            logInfo("N3DS: draw_text font %d (%s) at %g,%g [%.24s]\n", (int) base->drawFont, fontName,
-                (double) x, (double) y, text);
-        }
-    }
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
