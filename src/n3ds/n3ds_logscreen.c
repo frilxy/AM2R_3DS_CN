@@ -29,9 +29,9 @@
 #define N3DS_LOG_FOOT_H 14
 #define N3DS_LOG_ROW_H 16       // one entry in the list
 #define N3DS_LOG_CAT_H 20       // a category heading, with its highlight bar
-#define N3DS_LOG_LIST_W 170     // the list column; the picture takes the rest
-#define N3DS_LOG_TEXT_L 12.0f   // where an entry's text starts
-#define N3DS_LOG_PIC_X 170
+#define N3DS_LOG_LIST_W 165     // the list column; the picture takes the rest
+#define N3DS_LOG_TEXT_L 22.0f   // where an entry's text starts: indented under its category
+#define N3DS_LOG_PIC_X 168
 #define N3DS_LOG_DESC_LINE 11   // one line of an entry's body
 
 #define N3DS_LOG_BAR_COLOUR 0x2f7a12u
@@ -220,7 +220,7 @@ static void N3DSLogScreen_drawList(void) {
     for (int32_t c = 0; c < N3DS_LOG_CATEGORY_COUNT; c++) {
         const N3DSLogCategory* category = &kCategories[c];
         // The category heading, with its bar behind it, as the game's own list has it.
-        N3DSLogScreen_rect(8.0f, y, (float) N3DS_LOG_LIST_W, y + 11.0f, N3DS_LOG_BAR_COLOUR);
+        N3DSLogScreen_rect(8.0f, y, (float) N3DS_LOG_LIST_W, y + 13.0f, N3DS_LOG_BAR_COLOUR);
         char* heading = N3DSLogScreen_getText(category->federation ? "NewLogsCategories" : "LogsCategories",
             category->heading);
         N3DSLogScreen_text1(heading != NULL ? heading : category->heading, 10.0f, y, 1.0f, 0xFFFFFF);
@@ -247,7 +247,7 @@ static void N3DSLogScreen_drawList(void) {
             }
             y += (float) N3DS_LOG_ROW_H;
         }
-        y += 4.0f; // a gap between categories
+        y += 8.0f; // a gap between categories
     }
     // The selected entry's picture fills the right-hand column while the list is up.
     const N3DSLogEntry* selected = &kEntries[gLog.selected];

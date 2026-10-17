@@ -25,6 +25,9 @@
 // cells, so redrawing costs a fraction of a millisecond and there is no stale copy to get out of step. get_text reads
 // the language file, so the title is fetched once per language.
 
+// The bar colour, sampled from the game's own sub-screen page: rgb(8,58,8).
+#define N3DS_BAR_COLOUR 0x083a08u
+
 #define N3DS_LIVEMAP_CELL 8
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
@@ -305,25 +308,13 @@ static void N3DSLiveMap_drawFrame(void) {
 // The three touch buttons. Left to right they open the items panel, the map and the mission log - the same three the
 // game's own pause cross offers right, up and left. Each is a panel with the game's own icon in it.
 
-// The green bar across the top of a page. The game's own sub-screen pages use bg_SubScrBottom for this, stretched
-// sideways (its xscale was 10 on the map page); drawn with that same background here so every page's bar matches.
+// The green bar across the top of a page, and the same bar in the middle of the log page. The game draws these from
+// bg_SubScrBottom stretched sideways, but that background is a small tile whose own width makes the stretch ratio
+// fragile - it came out half-width on the log page. A flat rectangle of the colour sampled from the game's page is
+// exact, one draw call, and cannot be a fraction of the screen wide.
 void N3DSLiveMap_drawBar(float y, float height) {
-    Renderer* r = gLive.renderer;
-    if (gLive.bgTopBar >= 0) {
-        int32_t tpag = Renderer_resolveBackgroundTPAGIndex(r->dataWin, gLive.bgTopBar);
-        if (tpag >= 0 && (uint32_t) tpag < r->dataWin->tpag.count) {
-            DataWin* dataWin = r->dataWin;
-            float w = (float) dataWin->tpag.items[tpag].boundingWidth;
-            float h = (float) dataWin->tpag.items[tpag].boundingHeight;
-            if (w > 0.0f && h > 0.0f) {
-                r->vtable->drawSprite(r, tpag, 0.0f, y, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W / w,
-                    height / h, 0.0f, 0xFFFFFF, 1.0f);
-                return;
-            }
-        }
-    }
-    // No background in this game: a flat bar of the same colour.
-    r->vtable->drawRectangle(r, 0.0f, y, (float) N3DS_LIVEMAP_W, y + height, 0x2f7a12u, 1.0f, false);
+    gLive.renderer->vtable->drawRectangle(gLive.renderer, 0.0f, y, (float) N3DS_LIVEMAP_W, y + height,
+        N3DS_BAR_COLOUR, 1.0f, false);
 }
 
 // The button strip along the bottom edge, drawn on every page; `current` is the one whose page is showing, which

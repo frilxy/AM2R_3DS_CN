@@ -72,10 +72,10 @@ static const N3DSItemRow kBootRows[] = {
 // The four boxes, at the positions the game's page puts them. firstRow continues the flat selection order across the
 // boxes (suits 0-2, beams 3-7, misc 8-13, boots 14-16).
 static const N3DSItemBox kBoxes[] = {
-    { "Suits", 33.5f, 54.0f, 67, 44, "sSubScrSuit", 3, kSuitRows, 0 },
-    { "Beams", 33.5f, 120.0f, 67, 62, "sSubScrBeam", 5, kBeamRows, 3 },
-    { "Misc", 240.6f, 54.0f, 67, 71, "sSubScrMisc", 6, kMiscRows, 8 },
-    { "Boots", 240.6f, 140.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
+    { "Suits", 20.0f, 54.0f, 67, 44, "sSubScrSuit", 3, kSuitRows, 0 },
+    { "Beams", 20.0f, 120.0f, 67, 62, "sSubScrBeam", 5, kBeamRows, 3 },
+    { "Misc", 233.0f, 54.0f, 67, 71, "sSubScrMisc", 6, kMiscRows, 8 },
+    { "Boots", 233.0f, 140.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
 };
 #define N3DS_ITEMS_BOX_COUNT ((int32_t) (sizeof(kBoxes) / sizeof(kBoxes[0])))
 #define N3DS_ITEMS_ROW_COUNT 17
@@ -189,7 +189,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
     // The panel sprite's own title strip is only about six pixels tall, which is not enough for a Chinese heading, so
     // the heading sits just under it and the rows start below that.
     char* heading = N3DSItemsScreen_text("ItemsMenu", box->heading);
-    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 0.68f);
+    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 1.0f);
     free(heading);
 
     for (int32_t row = 0; row < box->rowCount; row++) {
@@ -205,7 +205,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         char* label = N3DSItemsScreen_text("ItemsMenu", item->key);
         // Three-quarter size: the boxes are 67 wide, which fits the game's own English names (PLASMA BEAM) but not
         // their Chinese ones, where 等离子光束 is five full-width characters. At 0.75 the longest still fits.
-        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 12.0f, rowY, 0.7f);
+        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 8.0f, rowY, 1.0f);
         free(label);
     }
 }
