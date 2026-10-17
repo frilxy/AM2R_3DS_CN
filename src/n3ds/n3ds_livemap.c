@@ -210,11 +210,6 @@ void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* ou
     *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) N3DS_MAP_CENTRE_Y) / (float) N3DS_LIVEMAP_CELL);
 }
 
-static void N3DSLiveMap_background(int32_t background, float x, float y, float xscale) {
-    if (background < 0) return;
-    int32_t tpag = Renderer_resolveBackgroundTPAGIndex(gLive.renderer->dataWin, background);
-    if (tpag >= 0) gLive.renderer->vtable->drawSprite(gLive.renderer, tpag, x, y, 0.0f, 0.0f, xscale, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
-}
 
 // draw_text with a black shadow one pixel down-right, as the pause screen does.
 static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign) {
