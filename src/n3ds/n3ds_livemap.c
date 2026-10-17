@@ -29,27 +29,28 @@
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
-// The two rows at the top of the bottom screen, swapped from where the game's own map page puts them: the title bar
-// takes the screen's first 14 pixels and the counters sit in the 30 below it, so the strip reads like the top of the
-// items page. The map starts under both, at y 44, exactly where its first row began before.
+// The two rows at the top of the bottom screen. The green bar does not move: it stays where the game's map page
+// puts it (y 30..44) and the counters are drawn on it. What moves is the title, off the bar and into the black
+// margin above it, so the bar carries live numbers and the page's name sits in the space that was empty.
 //
-// The counters' band is 30 pixels tall and a line of the font is 12, so the row sits 14 + (30 - 12) / 2 = 23.
-#define N3DS_TITLE_BAR_H 14.0f
-#define N3DS_STATUS_BAND_TOP N3DS_TITLE_BAR_H
+// The title is 12 pixels tall, so it centres in the 30-pixel margin at (30 - 12) / 2 = 9.
+#define N3DS_TITLE_BAR_TOP 30.0f   // the green bar keeps its place; the counters go on it
 #define N3DS_STATUS_BAND_BOTTOM 44.0f
-#define N3DS_STATUS_TITLE_Y 1.0f   // the title's own top inside the 14-pixel bar (the game drew it at 29 for a bar at 30)
+#define N3DS_STATUS_TITLE_Y 9.0f   // the title's own top, centred in the margin above the bar
 #define N3DS_STATUS_ICON_H 12
 #define N3DS_STATUS_GAP 2       // between an icon and its value
 #define N3DS_STATUS_MIN_GAP 4.0f  // the least space between two entries, whatever the counters' widths
-// The counters' row, centred in the band between the title bar and the map.
-#define N3DS_STATUS_Y (N3DS_STATUS_BAND_TOP + (N3DS_STATUS_BAND_BOTTOM - N3DS_STATUS_BAND_TOP - (float) N3DS_STATUS_ICON_H) * 0.5f)
+// The counters' row, centred on the green bar: the bar is 14 tall and the row 12, so (14 - 12) / 2 = 1 inside it.
+#define N3DS_STATUS_Y (N3DS_TITLE_BAR_TOP + 1.0f)
 // The value font is fontGUI2: digits are 6 wide with shift 7, so a rendered digit is 7 pixels.
 #define N3DS_STATUS_DIGIT_W 7
 // The energy icon: there is no stand-alone sprite for the green "E" plate the game's own HUD shows (its plate is a
-// black 33x20 background, coloured at draw time), so the port draws the plate itself.
+// black 33x20 background, coloured at draw time), so the port draws the plate itself. It sits on the bar, so it is
+// the brighter green the bar's highlight uses rather than the bar's own dark fill, or it would vanish into it.
 #define N3DS_STATUS_ETANK_W 12
 #define N3DS_STATUS_ETANK_H 12
-#define N3DS_STATUS_ETANK_COLOUR 0x1f7a1fu  // the green of the game's health plate
+#define N3DS_STATUS_ETANK_COLOUR 0x84e629u  // the bar's bright highlight green, measured off a console screenshot
+#define N3DS_STATUS_ETANK_EDGE 0x0a2a04u    // the bar's dark green, for the plate's border and its E
 
 typedef struct {
     Runner* runner;
@@ -299,19 +300,20 @@ static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW
 static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
     Renderer* r = gLive.renderer;
     const float w = (float) N3DS_STATUS_ETANK_W, h = (float) N3DS_STATUS_ETANK_H;
+    // The plate sits on the green bar now, so it is the light green with a dark edge: a black border here would read
+    // as a hole punched through the bar rather than as an icon.
     r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_COLOUR, 1.0f, false);
-    // One dark pixel of border so the block keeps its edge against the black band.
-    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top, x + 1.0f, top + h, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, x + w - 1.0f, top, x + w, top + h, 0x000000, 1.0f, false);
-    // The E: a spine 1 pixel in from the border, plus three bars a pixel thick (top, middle, bottom).
+    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top, x + 1.0f, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, x + w - 1.0f, top, x + w, top + h, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    // The E in near-black, matching the dark glyphs the bar's own text uses.
     const float left = x + 3.0f;
     const float right = x + w - 3.0f;
-    r->vtable->drawRectangle(r, left, top + 3.0f, left + 1.0f, top + h - 3.0f, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 3.0f, right, top + 4.0f, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 6.0f, right - 1.0f, top + 7.0f, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + h - 4.0f, right, top + h - 3.0f, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 3.0f, left + 1.0f, top + h - 3.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 3.0f, right, top + 4.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 6.0f, right - 1.0f, top + 7.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + h - 4.0f, right, top + h - 3.0f, N3DS_STATUS_ETANK_EDGE, 1.0f, false);
 }
 
 // value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
@@ -424,12 +426,12 @@ static void N3DSLiveMap_drawFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    // The two rows swap places from where the game's own map page puts them: the title bar moves up to the screen's
-    // top edge (y 0..14) and the counters take the band under it (y 14..44). The map starts below both, at
-    // N3DS_STATUS_BAND_BOTTOM, which is where its first row used to begin.
+    // The green bar keeps its place at y 30; the title moves up into the black margin above it and the counters are
+    // drawn on the bar itself, so the bar carries the live numbers instead of the page's name.
     r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
     r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 0.0f, 10.0f);
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
+    // On the bar, so after it: the counters are readable against the green, and the bar is not drawn over them.
     N3DSLiveMap_drawStatus();
     N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     double language = 0.0;
@@ -442,7 +444,7 @@ static void N3DSLiveMap_drawFrame(void) {
         gLive.titleLanguage = language;
         gLive.titleFetched = true;
     }
-    // Centred in the 14-pixel bar: the bar is at y 0 now, so the 29 the game used becomes 0 + 29 - 30 = -1.
+    // In the black margin above the bar, centred there.
     N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
