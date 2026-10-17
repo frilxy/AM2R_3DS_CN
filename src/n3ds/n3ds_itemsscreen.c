@@ -2,6 +2,7 @@
 
 #include "n3ds_gml.h"
 #include "n3ds_livemap.h"
+#include "n3ds_renderer.h"
 
 #include "../log.h"
 #include "../rvalue.h"
@@ -117,7 +118,8 @@ bool N3DSItemsScreen_available(void) {
 // One string out of the language file, or NULL. The caller frees it.
 static char* N3DSItemsScreen_text(const char* section, const char* key) {
     if (gItems.scriptText < 0) return NULL;
-    RValue args[2] = { RValue_makeString(key), RValue_makeString(section) };
+    // get_text(section, key): the section comes first.
+    RValue args[2] = { RValue_makeString(section), RValue_makeString(key) };
     RValue result = N3DSGml_callScript(gItems.scriptText, args, 2);
     char* text = result.type == RVALUE_STRING && result.string != NULL ? safeStrdup(result.string) : NULL;
     RValue_free(&result);
@@ -260,12 +262,16 @@ void N3DSItemsScreen_draw(void) {
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
 
+    // This page draws in 320x240 screen coordinates, so the bottom screen has to be made the target first - without
+    // this the whole panel lands on the top screen, over the running game.
+    N3DSRenderer_beginBottomScreenGUI(r, N3DS_ITEMS_W, N3DS_ITEMS_H);
     N3DSItemsScreen_rect(0.0f, 0.0f, (float) N3DS_ITEMS_W, (float) N3DS_ITEMS_H, 0x000000u);
     N3DSItemsScreen_drawStatus();
     N3DSItemsScreen_drawSamus();
     for (int32_t i = 0; i < N3DS_ITEMS_BOX_COUNT; i++) N3DSItemsScreen_drawBox(i);
     N3DSItemsScreen_drawDescription();
     N3DSLiveMap_drawButtons(0); // left slot: the items page
+    N3DSRenderer_endBottomScreenGUI(r);
 
     r->drawFont = font;
     r->drawHalign = halign;

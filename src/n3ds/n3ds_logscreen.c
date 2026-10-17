@@ -2,6 +2,7 @@
 
 #include "n3ds_gml.h"
 #include "n3ds_livemap.h"
+#include "n3ds_renderer.h"
 
 #include "../log.h"
 #include "../rvalue.h"
@@ -163,7 +164,8 @@ bool N3DSLogScreen_available(void) {
 // One string out of the language file, or NULL. The caller frees it.
 static char* N3DSLogScreen_getText(const char* section, const char* key) {
     if (gLog.scriptText < 0) return NULL;
-    RValue args[2] = { RValue_makeString(key), RValue_makeString(section) };
+    // get_text(section, key): the section comes first.
+    RValue args[2] = { RValue_makeString(section), RValue_makeString(key) };
     RValue result = N3DSGml_callScript(gLog.scriptText, args, 2);
     char* text = result.type == RVALUE_STRING && result.string != NULL ? safeStrdup(result.string) : NULL;
     RValue_free(&result);
@@ -305,6 +307,8 @@ void N3DSLogScreen_draw(void) {
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
 
+    // 320x240 screen coordinates: the bottom screen has to be the target, or the page lands on the top screen.
+    N3DSRenderer_beginBottomScreenGUI(r, N3DS_LOG_W, N3DS_LOG_H);
     N3DSLogScreen_rect(0.0f, 0.0f, (float) N3DS_LOG_W, (float) N3DS_LOG_H, 0x000000u);
     // The title strip, with the page's own name.
     N3DSLogScreen_rect(0.0f, (float) N3DS_LOG_TITLE_Y, (float) N3DS_LOG_W,
@@ -322,6 +326,7 @@ void N3DSLogScreen_draw(void) {
     N3DSLogScreen_rect(0.0f, (float) N3DS_LOG_FOOT_Y, (float) N3DS_LOG_W,
         (float) (N3DS_LOG_FOOT_Y + N3DS_LOG_FOOT_H), N3DS_LOG_BAR_COLOUR);
     N3DSLiveMap_drawButtons(2); // right slot: the log page
+    N3DSRenderer_endBottomScreenGUI(r);
 
     r->drawFont = font;
     r->drawHalign = halign;
