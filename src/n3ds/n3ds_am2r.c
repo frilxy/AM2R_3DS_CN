@@ -1113,13 +1113,14 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // The HUD needs no correction here. The game lays its right-hand block out at 250 + widescreen_space and its
-        // left-hand one at 33, and both of those are measured from a 320-wide picture: the +space part is what a
-        // widescreen picture adds beyond it. With the widescreen off, space is 0 and the blocks already sit where the
-        // game means them to - 33 in from the left and 250..320 against the right. Reporting an inset here moved them
-        // off that.
-        gAm2r.hudInset = 0.0;
-        gAm2r.hudLeftInset = 0.0;
+        // The picture is 320 wide and centred, so 40 columns of bar sit at each side. The HUD belongs to the picture,
+        // but on the 3DS the screen edges are where the player reads it from, so both blocks are moved out by those 40
+        // columns: the left block starts at the screen's left edge, the right block ends at its right edge. Each block
+        // then overhangs the picture onto the bar, which is intended - it keeps the HUD where a 4:3 screen would put
+        // it rather than 40 columns in from it.
+        double barWidth = (mode == N3DS_SCREEN_STRETCH) ? 0.0 : 40.0;
+        gAm2r.hudLeftInset = -barWidth;   // added to the left block's x
+        gAm2r.hudInset = -barWidth;       // subtracted from the right block's space, so negative moves it right
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
