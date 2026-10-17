@@ -1113,15 +1113,11 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // The left block is moved out by the width of the bar so it sits against the screen edge like the right one.
-        // Its background (bgGUIHealth) carries about 45 columns of blank on its own left, so its visible content
-        // starts that far into the picture; measured off a screenshot, the tanks begin at picture x 45 and the right
-        // block ends at picture x 320. Moving the block left by the bar width brings the tanks to screen x 45 while
-        // the right block stays 40 columns from the right edge, which is symmetric.
-        // Every element of the block takes this one shift (the backgrounds, the tank frames, the digits and the
-        // health text all add hudShift), so the block keeps its internal alignment.
-        double barWidth = (mode == N3DS_SCREEN_STRETCH) ? 0.0 : 40.0;
-        gAm2r.hudLeftInset = -barWidth;
+        // No HUD correction. The game's blocks are laid out for a 320-wide picture and with the widescreen off they sit
+        // where it means them to. Shifting the left block by the bar width cut its tanks off instead of moving the
+        // block: bgGUIHealth draws at x + hudShift, but the tank frames and the health text are positioned from their
+        // own x values, so they do not travel the same distance.
+        gAm2r.hudLeftInset = 0.0;
         gAm2r.hudInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
