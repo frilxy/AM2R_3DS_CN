@@ -838,23 +838,45 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
     (void) bold;
     (void) italic; // a pixel font has one face; the game's own bold is just a thicker outline
 
+    // A pixel font carries exactly one bitmap strike, but the game asks 04b09.ttf for two sizes: fontGUI at 12px and
+    // fontSubScr at 8px. The 8px request got the file's 12px strike, so that font's text was drawn with glyphs twice
+    // the intended size - which is what made the panel headings look like a smear. It gets the 8px file instead, at
+    // the same size, so fontMenuTiny has already put that strip in the texture and this reuses it.
+    const char* path = ttfPath;
+    if (font->name != NULL) {
+        static const struct { const char* fontName; const char* path; } kOverrides[] = {
+            { "fontSubScr", "lang/fonts/04b24.ttf" }, // 8px, the file the 8px request was always meant for
+        };
+        for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
+            size_t length = strlen(kOverrides[i].fontName);
+            // fontSubScr and fontSubScrDefault both count; a longer name that merely starts the same way does not.
+            if (strncmp(font->name, kOverrides[i].fontName, length) != 0) continue;
+            const char* rest = font->name + length;
+            if (*rest != '\0' && strcmp(rest, "Default") != 0) continue;
+            path = kOverrides[i].path;
+            logInfo("AM2R: %s is the %gpx face, so it loads %s instead of %s\n",
+                font->name, (double) emSize, path, ttfPath);
+            break;
+        }
+    }
+
     size_t size = 0;
-    uint8_t* d = N3DSFontReplace_readFile(ttfPath, &size);
+    uint8_t* d = N3DSFontReplace_readFile(path, &size);
     if (d == NULL) {
-        logError("AM2R: cannot read font %s\n", ttfPath);
+        logError("AM2R: cannot read font %s\n", path);
         return false;
     }
 
     N3DSFontCmap4 cmap;
     N3DSFontStrike strike;
     if (!N3DSFontReplace_cmap4(d, size, &cmap) || !N3DSFontReplace_findStrike(d, size, emSize, &strike)) {
-        logError("AM2R: %s has no usable bitmap strike (an outline font cannot be used)\n", ttfPath);
+        logError("AM2R: %s has no usable bitmap strike (an outline font cannot be used)\n", path);
         free(d);
         return false;
     }
 
     const N3DSGlyphSet* set = N3DSFontReplace_glyphSet();
-    bool ok = N3DSFontReplace_buildAndInstall(runner, fontIndex, d, size, &cmap, &strike, set, emSize, ttfPath);
+    bool ok = N3DSFontReplace_buildAndInstall(runner, fontIndex, d, size, &cmap, &strike, set, emSize, path);
     if (ok) {
         // A swapped font has a whole new glyph array; a layout cached before the swap still holds the old rectangles,
         // so strings laid out during the init room (before oControl replaced the fonts) kept drawing nothing.
