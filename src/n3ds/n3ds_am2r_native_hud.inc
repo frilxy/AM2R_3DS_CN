@@ -252,21 +252,24 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     // 40 columns in. On a screenshot they say where the canvas lands relative to the game picture, which separates a
     // HUD drawn in the wrong place from a canvas blitted in the wrong place.
     {
-        RValue saved[1] = { R(colourHsv(0, 0, 1)) };
-        callVoid(N.drawSetColor, saved, 1);
-        RValue red[5] = { R(0), R(0), R(3), R(60), R(0) };
-        callVoid(N.drawRectangle, red, 5);
-        RValue blue[5] = { R(317), R(0), R(320), R(60), R(0) };
-        callVoid(N.drawRectangle, blue, 5);
-        RValue other[1] = { R(colourHsv(0.83f, 1, 1)) };
-        callVoid(N.drawSetColor, other, 1);
+        // GameMaker colours are BGR: c_red is 0x0000FF, c_blue is 0xFF0000, c_fuchsia is 0x00FFFF.
+        RValue red[1] = { R(255) };
+        callVoid(N.drawSetColor, red, 1);
+        RValue atLeft[5] = { R(0), R(0), R(3), R(60), R(0) };
+        callVoid(N.drawRectangle, atLeft, 5);
+        RValue blue[1] = { R(16711680) };
+        callVoid(N.drawSetColor, blue, 1);
+        RValue atRight[5] = { R(317), R(0), R(320), R(60), R(0) };
+        callVoid(N.drawRectangle, atRight, 5);
+        RValue fuchsia[1] = { R(16711935) };
+        callVoid(N.drawSetColor, fuchsia, 1);
         RValue m1[5] = { R(40), R(60), R(43), R(120), R(0) };
         callVoid(N.drawRectangle, m1, 5);
         RValue m2[5] = { R(277), R(60), R(280), R(120), R(0) };
         callVoid(N.drawRectangle, m2, 5);
-        // Put the colour back: the HUD below sets its own before drawing, but leaving magenta behind would tint
+        // Put the colour back: the HUD below sets its own before drawing, but leaving fuchsia behind would tint
         // anything that does not.
-        RValue white[1] = { R(colourHsv(0, 0, 1)) };
+        RValue white[1] = { R(16777215) };
         callVoid(N.drawSetColor, white, 1);
     }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
