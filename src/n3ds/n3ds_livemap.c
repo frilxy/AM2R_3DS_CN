@@ -332,7 +332,7 @@ void N3DSLiveMap_drawButtons(int32_t current) {
     const float top = (float) N3DS_BOTTOM_BUTTON_TOP;
     const float h = (float) N3DS_BOTTOM_BUTTON_H;
     // The two pages' names, in the order the strip lays them out.
-    static const char* const names[N3DS_BUTTON_COUNT] = { "装备", "地图" };
+    static const char* const names[N3DS_BUTTON_COUNT] = { "萨姆斯", "地图" };
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t colour = r->drawColor;
     float alpha = r->drawAlpha;

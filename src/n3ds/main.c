@@ -485,7 +485,7 @@ static void N3DSDataWinProgressCallback(const char* chunkName, int chunkIndex, i
 static void N3DS_noopSetWindowTitle(MAYBE_UNUSED const char* title) {}
 static void N3DS_noopSetWindowSize(MAYBE_UNUSED int32_t width, MAYBE_UNUSED int32_t height) {}
 #ifndef N3DS_DEFAULT_SCREEN_MODE
-#define N3DS_DEFAULT_SCREEN_MODE N3DS_SCREEN_WIDE
+#define N3DS_DEFAULT_SCREEN_MODE N3DS_SCREEN_1X
 #endif
 static N3DSScreenMode gScreenMode = N3DS_DEFAULT_SCREEN_MODE;
 static bool gFrameskip = false;
@@ -812,6 +812,13 @@ int main(int argc, char** argv) {
         // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
         // is operated with its own buttons.
         (void) N3DSPause_update();
+        // A shoulder button asked for a page: ZR the equipment page, ZL the map.
+        {
+            int32_t requested = N3DSInput_takeBottomPage();
+            if (requested >= 0) {
+                N3DSPause_setBottomPage(requested == 0 ? N3DS_BOTTOM_PAGE_ITEMS : N3DS_BOTTOM_PAGE_MAP);
+            }
+        }
         bool frameOpenBeforeStep = N3DSRenderer_frameIsOpen();
         u64 stepStartTick = svcGetSystemTick();
         {
