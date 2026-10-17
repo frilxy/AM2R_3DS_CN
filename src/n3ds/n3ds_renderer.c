@@ -2258,9 +2258,12 @@ static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_
         return;
     }
 
-    GPU_TEXTURE_FILTER_PARAM minFilter = (fabsf(scaleX) < 0.999f || fabsf(scaleY) < 0.999f)
-        ? GPU_LINEAR
-        : GPU_NEAREST;
+    // Linear only when shrinking: a downscale genuinely loses pixels and blending is better than dropping them. When
+    // the picture is being made larger - which is what the stretch mode does, 320 wide onto 400 - nearest keeps every
+    // pixel's own colour instead of smearing it into its neighbours. Uneven pixel widths read as "zoomed"; a blurred
+    // picture reads as "broken", so nearest wins for pixel art.
+    bool shrinking = fabsf(scaleX) < 0.999f || fabsf(scaleY) < 0.999f;
+    GPU_TEXTURE_FILTER_PARAM minFilter = shrinking ? GPU_LINEAR : GPU_NEAREST;
     C3D_TexSetFilter(texture, minFilter, GPU_NEAREST);
 }
 

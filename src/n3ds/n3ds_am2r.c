@@ -1098,14 +1098,18 @@ static void N3DSAm2r_applyScreenMode(void) {
     // the flag itself (its own options page has a widescreen toggle), so it has to be restated every frame. The other
     // modes leave it alone and get the game's widescreen picture as before.
     N3DSScreenMode mode = N3DS_getScreenMode();
-    if (mode == N3DS_SCREEN_1X) {
+    // Point-for-point and Stretch both start from the game's own 4:3 picture. For point-for-point that is the whole
+    // point; for Stretch it means the 320x240 picture is scaled 1.25x across rather than the 426x240 one being scaled
+    // 0.94x down, which resamples less and keeps the pixels cleaner (see the filter note in n3ds_renderer.c).
+    if (mode == N3DS_SCREEN_1X || mode == N3DS_SCREEN_STRETCH) {
         double flag = 0.0;
         if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) {
             N3DSGml_setVar(control, "widescreen", 0.0);
         }
-        // The picture is 320x240 at 1:1, and the renderer already centres a canvas smaller than the screen
-        // (N3DSRenderer_screenRect puts a 320-wide canvas at x = (400-320)/2 = 40). So displayx stays 0 here: setting
-        // it to 40 as well offset everything twice, which is what put the HUD out of place.
+        // The picture is the game's own 320x240. Point-for-point shows it at 1:1; Stretch lets the renderer fill the
+        // screen with it. Either way displayx/y stay 0: the renderer centres a canvas narrower than the screen
+        // (N3DSRenderer_screenRect puts a 320-wide canvas at x = 40), and setting displayx as well offset everything
+        // twice. Stretch overrides that centring itself with stretchToScreen.
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
         double value = 0.0;
