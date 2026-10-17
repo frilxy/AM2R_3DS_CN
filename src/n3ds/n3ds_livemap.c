@@ -29,18 +29,27 @@
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
-// The status strip along the top of the bottom screen: the game's own ammo counters, icon and value with no panels,
-// in the band the map used to leave black. The icons are the game's ammo sprites at 1:1 and the values are its own
-// globals, so the strip reads as the HUD's left-hand block flattened onto one line.
+// The two rows at the top of the bottom screen, swapped from where the game's own map page puts them: the title bar
+// takes the screen's first 14 pixels and the counters sit in the 30 below it, so the strip reads like the top of the
+// items page. The map starts under both, at y 44, exactly where its first row began before.
 //
-// The band is 30 pixels tall and a line of the font is 12, so the row sits at (30 - 12) / 2 = 9.
-#define N3DS_STATUS_BAND_H 30.0f
+// The counters' band is 30 pixels tall and a line of the font is 12, so the row sits 14 + (30 - 12) / 2 = 23.
+#define N3DS_TITLE_BAR_H 14.0f
+#define N3DS_STATUS_BAND_TOP N3DS_TITLE_BAR_H
+#define N3DS_STATUS_BAND_BOTTOM 44.0f
+#define N3DS_STATUS_TITLE_Y 1.0f   // the title's own top inside the 14-pixel bar (the game drew it at 29 for a bar at 30)
 #define N3DS_STATUS_ICON_H 12
 #define N3DS_STATUS_GAP 2       // between an icon and its value
 #define N3DS_STATUS_MIN_GAP 4.0f  // the least space between two entries, whatever the counters' widths
-#define N3DS_STATUS_Y 9.0f      // top of the icons' row inside the 30-pixel band
+// The counters' row, centred in the band between the title bar and the map.
+#define N3DS_STATUS_Y (N3DS_STATUS_BAND_TOP + (N3DS_STATUS_BAND_BOTTOM - N3DS_STATUS_BAND_TOP - (float) N3DS_STATUS_ICON_H) * 0.5f)
 // The value font is fontGUI2: digits are 6 wide with shift 7, so a rendered digit is 7 pixels.
 #define N3DS_STATUS_DIGIT_W 7
+// The energy icon: there is no stand-alone sprite for the green "E" plate the game's own HUD shows (its plate is a
+// black 33x20 background, coloured at draw time), so the port draws the plate itself.
+#define N3DS_STATUS_ETANK_W 12
+#define N3DS_STATUS_ETANK_H 12
+#define N3DS_STATUS_ETANK_COLOUR 0x1f7a1fu  // the green of the game's health plate
 
 typedef struct {
     Runner* runner;
@@ -48,10 +57,10 @@ typedef struct {
     int32_t sprBlock, sprCorner, sprHLine, sprVLine, sprHPass, sprVPass, sprSP, sprHilight, sprMarker;
     int32_t objControl;
     int32_t bgGrid, bgTopBar, bgBottomBar, font, scriptText;
-    // The status strip's icons: the game's own ammo sprites (sGUIMissile, sGUISMissile, sGUIPBomb) and the energy
-    // tank cell (sGUIETank), which is the only stand-alone energy icon in data.win: the HUD's green plate carries
-    // its "E" inside the background image, so there is no sprite to borrow for it.
-    int32_t sprMissile, sprSMissile, sprPBomb, sprETank;
+    // The status strip's ammo icons: the game's own sprites (sGUIMissile, sGUISMissile, sGUIPBomb). The energy entry
+    // has no sprite to borrow - the game's green plate is a black background coloured at draw time - so it is drawn
+    // from rectangles instead (N3DSLiveMap_drawEnergyPlate).
+    int32_t sprMissile, sprSMissile, sprPBomb;
     uint32_t frame;
     int32_t lastPx, lastPy;
     // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
@@ -89,7 +98,6 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.sprMissile = N3DSGml_spriteIndex("sGUIMissile");
     gLive.sprSMissile = N3DSGml_spriteIndex("sGUISMissile");
     gLive.sprPBomb = N3DSGml_spriteIndex("sGUIPBomb");
-    gLive.sprETank = N3DSGml_spriteIndex("sGUIETank");
     // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
     // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
     // symbols but no title, no play time and no counter.
@@ -252,9 +260,11 @@ static void N3DSLiveMap_twoDigits(char* out, size_t size, const char* global) {
 
 typedef struct {
     int32_t icon;      // sprite index, or -1 for an entry with no icon
-    float iconScale;   // the energy cell is 6x6 and is drawn larger to match the 16x12 ammo icons
+    float iconScale;   // the game's icons are drawn at 1:1; the plate is drawn, and uses the plate constants
     char text[24];
     float width;       // icon + gap + text, filled in by the measuring pass
+    bool visible;      // false for an item the player does not have yet
+    bool drawn;        // true for the energy plate, which is rectangles rather than a sprite
 } N3DSStatusEntry;
 
 #define N3DS_STATUS_ENTRY_COUNT 4
@@ -266,10 +276,15 @@ static float N3DSLiveMap_statusTextWidth(const char* text) {
 }
 
 // The drawn size of an entry's icon. Measured from the sprite, not assumed: the ammo icons are 16x12 while the
-// energy cell is 6x6, so the two scale differently and a single width constant would misalign the row.
+// energy plate is drawn rather than looked up, so its size comes from the constants.
 static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW, float* outH) {
     *outW = 0.0f;
     *outH = 0.0f;
+    if (entry->drawn) {
+        *outW = (float) N3DS_STATUS_ETANK_W;
+        *outH = (float) N3DS_STATUS_ETANK_H;
+        return;
+    }
     if (entry->icon < 0) return;
     DataWin* dataWin = gLive.runner->dataWin;
     if (dataWin == NULL || (uint32_t) entry->icon >= dataWin->sprt.count) return;
@@ -278,21 +293,45 @@ static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW
     *outH = (float) sprite->height * entry->iconScale;
 }
 
-// value/max, as the game's own HUD and its items page both show it.
-static void N3DSLiveMap_statusPair(char* out, size_t size, const char* current, const char* maximum) {
+// The energy plate: a green square with a black "E" cut into it, the way the game's own HUD marks the bar. There is
+// no sprite for it in data.win (the game's plate is a black background coloured at draw time), so it is drawn here
+// from rectangles: the block, then the three strokes of the E.
+static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
+    Renderer* r = gLive.renderer;
+    const float w = (float) N3DS_STATUS_ETANK_W, h = (float) N3DS_STATUS_ETANK_H;
+    r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_COLOUR, 1.0f, false);
+    // One dark pixel of border so the block keeps its edge against the black band.
+    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top, x + 1.0f, top + h, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, x + w - 1.0f, top, x + w, top + h, 0x000000, 1.0f, false);
+    // The E: a spine 1 pixel in from the border, plus three bars a pixel thick (top, middle, bottom).
+    const float left = x + 3.0f;
+    const float right = x + w - 3.0f;
+    r->vtable->drawRectangle(r, left, top + 3.0f, left + 1.0f, top + h - 3.0f, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 3.0f, right, top + 4.0f, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + 6.0f, right - 1.0f, top + 7.0f, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, left, top + h - 4.0f, right, top + h - 3.0f, 0x000000, 1.0f, false);
+}
+
+// value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
+// strip leaves it out rather than showing "0/0" beside the ones the player does have.
+static void N3DSLiveMap_statusPair(N3DSStatusEntry* entry, const char* current, const char* maximum) {
     double now = 0.0, cap = 0.0;
     if (!N3DSGml_getGlobal(current, -1, &now)) now = 0.0;
     if (!N3DSGml_getGlobal(maximum, -1, &cap)) cap = 0.0;
-    snprintf(out, size, "%d/%d", (int) now, (int) cap);
+    snprintf(entry->text, sizeof(entry->text), "%d/%d", (int) now, (int) cap);
+    entry->visible = cap > 0.0;
 }
 
 static void N3DSLiveMap_drawStatus(void) {
     Renderer* r = gLive.renderer;
     N3DSStatusEntry entries[N3DS_STATUS_ENTRY_COUNT];
     memset(entries, 0, sizeof(entries));
-    entries[0].icon = gLive.sprETank;
-    // sGUIETank is 6x6: twice over it is 12x12, the height of the ammo icons.
-    entries[0].iconScale = (float) N3DS_STATUS_ICON_H / 6.0f;
+    for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) entries[i].visible = true;
+    entries[0].icon = -1;  // drawn as a plate, not a sprite: see N3DS_STATUS_ETANK_*
+    entries[0].drawn = true;
+    entries[0].iconScale = 1.0f;
     entries[1].icon = gLive.sprMissile;
     entries[1].iconScale = 1.0f;
     entries[2].icon = gLive.sprSMissile;
@@ -300,7 +339,8 @@ static void N3DSLiveMap_drawStatus(void) {
     entries[3].icon = gLive.sprPBomb;
     entries[3].iconScale = 1.0f;
     // playerhealth is what the HUD shows (the items page adds maxhealth beside it); maxhealth is not among the
-    // globals the game declares for its HUD, so a build without it falls back to showing the value alone.
+    // globals the game declares for its HUD, so a build without it falls back to showing the value alone. Energy is
+    // always shown: it cannot be un-found.
     double health = 0.0, maxHealth = 0.0;
     N3DSGml_getGlobal("playerhealth", -1, &health);
     if (N3DSGml_getGlobal("maxhealth", -1, &maxHealth) && maxHealth > 0.0) {
@@ -308,23 +348,26 @@ static void N3DSLiveMap_drawStatus(void) {
     } else {
         snprintf(entries[0].text, sizeof(entries[0].text), "%d", (int) health);
     }
-    N3DSLiveMap_statusPair(entries[1].text, sizeof(entries[1].text), "missiles", "maxmissiles");
-    N3DSLiveMap_statusPair(entries[2].text, sizeof(entries[2].text), "smissiles", "maxsmissiles");
-    N3DSLiveMap_statusPair(entries[3].text, sizeof(entries[3].text), "pbombs", "maxpbombs");
+    N3DSLiveMap_statusPair(&entries[1], "missiles", "maxmissiles");
+    N3DSLiveMap_statusPair(&entries[2], "smissiles", "maxsmissiles");
+    N3DSLiveMap_statusPair(&entries[3], "pbombs", "maxpbombs");
 
     float total = 0.0f;
+    int32_t shown = 0;
     for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) {
         float iconW, iconH;
         N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
         (void) iconH;
         entries[i].width = iconW + (iconW > 0.0f ? (float) N3DS_STATUS_GAP : 0.0f) +
             N3DSLiveMap_statusTextWidth(entries[i].text);
-        total += entries[i].width;
+        if (entries[i].visible) total += entries[i].width;
+        shown += entries[i].visible ? 1 : 0;
     }
-    // The gaps share whatever the entries leave. With every counter at three digits this is about 25 pixels, which
-    // is what separates the groups on the game's own strip.
+    if (shown == 0) return;
+    // The gaps share whatever the entries leave, counting only the ones actually drawn. With every counter at three
+    // digits this is about 25 pixels, which is what separates the groups on the game's own strip.
     float gap = 0.0f;
-    if (total < (float) N3DS_LIVEMAP_W) gap = ((float) N3DS_LIVEMAP_W - total) / (float) (N3DS_STATUS_ENTRY_COUNT + 1);
+    if (total < (float) N3DS_LIVEMAP_W) gap = ((float) N3DS_LIVEMAP_W - total) / (float) (shown + 1);
     // The row is centred while the gaps stay at least N3DS_STATUS_MIN_GAP; past that the groups would read as one run
     // of digits, so the gaps are held at the floor and the row starts at the left edge instead. Holding the floor and
     // still centring would push the last entry off the screen.
@@ -342,24 +385,32 @@ static void N3DSLiveMap_drawStatus(void) {
     r->drawAlpha = 1.0f;
     r->drawColor = 0xFFFFFF;
     float x = start;
+    int32_t drawn = 0;
     for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) {
+        if (!entries[i].visible) continue;
         float iconW, iconH;
         N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
         if (iconW > 0.0f) {
-            DataWin* dataWin = gLive.runner->dataWin;
-            Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
             // Bottom-aligned with the value text, which is drawn from its own top at N3DS_STATUS_Y.
             float iconTop = N3DS_STATUS_Y + (float) N3DS_STATUS_ICON_H - iconH;
-            Renderer_drawSpriteExt(r, entries[i].icon, 0,
-                x + (float) sprite->originX * entries[i].iconScale,
-                iconTop + (float) sprite->originY * entries[i].iconScale,
-                entries[i].iconScale, entries[i].iconScale, 0.0f, 0xFFFFFF, 1.0f);
+            if (entries[i].drawn) {
+                N3DSLiveMap_drawEnergyPlate(x, iconTop);
+            } else {
+                DataWin* dataWin = gLive.runner->dataWin;
+                Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
+                Renderer_drawSpriteExt(r, entries[i].icon, 0,
+                    x + (float) sprite->originX * entries[i].iconScale,
+                    iconTop + (float) sprite->originY * entries[i].iconScale,
+                    entries[i].iconScale, entries[i].iconScale, 0.0f, 0xFFFFFF, 1.0f);
+            }
             x += iconW + (float) N3DS_STATUS_GAP;
         }
         float textW = N3DSLiveMap_statusTextWidth(entries[i].text);
         N3DSLiveMap_text(entries[i].text, x, N3DS_STATUS_Y, 0);
         x += textW;
-        if (i + 1 < N3DS_STATUS_ENTRY_COUNT) x += gap;
+        // The gap goes between the entries that are drawn, not after the last one and not around the hidden ones.
+        drawn++;
+        if (drawn < shown) x += gap;
     }
     r->drawFont = font;
     r->drawHalign = halign;
@@ -373,13 +424,13 @@ static void N3DSLiveMap_drawFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    // The status strip fills the 30-pixel band the map used to leave black, and the title bar still starts at y 30
-    // below it. Clearing stops at 30 for exactly that reason: topBandEnd is 44 (it also covers the title bar), and
-    // clearing to 44 would paint the bar's row black before the bar itself is drawn over it.
-    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, N3DS_STATUS_BAND_H, 0x000000, 1.0f, false);
+    // The two rows swap places from where the game's own map page puts them: the title bar moves up to the screen's
+    // top edge (y 0..14) and the counters take the band under it (y 14..44). The map starts below both, at
+    // N3DS_STATUS_BAND_BOTTOM, which is where its first row used to begin.
+    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
     r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 0.0f, 10.0f);
     N3DSLiveMap_drawStatus();
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 30.0f, 10.0f);
     N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);
@@ -391,7 +442,8 @@ static void N3DSLiveMap_drawFrame(void) {
         gLive.titleLanguage = language;
         gLive.titleFetched = true;
     }
-    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, 29.0f, 1);
+    // Centred in the 14-pixel bar: the bar is at y 0 now, so the 29 the game used becomes 0 + 29 - 30 = -1.
+    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
         // steps_to_time2(gametime): gametime counts steps (60 a second), shown as HH:MM:SS. Done here, not by calling
