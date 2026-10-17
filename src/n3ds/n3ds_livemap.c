@@ -524,14 +524,17 @@ static void N3DSLiveMap_drawStatus(void) {
             } else {
                 DataWin* dataWin = gLive.runner->dataWin;
                 Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
-                // Tinted green like the energy plate. The ammo sprites are near-white on the game's own black HUD
-                // plate; left white on the green bar they read as a different family from the plate beside them, so
-                // they are multiplied by the plate's green instead. The tint is multiplicative, so the sprites' white
-                // becomes that green and their darker pixels stay darker - the shapes survive.
+                // The ammo sprites are opaque rectangles: the icon sits on the black plate the game's own HUD draws it
+                // on (every pixel is alpha 255, and the background is pure black). On the green bar that plate reads as
+                // a black box, and no tint can drop it - black times anything is still black. Drawn additively the
+                // black adds nothing and leaves the bar showing through, while the icon's own pixels light it up, so
+                // the icons sit on the bar the way the energy plate's E does.
+                r->vtable->gpuSetBlendMode(r, bm_add);
                 Renderer_drawSpriteExt(r, entries[i].icon, 0,
                     x + (float) sprite->originX * entries[i].iconScale,
                     iconTop + (float) sprite->originY * entries[i].iconScale,
                     entries[i].iconScale, entries[i].iconScale, 0.0f, N3DS_STATUS_ICON_TINT, 1.0f);
+                r->vtable->gpuSetBlendMode(r, bm_normal);
             }
             x += iconW + (float) N3DS_STATUS_GAP;
         }
