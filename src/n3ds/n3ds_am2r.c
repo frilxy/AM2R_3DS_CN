@@ -1084,10 +1084,11 @@ static void N3DSAm2r_logScreenGeometry(Instance* control, double pictureW, N3DSS
     int32_t barBottom = iy + drawnH < 240 ? 240 - (iy + drawnH) : 0;
     Runner* runner = gAm2r.runner;
     logInfo("AM2R: screen %d [%s] picture %.0fx240 scale %.4f displayx/y (%d,%d): drawn %dx%d at (%d,%d), "
-            "cut left %d right %d, bars top %d bottom %d (guicanvas %dx%d)\n",
+            "cut left %d right %d, bars top %d bottom %d (guicanvas %dx%d, hud left %.0f right %.0f)\n",
         (int) mode, N3DSAm2r_screenModeName(mode), pictureW, scale, ix, iy, drawnW, drawnH, ix, iy,
         cutLeft, cutRight, barTop, barBottom,
-        runner != NULL ? runner->guiWidth : 0, runner != NULL ? runner->guiHeight : 0);
+        runner != NULL ? runner->guiWidth : 0, runner != NULL ? runner->guiHeight : 0,
+        gAm2r.hudLeftInset, gAm2r.hudInset);
 }
 
 static void N3DSAm2r_applyScreenMode(void) {
