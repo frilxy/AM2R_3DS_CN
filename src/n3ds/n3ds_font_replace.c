@@ -558,10 +558,7 @@ static bool N3DSFontReplace_readGlyph(const uint8_t* d, size_t size, const N3DSF
 static void N3DSFontReplace_applyVerticalNudge(Font* font) {
     if (font == NULL || font->name == NULL) return;
     static const struct { const char* fontName; int32_t pixels; } kVertical[] = {
-        // The save slot's play time ran a pixel into the bottom edge of its box. The value was -2 before, so a pixel
-        // less of it lifts the line by one: appendCursorY is cursor - ascenderOffset, so a smaller (or positive)
-        // value draws higher.
-        { "fontMenuTiny", -1 },
+        { "fontMenuTiny", -2 }, // item names crowded the block heading above them (5 was too far)
     };
     for (size_t i = 0; i < sizeof(kVertical) / sizeof(kVertical[0]); i++) {
         size_t length = strlen(kVertical[i].fontName);

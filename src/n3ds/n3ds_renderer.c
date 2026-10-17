@@ -5150,12 +5150,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         // Diagnostic: every draw_text the game makes, before anything can drop it. If these lines never appear, the
         // game is not drawing text at all; if they appear but nothing is painted, the fault is past this point.
         N3DSRenderer* r = (N3DSRenderer*) base;
-        if (r->textCallLogCount < 16u) {
+        // Only when a clock is on screen: the save slot and the file select both draw one, and that is the text whose
+        // font is being looked for. Logging every call would be thousands of lines; the first 16 of the run are the
+        // attract screen and say nothing about this.
+        if (text != NULL && strchr(text, ':') != NULL && r->textCallLogCount < 40u) {
             r->textCallLogCount++;
             const char* fontName = (base->drawFont >= 0 && (uint32_t) base->drawFont < dw->font.count &&
                 dw->font.fonts[base->drawFont].name != NULL) ? dw->font.fonts[base->drawFont].name : "?";
-            logInfo("N3DS: draw_text font %d (%s) at %g,%g scale %g,%g [%.24s]\n", (int) base->drawFont, fontName,
-                (double) x, (double) y, (double) xscale, (double) yscale, text != NULL ? text : "");
+            logInfo("N3DS: draw_text font %d (%s) at %g,%g [%.24s]\n", (int) base->drawFont, fontName,
+                (double) x, (double) y, text);
         }
     }
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
