@@ -1098,16 +1098,17 @@ static void N3DSAm2r_applyScreenMode(void) {
         if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) {
             N3DSGml_setVar(control, "widescreen", 0.0);
         }
-        // A 320-wide picture at 1:1 on a 400-wide screen: 40 columns of bar each side, which is the centring the game
-        // would work out for itself, stated here so it is exact.
+        // The picture is 320x240 at 1:1, and the renderer already centres a canvas smaller than the screen
+        // (N3DSRenderer_screenRect puts a 320-wide canvas at x = (400-320)/2 = 40). So displayx stays 0 here: setting
+        // it to 40 as well offset everything twice, which is what put the HUD out of place.
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
             N3DSGml_setVar(control, "display_scale", 1.0);
         }
-        if (N3DSGml_getVar(control, "displayx", &value) && value != 40.0) {
-            N3DSGml_setVar(control, "displayx", 40.0);
+        if (N3DSGml_getVar(control, "displayx", &value) && value != 0.0) {
+            N3DSGml_setVar(control, "displayx", 0.0);
         }
         if (N3DSGml_getVar(control, "displayy", &value) && value != 0.0) {
             N3DSGml_setVar(control, "displayy", 0.0);
@@ -1115,8 +1116,16 @@ static void N3DSAm2r_applyScreenMode(void) {
         N3DSAm2r_logScreenGeometry(control, 320.0, mode);
         return;
     }
-    double widescreen = 0.0, space = 0.0;
-    if (!N3DSGml_getVar(control, "widescreen", &widescreen) || widescreen < 0.5) {
+    // Every other mode wants the game's widescreen picture, so the flag the point-for-point branch cleared is put back
+    // first. Without this, switching from point-for-point to Wide or Stretch left the game 320 wide and the branches
+    // below returned early, which is what broke both of those modes after this change.
+    double widescreen = 0.0;
+    if (N3DSGml_getVar(control, "widescreen", &widescreen) && widescreen < 0.5) {
+        N3DSGml_setVar(control, "widescreen", 1.0);
+        widescreen = 1.0;
+    }
+    double space = 0.0;
+    if (widescreen < 0.5) {
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
         return;
