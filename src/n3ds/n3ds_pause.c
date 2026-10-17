@@ -16,12 +16,6 @@
 #define N3DS_MAP_SCREEN_W 320
 #define N3DS_MAP_SCREEN_H 240
 
-// The button strip along the bottom edge, which the map module draws. Kept here as well so a tap can be told to have
-// landed on it before the page underneath sees it.
-#define N3DS_BOTTOM_WIDTH 320
-#define N3DS_BOTTOM_BUTTON_COUNT 3
-#define N3DS_BOTTOM_BUTTON_H 40
-#define N3DS_BOTTOM_BUTTON_TOP (240 - N3DS_BOTTOM_BUTTON_H)
 
 // Whether the game is in its own pause screen.
 //
@@ -112,9 +106,9 @@ void N3DSPause_setBottomPage(N3DSBottomPage page) {
 // A tap in the button strip along the bottom edge switches page.
 static bool N3DSPause_tapButton(int32_t x, int32_t y) {
     if (y < N3DS_BOTTOM_BUTTON_TOP) return false;
-    int32_t slot = x * N3DS_BOTTOM_BUTTON_COUNT / N3DS_BOTTOM_WIDTH;
+    int32_t slot = x * N3DS_BUTTON_COUNT / N3DS_BOTTOM_WIDTH;
     if (slot < 0) slot = 0;
-    if (slot >= N3DS_BOTTOM_BUTTON_COUNT) slot = N3DS_BOTTOM_BUTTON_COUNT - 1;
+    if (slot >= N3DS_BUTTON_COUNT) slot = N3DS_BUTTON_COUNT - 1;
     // Left to right: equipment, map.
     N3DSPause_setBottomPage(slot == 0 ? N3DS_BOTTOM_PAGE_ITEMS : N3DS_BOTTOM_PAGE_MAP);
     return true;

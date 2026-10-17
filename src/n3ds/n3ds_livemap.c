@@ -45,7 +45,7 @@
 
 // The bottom strip's three buttons, left to right: items, map, mission log. That is the game's own pause cross with
 // its right, up and left arms laid out in a row, which is where the icons come from.
-#define N3DS_MAP_BUTTON_COUNT 2
+#define N3DS_MAP_BUTTON_COUNT N3DS_BUTTON_COUNT
 
 typedef struct {
     Runner* runner;

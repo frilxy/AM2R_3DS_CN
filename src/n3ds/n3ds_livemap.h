@@ -26,6 +26,7 @@ void N3DSLiveMap_draw(void);
 #define N3DS_BOTTOM_FOOTER_H 20
 #define N3DS_BOTTOM_BUTTON_H 40
 #define N3DS_BOTTOM_BUTTON_TOP (N3DS_BOTTOM_HEIGHT - N3DS_BOTTOM_BUTTON_H)
+#define N3DS_BUTTON_COUNT 2                   // equipment, map
 
 // The green bar the game's own sub-screen pages put across their top, shared by every page here: the game's
 // bg_SubScrBottom stretched across the width. Drawn at `y`; the caller puts its title text on top.
