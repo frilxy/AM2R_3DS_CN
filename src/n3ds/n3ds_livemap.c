@@ -236,6 +236,10 @@ static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t p
     *y = ((float) N3DS_LIVEMAP_H * 0.5f - cell * 0.5f + (float) (cy - py) * cell) + gLive.panY;
 }
 
+// Declared ahead of their definitions: the zoom control below is drawn before the text helpers it uses are defined.
+static float N3DSLiveMap_statusTextWidth(const char* text);
+static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour);
+
 // The zoom control along the bottom margin: one "[1x]" per step, the current step highlighted. The brackets follow
 // the settings pages' convention for a selected value, and the enabled/disabled colouring is theirs too.
 static void N3DSLiveMap_drawZoomControl(void) {
