@@ -176,6 +176,8 @@ static void N3DSItemsScreen_drawStatus(void) {
 }
 
 // One box: the panel, its title strip, and its rows.
+static void N3DSItemsScreen_drawCallout(void);
+
 static void N3DSItemsScreen_drawBox(int32_t index) {
     const N3DSItemBox* box = &kBoxes[index];
     // The game's own background when it is there, otherwise a plain panel of the same size.
@@ -196,7 +198,8 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         float rowY = box->y + (float) N3DS_ITEMS_HEADER_H + (float) row * (float) N3DS_ITEMS_ROW_H;
         // Unowned items are not listed: the game's page leaves the row empty.
         if (!N3DSItemsScreen_owned(item->item)) continue;
-        if (gItems.selected == box->firstRow + row) {
+        bool selected = gItems.selected == box->firstRow + row;
+        if (selected) {
             N3DSItemsScreen_rect(box->x + 2.0f, rowY - 1.0f, box->x + (float) box->width - 2.0f,
                 rowY + (float) N3DS_ITEMS_ROW_H - 2.0f, N3DS_ITEMS_HIGHLIGHT_COLOUR);
         }
@@ -243,6 +246,29 @@ static void N3DSItemsScreen_drawSamus(void) {
 }
 
 // The selected item's description, along the bottom, and the button hints under it.
+// A line from the selected item to Samus, the way the game's own page points from a row to the figure so it is clear
+// which item the description belongs to. Drawn from the row's inner edge towards the figure's centre; each box connects
+// to the side that faces it.
+static void N3DSItemsScreen_drawCallout(void) {
+    const N3DSItemRow* item = NULL;
+    const N3DSItemBox* box = NULL;
+    for (int32_t b = 0; b < N3DS_ITEMS_BOX_COUNT && item == NULL; b++) {
+        if (gItems.selected < kBoxes[b].firstRow || gItems.selected >= kBoxes[b].firstRow + kBoxes[b].rowCount) continue;
+        box = &kBoxes[b];
+        item = &box->rows[gItems.selected - box->firstRow];
+    }
+    if (item == NULL || !N3DSItemsScreen_owned(item->item)) return;
+    // Only the rows that are actually listed have a line: an unowned row has nothing on screen to point from.
+    float rowY = box->y + (float) N3DS_ITEMS_HEADER_H +
+        (float) (gItems.selected - box->firstRow) * (float) N3DS_ITEMS_ROW_H + (float) N3DS_ITEMS_ROW_H * 0.5f;
+    bool rightSide = box->x < (float) N3DS_ITEMS_W * 0.5f;
+    float fromX = rightSide ? box->x + (float) box->width : box->x;
+    float toX = (float) N3DS_ITEMS_W * 0.5f + (rightSide ? -14.0f : 14.0f);
+    // Towards the figure's middle, so the line reads as pointing at Samus rather than at a corner.
+    float toY = (float) ((N3DS_BOTTOM_CONTENT_TOP + N3DS_BOTTOM_CONTENT_BOTTOM) / 2);
+    gItems.renderer->vtable->drawLine(gItems.renderer, fromX, rowY, toX, toY, 1.0f, 0x9fd0a0u, 1.0f);
+}
+
 static void N3DSItemsScreen_drawDescription(void) {
     const N3DSItemRow* item = NULL;
     for (int32_t b = 0; b < N3DS_ITEMS_BOX_COUNT && item == NULL; b++) {
@@ -250,7 +276,8 @@ static void N3DSItemsScreen_drawDescription(void) {
         if (gItems.selected < box->firstRow || gItems.selected >= box->firstRow + box->rowCount) continue;
         item = &box->rows[gItems.selected - box->firstRow];
     }
-    // The description is the <key>_Tip string - the same one the game's own items page shows under the boxes. It is
+
+// The description is the <key>_Tip string - the same one the game's own items page shows under the boxes. It is
     // not <key>_Text: that is the in-play hint (how to use the item), a different sentence. The names above come from
     // [ItemsMenu] and the tips from [Items]; the two sections do not always agree on a name, so they are read
     // separately.
@@ -291,6 +318,7 @@ void N3DSItemsScreen_draw(void) {
     // bars instead of spilling over them, which is what keeps every page to the same frame.
     N3DSItemsScreen_drawSamus();
     for (int32_t i = 0; i < N3DS_ITEMS_BOX_COUNT; i++) N3DSItemsScreen_drawBox(i);
+    N3DSItemsScreen_drawCallout();
     N3DSLiveMap_drawBar((float) N3DS_ITEMS_STATUS_Y, (float) N3DS_ITEMS_STATUS_H);
     N3DSItemsScreen_drawStatus();
     N3DSLiveMap_drawBar((float) N3DS_ITEMS_DESC_Y, (float) N3DS_ITEMS_DESC_H);

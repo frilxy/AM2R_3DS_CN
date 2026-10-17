@@ -258,7 +258,7 @@ static void N3DSLiveMap_drawFrame(void) {
     // The game's own bars, squeezed into the new heights (they were drawn for a taller layout). drawBar is the same
     // call the items and log pages make, so all three bars are the same picture.
     N3DSLiveMap_drawBar(0.0f, (float) N3DS_LIVEMAP_TITLE_H);
-    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, (float) N3DS_INFO_TOP, 1.0f);
+    N3DSLiveMap_drawBar((float) N3DS_INFO_TOP, (float) N3DS_LIVEMAP_INFO_H);
 
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);
