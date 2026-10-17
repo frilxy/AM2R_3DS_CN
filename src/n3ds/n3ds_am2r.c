@@ -1122,14 +1122,9 @@ static void N3DSAm2r_applyScreenMode(void) {
         // Kept at 0 so the geometry log agrees with what is actually drawn.
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
-        // The GUI canvas has to cover the whole window, not the picture. AM2R lays its HUD out at displayx inside the
-        // GUI (which is why every element measured 40 columns right of where the port put it), so a canvas only as
-        // wide as the picture is both shifted and too narrow: its right-hand block is cut off at the canvas edge.
-        // Giving the canvas the window's width puts canvas 0 at the window's left edge, and the game's own displayx
-        // then lands the HUD exactly on the picture.
-        if (gAm2r.runner != NULL && gAm2r.runner->guiWidth > 0 && gAm2r.runner->guiWidth != N3DS_AM2R_WIDE_SCREEN_W) {
-            gAm2r.runner->guiWidth = N3DS_AM2R_WIDE_SCREEN_W;
-        }
+        // The GUI canvas is widened to the whole window in the renderer's beginGUI: the game lays its HUD out at
+        // displayx inside GUI space, so a canvas only as wide as the picture would clip its right-hand block. Setting
+        // runner->guiWidth here does not work - the game rewrites it from its own display_set_gui_size call.
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {

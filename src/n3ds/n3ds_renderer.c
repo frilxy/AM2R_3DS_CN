@@ -1,4 +1,5 @@
 #include "n3ds_renderer.h"
+#include "n3ds_screen.h"
 #include "n3ds_prof.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_unimpl.h"
@@ -5982,6 +5983,15 @@ static void N3DSRenderer_beginGUI(Renderer* base, int32_t guiW, int32_t guiH, in
     if (targetSurfaceId == RENDER_TARGET_HOST_FRAMEBUFFER) {
         // GUI on the screen covers the presented application surface.
         N3DSRenderer_bindTarget(renderer, RENDER_TARGET_HOST_FRAMEBUFFER, false);
+        // Point-for-point draws the game's plain 320x240 picture centred in the 400-wide screen, and AM2R lays its HUD
+        // out at displayx inside GUI space - so a canvas as wide as the picture is both too narrow and off-centre:
+        // every HUD element lands 40 columns right and the right-hand block is clipped at the canvas edge. Widening
+        // the canvas to the screen puts canvas 0 at the screen's left edge, which is where the game's own displayx
+        // offset expects it to be.
+        if (N3DS_getScreenMode() == N3DS_SCREEN_1X) {
+            guiW = N3DS_TOP_WIDTH;
+            guiH = N3DS_TOP_HEIGHT;
+        }
         float dx, dy, dw, dh;
         N3DSRenderer_screenRect(renderer, guiW, guiH, &dx, &dy, &dw, &dh);
         N3DSRenderer_setViewport(renderer, dx, dy, dw, dh);
