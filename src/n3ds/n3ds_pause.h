@@ -18,3 +18,5 @@ void N3DSPause_init(Runner* runner, Renderer* renderer);
 // Once a frame, before the game's step: follows the pause state. Returns whether the game is paused.
 bool N3DSPause_update(void);
 bool N3DSPause_isPaused(void);
+// In a game (global.ingame) and not on the pause screen: when the bottom screen shows the map.
+bool N3DSPause_inPlay(void);

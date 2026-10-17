@@ -58,6 +58,11 @@ bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);
 C3D_RenderTarget* N3DSRenderer_getTopTarget(Renderer* renderer);
+// Draws the game's GUI on the bottom screen: everything drawn between begin and end is mapped into a guiW x guiH box
+// fitted to the 320x240 screen, then the top screen's own mapping is restored. Ex takes a scale and an offset.
+void N3DSRenderer_beginBottomScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_beginBottomScreenGUIEx(Renderer* renderer, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY);
+void N3DSRenderer_endBottomScreenGUI(Renderer* renderer);
 // Deletes surfaces freed during earlier frames. Call outside C3D_FrameBegin/End; all = everything (shutdown).
 void N3DSRenderer_collectGarbage(Renderer* renderer, bool all);
 void N3DSRenderer_logDiag(Renderer* renderer);

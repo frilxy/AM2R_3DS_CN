@@ -44,6 +44,8 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_DIRECT_ASSET_ENTRY_SIZE 16u
 #define N3DS_TOP_WIDTH 400
 #define N3DS_TOP_HEIGHT 240
+#define N3DS_BOTTOM_WIDTH 320
+#define N3DS_BOTTOM_HEIGHT 240
 #define N3DS_SDMC_ASSET_BASE N3DS_SD_DIR "gfx"
 #define N3DS_ROMFS_ASSET_BASE "romfs:/gfx"
 #define N3DS_RENDERER_FILE_BUFFER_SIZE (32u * 1024u)
@@ -410,6 +412,17 @@ typedef struct {
     int32_t viewY;
     float viewScaleX;
     float viewScaleY;
+    // What the bottom-screen GUI pass overwrote, so ending it can put the top screen's mapping back.
+    float savedFrameScaleX;
+    float savedFrameScaleY;
+    float savedFrameOffsetX;
+    float savedFrameOffsetY;
+    float savedPortOffsetX;
+    float savedPortOffsetY;
+    int32_t savedViewX;
+    int32_t savedViewY;
+    float savedViewScaleX;
+    float savedViewScaleY;
     bool blendEnabled;
     int32_t blendEquation;
     int32_t blendSrcFactor;
@@ -493,8 +506,9 @@ typedef struct {
     uint32_t baseTPAGCount;
     uint32_t dynamicCaptureTPAGCount;
     // The shared runtime font atlas, and the TPAG index the fonts are pointed at (-1 until one is allocated).
-    // (The dual-screen flags that used to sit here - bottomScreenGuiActive and the topScreen* ones - went with the
-    // bottom screen; the runtime font atlas is what the localisation needs and has nothing to do with them.)
+    // bottomScreenGuiActive says a bottom-screen GUI pass is running, which the drawing helpers check so they map
+    // coordinates against the bottom screen while it is up.
+    bool bottomScreenGuiActive;
     N3DSRuntimeFontAtlas sharedFontAtlas;
     int32_t sharedFontAtlasTPAG;
     uint32_t sharedFontAtlasNextY; // first free row of the shared texture
@@ -508,6 +522,7 @@ typedef struct {
 enum {
     N3DS_SCENE_TARGET_NONE = 0,
     N3DS_SCENE_TARGET_TOP = 1,
+    N3DS_SCENE_TARGET_BOTTOM = 2,
     N3DS_SCENE_TARGET_SURFACE = 3,
 };
 
@@ -2157,8 +2172,29 @@ static void N3DSRenderer_sceneBeginTarget(N3DSRenderer* renderer, uint8_t target
         renderer->activeSceneTarget = N3DS_SCENE_TARGET_TOP;
         return;
     }
+    if (targetKind == N3DS_SCENE_TARGET_BOTTOM) {
+        if (renderer->bottomTarget == NULL) return;
+        C2D_SceneBegin(renderer->bottomTarget);
+        renderer->activeSceneTarget = N3DS_SCENE_TARGET_BOTTOM;
+        return;
+    }
 
     renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
+}
+
+// Fits a gameW x gameH GUI into a targetW x targetH screen, centred: the scale that fits both ways, and the offsets
+// that put the result in the middle. Used to draw the same GUI on either screen.
+static void N3DSRenderer_computeFrameLayoutForTarget(N3DSRenderer* renderer, int32_t gameW, int32_t gameH, int32_t targetW, int32_t targetH) {
+    if (gameW <= 0) gameW = targetW;
+    if (gameH <= 0) gameH = targetH;
+
+    float sx = (float) targetW / (float) gameW;
+    float sy = (float) targetH / (float) gameH;
+    float scale = sx < sy ? sx : sy;
+    renderer->frameScaleX = scale;
+    renderer->frameScaleY = scale;
+    renderer->frameOffsetX = ((float) targetW - ((float) gameW * scale)) * 0.5f;
+    renderer->frameOffsetY = ((float) targetH - ((float) gameH * scale)) * 0.5f;
 }
 
 static void N3DSRenderer_freeTileLayerChunkCache(N3DSRenderer* renderer, N3DSTileLayerChunkCache* cache) {
@@ -5807,6 +5843,69 @@ void N3DSRenderer_endScreenOverlay(Renderer* base) {
     N3DSRenderer_applyAlphaState(renderer);
     // The game's next bind starts from a known state.
     renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
+}
+
+// ===[ Drawing the GUI on the bottom screen ]===
+// The same kind of pass as the game's own GUI drawing, but aimed at the bottom screen: everything the game draws
+// between begin and end (sprites, text, backgrounds) is mapped into a guiW x guiH box fitted to the 320x240 screen,
+// then the top screen's own mapping is put back. Used for AM2R's map during play.
+
+void N3DSRenderer_beginBottomScreenGUIEx(Renderer* base, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY) {
+    if (base == NULL) return;
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer->bottomTarget == NULL || renderer->bottomScreenGuiActive) return;
+
+    renderer->savedFrameScaleX = renderer->frameScaleX;
+    renderer->savedFrameScaleY = renderer->frameScaleY;
+    renderer->savedFrameOffsetX = renderer->frameOffsetX;
+    renderer->savedFrameOffsetY = renderer->frameOffsetY;
+    renderer->savedPortOffsetX = renderer->portOffsetX;
+    renderer->savedPortOffsetY = renderer->portOffsetY;
+    renderer->savedViewX = renderer->viewX;
+    renderer->savedViewY = renderer->viewY;
+    renderer->savedViewScaleX = renderer->viewScaleX;
+    renderer->savedViewScaleY = renderer->viewScaleY;
+
+    N3DSRenderer_computeFrameLayoutForTarget(renderer, guiW, guiH, N3DS_BOTTOM_WIDTH, N3DS_BOTTOM_HEIGHT);
+    renderer->viewX = 0;
+    renderer->viewY = 0;
+    renderer->viewScaleX = renderer->frameScaleX * scaleX;
+    renderer->viewScaleY = renderer->frameScaleY * scaleY;
+    renderer->portOffsetX = ((float) guiW * (renderer->frameScaleX - renderer->viewScaleX) * 0.5f) + offsetX;
+    renderer->portOffsetY = ((float) guiH * (renderer->frameScaleY - renderer->viewScaleY) * 0.5f) + offsetY;
+    renderer->bottomScreenGuiActive = true;
+
+    N3DSRenderer_flushC2DQueue(renderer);
+    N3DSRenderer_setDefaultGPUState(renderer);
+    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_BOTTOM, false);
+}
+
+void N3DSRenderer_beginBottomScreenGUI(Renderer* base, int32_t guiW, int32_t guiH) {
+    N3DSRenderer_beginBottomScreenGUIEx(base, guiW, guiH, 1.0f, 1.0f, 0.0f, 0.0f);
+}
+
+void N3DSRenderer_endBottomScreenGUI(Renderer* base) {
+    if (base == NULL) return;
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (!renderer->bottomScreenGuiActive) return;
+
+    renderer->frameScaleX = renderer->savedFrameScaleX;
+    renderer->frameScaleY = renderer->savedFrameScaleY;
+    renderer->frameOffsetX = renderer->savedFrameOffsetX;
+    renderer->frameOffsetY = renderer->savedFrameOffsetY;
+    renderer->portOffsetX = renderer->savedPortOffsetX;
+    renderer->portOffsetY = renderer->savedPortOffsetY;
+    renderer->viewX = renderer->savedViewX;
+    renderer->viewY = renderer->savedViewY;
+    renderer->viewScaleX = renderer->savedViewScaleX;
+    renderer->viewScaleY = renderer->savedViewScaleY;
+    renderer->bottomScreenGuiActive = false;
+
+    N3DSRenderer_flushC2DQueue(renderer);
+    N3DSRenderer_applyBlendState(renderer);
+    N3DSRenderer_applyAlphaState(renderer);
+    // Whatever comes next draws on the top screen again.
+    N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, false);
 }
 
 static void N3DSRenderer_beginFrame(Renderer* base, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH) {

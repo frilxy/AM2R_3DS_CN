@@ -16,6 +16,7 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
+#include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_prof.h"
@@ -735,6 +736,7 @@ int main(int argc, char** argv) {
     Runner_setGameArgs(runner, gameArgs, (int32_t) arrlen(gameArgs));
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
+    N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
@@ -805,6 +807,7 @@ int main(int argc, char** argv) {
         // renderer call that needs the GPU opens it (N3DSRenderer_frameGate), else the drawing below does. (The screen
         // captures here open it themselves when they run.)
         N3DSScreenshot_captureIfRequested(renderer);
+        N3DSLiveMap_beginFrame();
         // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
         // is operated with its own buttons.
         (void) N3DSPause_update();
@@ -957,6 +960,9 @@ int main(int argc, char** argv) {
 #endif
         {
             N3DS_ZONE(N3DS_ZONE_OVERLAYS);
+            // The bottom screen: AM2R's map while a save is being played, otherwise it stays the black the frame
+            // opened with. Drawn before the top screen's overlays so those keep the top screen's mapping.
+            if (N3DSPause_inPlay() && N3DSLiveMap_available()) N3DSLiveMap_draw();
             if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
             if (gFpsCounter) N3DSFpsCounter_draw(&fpsCounter, renderer, debugMonitor.displayedFps);
             renderer->vtable->flush(renderer);

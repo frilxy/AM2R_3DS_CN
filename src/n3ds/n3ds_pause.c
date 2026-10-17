@@ -18,6 +18,7 @@
 static struct {
     Runner* runner;
     bool paused;
+    bool inGame; // the game's own global.ingame: a save is loaded, so there is play (and a map) to show
     int32_t roomSubscreen, roomTransition;
 } gPause;
 
@@ -33,6 +34,13 @@ void N3DSPause_init(Runner* runner, Renderer* renderer) {
 
 bool N3DSPause_isPaused(void) {
     return gPause.paused;
+}
+
+// In a game and not paused: the state the bottom screen's map belongs to. global.ingame is the game's own flag - it
+// goes up when a save is loaded and down when the player leaves the game - so the map appears and disappears with the
+// game itself, and the bottom screen stays black everywhere else (title, file select, options, the pause screen).
+bool N3DSPause_inPlay(void) {
+    return gPause.inGame && !gPause.paused;
 }
 
 static bool N3DSPause_inPauseRoom(void) {
@@ -52,5 +60,13 @@ bool N3DSPause_update(void) {
         logInfo(paused ? "Pause: the game's pause screen is up\n" : "Pause: back to the game\n");
     }
     gPause.paused = paused;
+    // global.ingame drives the bottom screen: set while a save is being played, cleared when the player leaves the
+    // game, so it is re-read every frame rather than latched.
+    double inGame = 0.0;
+    bool playing = gPause.roomSubscreen >= 0 && N3DSGml_getGlobal("ingame", -1, &inGame) && inGame != 0.0;
+    if (playing != gPause.inGame) {
+        logInfo(playing ? "Bottom screen: in a game, the map is on\n" : "Bottom screen: not in a game, black\n");
+    }
+    gPause.inGame = playing;
     return paused;
 }
