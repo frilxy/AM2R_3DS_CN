@@ -2797,6 +2797,16 @@ static bool N3DSRenderer_tryResolveDirectFontImage(N3DSRenderer* renderer, int32
 #endif
     if (renderer == NULL || outImage == NULL || outSubtex == NULL) return false;
     if (fontIndex < 0 || (uint32_t) fontIndex >= renderer->directFontAssetCount) return false;
+    // A font that font_replace has swapped points at the shared runtime atlas, which is where its glyphs live. The
+    // prebuilt fonts/font_XXXXX.t3x sheets in direct_assets.bin hold the game's own fonts, taken before any
+    // replacement, so drawing through them discards the swapped glyphs - which is what was happening: every font
+    // loaded, the atlas was correct, and the screen kept the old font (no CJK in it, so the localised text was blank).
+    // A swapped font never takes this path.
+    if (renderer->sharedFontAtlas.used && renderer->base.dataWin != NULL &&
+        (uint32_t) fontIndex < renderer->base.dataWin->font.count) {
+        const Font* swapped = &renderer->base.dataWin->font.fonts[fontIndex];
+        if (swapped->tpagIndex == renderer->sharedFontAtlas.tpagIndex) return false;
+    }
 
     N3DSDirectTextureAsset* asset = &renderer->directFontAssets[fontIndex];
     char path[256];
