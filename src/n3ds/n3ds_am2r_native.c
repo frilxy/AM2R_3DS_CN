@@ -2,6 +2,7 @@
 
 #include "n3ds_am2r.h"
 #include "n3ds_gml.h"
+#include "n3ds_screen.h"
 
 #include "../instance.h"
 #include "../int_rvalue_hashmap.h"

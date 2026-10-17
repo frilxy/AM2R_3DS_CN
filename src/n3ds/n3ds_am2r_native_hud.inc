@@ -216,11 +216,25 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         if (styleToggle) drawSprite(506, gmlCmp(g.currentweapon, 3) == 0 ? 1 : 0, ix, 4);
     }
 
-    // Map and Metroid counter frames (moved right by the widescreen width, less the columns the port's window gives up:
-    // see N3DSAm2r_hudRightInset - the game lays these out for a window as wide as its 426-wide picture, and in Wide
-    // and 1x the window is the 400-wide screen).
+    // Map and Metroid counter frames. The game lays these out at 250 + widescreen_space, for a picture as wide as its
+    // own. Two things move them back in:
+    //
+    //  - point-for-point and stretch draw the game's plain 320x240 picture, so the space is cancelled outright and the
+    //    block ends at 320, flush with the picture's right edge.
+    //  - wide keeps the game's 426-wide picture and only gives up the columns the screen crops, which is what
+    //    N3DSAm2r_hudRightInset reports.
+    //
+    // The first case is decided here rather than from a value cached in applyHud: the game rewrites widescreen_space in
+    // its own Step, so a figure read there can disagree with the one the layout actually used - which is what pushed
+    // the block 106 columns right, over the black margin and off the screen's edge.
+    //
     // ws is GMLReal (float) and -Werror=double-promotion is on, so the inset is narrowed rather than promoting ws.
-    ws -= (GMLReal) N3DSAm2r_hudRightInset();
+    N3DSScreenMode hudScreenMode = N3DS_getScreenMode();
+    if (hudScreenMode == N3DS_SCREEN_1X || hudScreenMode == N3DS_SCREEN_STRETCH) {
+        ws = 0;
+    } else {
+        ws -= (GMLReal) N3DSAm2r_hudRightInset();
+    }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
         drawBackgroundAt(123, 250 + ws, 0);

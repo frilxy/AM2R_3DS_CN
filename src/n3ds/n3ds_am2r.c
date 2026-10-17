@@ -1114,17 +1114,13 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // The HUD's right-hand block is laid out at 250 + widescreen_space, and the game sizes its GUI canvas from
-        // that same space: with its widescreen off it calls display_set_gui_size(320, 240) and drops the space to 0,
-        // so the block already ends at 250 + 70 = 320, flush with a 320-wide canvas. The inset only has to cancel
-        // whatever space the layout actually used, which is what the game's own variable holds.
+        // The HUD's right-hand block is zeroed in the draw itself for these two modes (see the map/Metroid frames in
+        // n3ds_am2r_native_hud.inc): the picture is the game's plain 320x240, so the block belongs at 250 and ends at
+        // 320 whatever widescreen_space happens to hold. Reading that variable here used to decide it, but the game
+        // rewrites it in its own Step, so the value sampled here disagreed with the one the layout used.
         //
-        // It used to be the constant 106. That was right only while the game still reported space = 106 here; once it
-        // reports 0 the constant cancels a space that was never added, and the block lands 106 columns left of where
-        // it belongs - which is exactly what the console showed in both this mode and Stretch.
-        double space = 0.0;
-        N3DSGml_getVar(control, "widescreen_space", &space);
-        gAm2r.hudInset = space > 0.0 ? space : 0.0;
+        // Kept at 0 so the geometry log agrees with what is actually drawn.
+        gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
