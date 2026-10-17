@@ -26,8 +26,8 @@
 #define N3DS_ITEMS_STATUS_H N3DS_BOTTOM_BAR_H
 #define N3DS_ITEMS_ROW_H 9        // one item row
 #define N3DS_ITEMS_HEADER_H 14    // the box's own title strip
-#define N3DS_ITEMS_DESC_Y N3DS_BOTTOM_CONTENT_BOTTOM  // the description strip, where the footer starts
-#define N3DS_ITEMS_DESC_H N3DS_BOTTOM_FOOTER_H
+#define N3DS_ITEMS_DESC_Y (N3DS_BOTTOM_BUTTON_TOP - N3DS_ITEMS_DESC_H)  // sits directly above the buttons
+#define N3DS_ITEMS_DESC_H 28  // the description strip: taller than the shared footer so a tip fits on one line
 #define N3DS_ITEMS_HINT_Y 212     // the button hints
 
 // Colours sampled from the game's page: the panel fill, its title strip, and the selected row.
@@ -75,7 +75,7 @@ static const N3DSItemBox kBoxes[] = {
     { "Suits", 20.0f, 20.0f, 67, 44, "sSubScrSuit", 3, kSuitRows, 0 },
     { "Beams", 20.0f, 108.0f, 67, 62, "sSubScrBeam", 5, kBeamRows, 3 },
     { "Misc", 233.0f, 20.0f, 67, 71, "sSubScrMisc", 6, kMiscRows, 8 },
-    { "Boots", 233.0f, 132.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
+    { "Boots", 233.0f, 126.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
 };
 #define N3DS_ITEMS_BOX_COUNT ((int32_t) (sizeof(kBoxes) / sizeof(kBoxes[0])))
 #define N3DS_ITEMS_ROW_COUNT 17
@@ -87,8 +87,10 @@ typedef struct {
     int32_t font;        // the body font
     int32_t sprPlayer;   // sSubScrPlayer, the figure in the middle
     int32_t sprItem;     // sSubScrItem, the row bullet
+    int32_t sprHilight;  // sSubScrHilight, the marker on the selected row
     int32_t boxSprite[N3DS_ITEMS_BOX_COUNT];
     int32_t selected;    // which row is highlighted, as a flat index
+    int32_t tipLogged;   // which row's tip was last logged, so it is said once per selection
     bool ready;
 } N3DSItemsScreen;
 
@@ -104,6 +106,7 @@ void N3DSItemsScreen_init(Runner* runner, Renderer* renderer) {
     if (gItems.font < 0) gItems.font = N3DSGml_fontIndex("fontGUI2");
     gItems.sprPlayer = N3DSGml_spriteIndex("sSubScrPlayer");
     gItems.sprItem = N3DSGml_spriteIndex("sSubScrItem");
+    gItems.sprHilight = N3DSGml_spriteIndex("sSubScrHilight");
     for (int32_t i = 0; i < N3DS_ITEMS_BOX_COUNT; i++) gItems.boxSprite[i] = N3DSGml_spriteIndex(kBoxes[i].sprite);
     gItems.selected = 0;
     gItems.ready = gItems.font >= 0;
@@ -202,6 +205,12 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         if (selected) {
             N3DSItemsScreen_rect(box->x + 2.0f, rowY - 1.0f, box->x + (float) box->width - 2.0f,
                 rowY + (float) N3DS_ITEMS_ROW_H - 2.0f, N3DS_ITEMS_HIGHLIGHT_COLOUR);
+            // The game's own marker for the row it is on (sSubScrHilight, a 5x6 pixel block drawn round the name).
+            if (gItems.sprHilight >= 0) {
+                const float mark = 2.4f;
+                Renderer_drawSpriteExt(gItems.renderer, gItems.sprHilight, 0, box->x + 3.0f, rowY + 1.0f,
+                    mark, mark, 0.0f, 0xFFFFFF, 1.0f);
+            }
         }
         // The bullet is 7x7 in the game's own page, which reads as a dot beside Chinese text one line tall; drawn at
         // 1.5x it matches the row height it is marking.
@@ -285,6 +294,14 @@ static void N3DSItemsScreen_drawDescription(void) {
     const char* tipKey = item != NULL ? (item->tipKey != NULL ? item->tipKey : item->key) : NULL;
     if (tipKey != NULL) snprintf(key, sizeof(key), "%s_Tip", tipKey);
     char* description = tipKey != NULL ? N3DSItemsScreen_text("Items", key) : NULL;
+    // Diagnostic: say whether the tip came back, since an empty strip is otherwise indistinguishable from one that
+    // was never drawn.
+    if (gItems.tipLogged != gItems.selected) {
+        gItems.tipLogged = gItems.selected;
+        if (description == NULL) logInfo("Items screen: no tip for %s (looked up %s in [Items])\n",
+            item != NULL ? item->key : "?", key);
+        else logInfo("Items screen: tip for %s is [%.40s]\n", item != NULL ? item->key : "?", description);
+    }
     if (description != NULL) {
         // The game marks line breaks with '#' and puts a button glyph where the text has a '|'. This port has no
         // glyph to put there, so the break becomes a space and the marker is dropped rather than shown as a bar.
@@ -295,7 +312,9 @@ static void N3DSItemsScreen_drawDescription(void) {
             else *out++ = *p;
         }
         *out = '\0';
-        N3DSItemsScreen_text1(description, 6.0f, (float) N3DS_ITEMS_DESC_Y + 1.0f, 1.0f);
+        // Ten-pixel text: the strip is 28 tall and the shared font draws larger than that at 1.0.
+        const float tipScale = 10.0f / 12.0f;
+        N3DSItemsScreen_text1(description, 6.0f, (float) N3DS_ITEMS_DESC_Y + 3.0f, tipScale);
         free(description);
     }
     // The hints the game's own items page puts along the bottom, in this port's terms.
