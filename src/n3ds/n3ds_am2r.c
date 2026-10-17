@@ -1113,11 +1113,11 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // Both blocks are moved out by the width of the bar (40), so each sits against the screen edge instead of 40
-        // columns in from it. The picture is centred and there is nothing else to move them with.
-        double barWidth = (mode == N3DS_SCREEN_STRETCH) ? 0.0 : 40.0;
-        gAm2r.hudLeftInset = -barWidth;   // added to the left block's x, so negative moves it left
-        gAm2r.hudInset = -barWidth;       // subtracted from the right block's space, so negative moves it right
+        // No HUD correction: the game's own blocks (33 from the left, 250..320 on the right) are already laid out for
+        // a 320-wide picture, and with the widescreen off its own widescreen_space is 0, so they sit where it means
+        // them to be.
+        gAm2r.hudInset = 0.0;
+        gAm2r.hudLeftInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
