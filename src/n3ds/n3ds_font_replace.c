@@ -112,8 +112,35 @@ static int16_t N3DSFontReplace_s8(const uint8_t* p) {
     return (int16_t) (int8_t) p[0];
 }
 
+// Turns a path the game hands a built-in into one that opens on the 3DS. The game builds them from program_directory,
+// which this port resolves through its FileSystem - but font_replace and background_replace read the file themselves,
+// and the 3DS runs with a current directory that is not the game's folder, so a bare "lang/fonts/04b09.ttf" fails to
+// open and every font slot stays as it was (no text anywhere). Anything already absolute is left alone.
+char* N3DSFontReplace_resolvePath(const char* path) {
+    if (path == NULL) return NULL;
+    // Absolute: a leading '/', or a devoptab path such as "sdmc:/3ds/am2r/lang/...".
+    const char* colon = strchr(path, ':');
+    bool absolute = path[0] == '/' || (colon != NULL && colon != path && colon[1] == '/');
+    if (absolute) {
+        size_t len = strlen(path);
+        char* copy = (char*) safeMalloc(len + 1u);
+        memcpy(copy, path, len + 1u);
+        return copy;
+    }
+    // Backslashes are not path separators here, but a language pack written on Windows may use them.
+    size_t len = strlen(N3DS_SD_DIR) + strlen(path) + 1u;
+    char* full = (char*) safeMalloc(len);
+    size_t at = (size_t) snprintf(full, len, "%s%s", N3DS_SD_DIR, path);
+    for (size_t i = strlen(N3DS_SD_DIR); i < at; i++) {
+        if (full[i] == '\\') full[i] = '/';
+    }
+    return full;
+}
+
 static uint8_t* N3DSFontReplace_readFile(const char* path, size_t* outSize) {
-    FILE* f = fopen(path, "rb");
+    char* full = N3DSFontReplace_resolvePath(path);
+    FILE* f = full != NULL ? fopen(full, "rb") : NULL;
+    free(full);
     if (f == NULL) return NULL;
     if (fseek(f, 0, SEEK_END) != 0) {
         fclose(f);

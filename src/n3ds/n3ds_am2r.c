@@ -335,7 +335,11 @@ static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     if (dw == NULL || bgIndex < 0 || (uint32_t) bgIndex >= dw->bgnd.count) return RValue_makeUndefined();
 
     int width = 0, height = 0, channels = 0;
-    stbi_uc* pixels = stbi_load(args[1].string, &width, &height, &channels, 4);
+    // The game hands over a program_directory path ("lang/titles/<file>.png"), which does not open as it is: the 3DS
+    // runs with a current directory that is not the game's folder (see N3DSFontReplace_resolvePath).
+    char* fullPath = N3DSFontReplace_resolvePath(args[1].string);
+    stbi_uc* pixels = fullPath != NULL ? stbi_load(fullPath, &width, &height, &channels, 4) : NULL;
+    free(fullPath);
     if (pixels == NULL || width <= 0 || height <= 0) {
         logInfo("AM2R: background_replace could not read %s\n", args[1].string);
         if (pixels != NULL) stbi_image_free(pixels);
