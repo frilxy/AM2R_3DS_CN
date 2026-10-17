@@ -261,8 +261,13 @@ static void N3DSLiveMap_drawFrame(void) {
             float bw = (float) r->dataWin->tpag.items[tpag].boundingWidth;
             float bh = (float) r->dataWin->tpag.items[tpag].boundingHeight;
             if (bw > 0.0f && bh > 0.0f) {
-                r->vtable->drawSprite(r, tpag, 0.0f, (float) N3DS_INFO_TOP, 0.0f, 0.0f,
-                    (float) N3DS_LIVEMAP_W / bw, (float) N3DS_LIVEMAP_INFO_H / bh, 0.0f, 0xFFFFFF, 1.0f);
+                // One scale for both axes, taken from the height: the bar has to be exactly the strip's height, so that
+                // is the scale that cannot bend the glyphs. Stretching x and y by different amounts (320 across by 20
+                // down) squashed the Metroid and item marks - they are only a few pixels wide to begin with. The flat
+                // colour underneath already runs the full width; this only puts the glyphs back at the left.
+                float scale = (float) N3DS_LIVEMAP_INFO_H / bh;
+                r->vtable->drawSprite(r, tpag, 0.0f, (float) N3DS_INFO_TOP, 0.0f, 0.0f, scale, scale, 0.0f,
+                    0xFFFFFF, 1.0f);
             }
         }
     }
