@@ -3,6 +3,9 @@
 
 // ===[ draw_gui ]===
 
+// Diagnostic state: the screen mode the HUD last logged its layout for.
+static int32_t gHudLoggedMode = -1;
+
 static int32_t gCode_draw_gui = -1, gCode_gui_health = -1, gCode_to_string_lz = -1;
 
 typedef struct {
@@ -230,10 +233,20 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     //
     // ws is GMLReal (float) and -Werror=double-promotion is on, so the inset is narrowed rather than promoting ws.
     N3DSScreenMode hudScreenMode = N3DS_getScreenMode();
+    GMLReal rawSpace = ws;
     if (hudScreenMode == N3DS_SCREEN_1X || hudScreenMode == N3DS_SCREEN_STRETCH) {
         ws = 0;
     } else {
         ws -= (GMLReal) N3DSAm2r_hudRightInset();
+    }
+    // Diagnostic, once per mode change: the space the game reports, the space this ends up using, and the x each
+    // frame is drawn at. Read against the "gui canvas ... -> viewport" line above it, this separates "drawn in the
+    // wrong place" from "blitted in the wrong place".
+    if ((int32_t) hudScreenMode != gHudLoggedMode) {
+        gHudLoggedMode = (int32_t) hudScreenMode;
+        logInfo("HUD: mode %d space %.2f used %.2f -> frames at %.1f / %.1f / %.1f\n",
+            (int) hudScreenMode, (double) rawSpace, (double) ws, (double) (250 + ws), (double) (276 + ws),
+            (double) (296 + ws));
     }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
