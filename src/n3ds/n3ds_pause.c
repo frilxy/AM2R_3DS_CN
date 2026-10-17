@@ -1,6 +1,7 @@
 #include "n3ds_pause.h"
 
 #include "n3ds_gml.h"
+#include "n3ds_itemsscreen.h"
 #include "n3ds_livemap.h"
 #include "n3ds_input.h"
 
@@ -14,6 +15,13 @@
 #define N3DS_MAP_CELL 8
 #define N3DS_MAP_SCREEN_W 320
 #define N3DS_MAP_SCREEN_H 240
+
+// The button strip along the bottom edge, which the map module draws. Kept here as well so a tap can be told to have
+// landed on it before the page underneath sees it.
+#define N3DS_BOTTOM_WIDTH 320
+#define N3DS_BOTTOM_BUTTON_COUNT 3
+#define N3DS_BOTTOM_BUTTON_H 40
+#define N3DS_BOTTOM_BUTTON_TOP (240 - N3DS_BOTTOM_BUTTON_H)
 
 // Whether the game is in its own pause screen.
 //
@@ -33,6 +41,7 @@ static struct {
     bool touchDown;
     bool dragging;
     int32_t touchStartX, touchStartY, touchLastX, touchLastY;
+    N3DSBottomPage page;    // what the bottom screen shows: the live map, or a page opened with the buttons
 } gPause;
 
 void N3DSPause_init(Runner* runner, Renderer* renderer) {
@@ -42,6 +51,7 @@ void N3DSPause_init(Runner* runner, Renderer* renderer) {
     N3DSGml_init(runner);
     gPause.roomSubscreen = N3DSGml_roomIndex("rm_subscreen");
     gPause.roomTransition = N3DSGml_roomIndex("rm_transition");
+    gPause.page = N3DS_BOTTOM_PAGE_MAP;
     if (gPause.roomSubscreen < 0) logInfo("Pause: no rm_subscreen in this game, pause tracking off\n");
 }
 
@@ -89,7 +99,30 @@ static void N3DSPause_tapMap(int32_t sx, int32_t sy) {
     logInfo("Live map: marker set at %d,%d\n", (int) cx, (int) cy);
 }
 
-// Called once a frame while the map is on the bottom screen.
+N3DSBottomPage N3DSPause_bottomPage(void) {
+    return gPause.page;
+}
+
+void N3DSPause_setBottomPage(N3DSBottomPage page) {
+    if (page < 0 || page >= N3DS_BOTTOM_PAGE_COUNT || page == gPause.page) return;
+    gPause.page = page;
+    logInfo("Bottom screen: page %d\n", (int) page);
+}
+
+// A tap in the button strip along the bottom edge switches page.
+static bool N3DSPause_tapButton(int32_t x, int32_t y) {
+    if (y < N3DS_BOTTOM_BUTTON_TOP) return false;
+    int32_t slot = x * N3DS_BOTTOM_BUTTON_COUNT / N3DS_BOTTOM_WIDTH;
+    if (slot < 0) slot = 0;
+    if (slot >= N3DS_BOTTOM_BUTTON_COUNT) slot = N3DS_BOTTOM_BUTTON_COUNT - 1;
+    // Left to right: items, map, log.
+    N3DSPause_setBottomPage(slot == 0 ? N3DS_BOTTOM_PAGE_ITEMS
+        : (slot == 1 ? N3DS_BOTTOM_PAGE_MAP : N3DS_BOTTOM_PAGE_LOGS));
+    return true;
+}
+
+// Called once a frame while the bottom screen is live: the buttons along the bottom edge switch pages, and the page
+// under the finger gets the rest.
 void N3DSPause_updateMapTouch(void) {
     int32_t x, y;
     bool held = N3DSInput_touch(&x, &y);
@@ -98,7 +131,6 @@ void N3DSPause_updateMapTouch(void) {
         gPause.dragging = false;
         gPause.touchStartX = gPause.touchLastX = x;
         gPause.touchStartY = gPause.touchLastY = y;
-        logInfo("Live map: touch down at %d,%d\n", (int) x, (int) y);
         return;
     }
     if (held) {
@@ -106,12 +138,10 @@ void N3DSPause_updateMapTouch(void) {
             int32_t adx = x - gPause.touchStartX, ady = y - gPause.touchStartY;
             if (adx < 0) adx = -adx;
             if (ady < 0) ady = -ady;
-            if (adx > N3DS_MAP_TOUCH_SLOP || ady > N3DS_MAP_TOUCH_SLOP) {
-                gPause.dragging = true;
-                logInfo("Live map: dragging\n");
-            }
+            if (adx > N3DS_MAP_TOUCH_SLOP || ady > N3DS_MAP_TOUCH_SLOP) gPause.dragging = true;
         }
-        if (gPause.dragging) {
+        // Only the map pans; the other pages are picked from, not dragged.
+        if (gPause.dragging && gPause.page == N3DS_BOTTOM_PAGE_MAP) {
             N3DSLiveMap_panBy((float) (x - gPause.touchLastX), (float) (y - gPause.touchLastY));
         }
         gPause.touchLastX = x;
@@ -120,7 +150,14 @@ void N3DSPause_updateMapTouch(void) {
     }
     if (gPause.touchDown) {
         gPause.touchDown = false;
-        if (!gPause.dragging) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
+        if (!gPause.dragging) {
+            if (!N3DSPause_tapButton(gPause.touchStartX, gPause.touchStartY)) {
+                if (gPause.page == N3DS_BOTTOM_PAGE_MAP) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
+                else if (gPause.page == N3DS_BOTTOM_PAGE_ITEMS) {
+                    N3DSItemsScreen_tap(gPause.touchStartX, gPause.touchStartY);
+                }
+            }
+        }
         gPause.dragging = false;
     }
 }

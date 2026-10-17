@@ -239,7 +239,7 @@ static void N3DSLiveMap_twoDigits(char* out, size_t size, const char* global) {
     snprintf(out, size, "%02d", (int) value);
 }
 
-static void N3DSLiveMap_drawButtons(void);
+void N3DSLiveMap_drawButtons(int32_t current);
 
 static void N3DSLiveMap_drawFrame(void) {
     Renderer* r = gLive.renderer;
@@ -294,7 +294,7 @@ static void N3DSLiveMap_drawFrame(void) {
     N3DSLiveMap_text(left, 259.0f, infoY, 0);
     N3DSLiveMap_text(area, 303.0f, infoY, 0);
 
-    N3DSLiveMap_drawButtons();
+    N3DSLiveMap_drawButtons(1); // the map page is slot 1 (left items, middle map, right log)
 
     r->drawFont = font;
     r->drawHalign = halign;
@@ -304,17 +304,22 @@ static void N3DSLiveMap_drawFrame(void) {
 
 // The three touch buttons. Left to right they open the items panel, the map and the mission log - the same three the
 // game's own pause cross offers right, up and left. Each is a panel with the game's own icon in it.
-static void N3DSLiveMap_drawButtons(void) {
+// The button strip along the bottom edge, drawn on every page; `current` is the one whose page is showing, which
+// gets a brighter border so the bottom screen says where it is.
+void N3DSLiveMap_drawButtons(int32_t current) {
     Renderer* r = gLive.renderer;
     const float slotW = (float) N3DS_LIVEMAP_W / 3.0f;
     const float top = (float) N3DS_BUTTON_TOP;
     const float h = (float) N3DS_LIVEMAP_BUTTON_H;
     for (int32_t i = 0; i < N3DS_MAP_BUTTON_COUNT; i++) {
         float x = (float) i * slotW;
+        bool active = i == current;
         // The game's button look: a dark panel with a lighter border, drawn with rectangles so it survives a missing
         // sprite.
-        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + h - 3.0f, 0x12200a, 1.0f, false);
-        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + 4.0f, 0x2f5c14, 1.0f, false);
+        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + h - 3.0f,
+            active ? 0x1d3a10u : 0x12200a, 1.0f, false);
+        r->vtable->drawRectangle(r, x + 4.0f, top + 3.0f, x + slotW - 4.0f, top + 4.0f,
+            active ? 0x5fae2eu : 0x2f5c14, 1.0f, false);
         // Stretched to one size so the three read as a set: the icons they borrow come from different sprites and are
         // not the same size (67x44, 24x24, 32x32).
         if (gLive.buttonSprite[i] >= 0) {
@@ -322,7 +327,7 @@ static void N3DSLiveMap_drawButtons(void) {
             float cx = x + slotW * 0.5f;
             float cy = top + h * 0.5f;
             Renderer_drawSpriteStretched(r, gLive.buttonSprite[i], 0, cx - icon * 0.5f, cy - icon * 0.5f, icon, icon,
-                0xFFFFFF, 1.0f);
+                0xFFFFFF, active ? 1.0f : 0.75f);
         }
     }
 }

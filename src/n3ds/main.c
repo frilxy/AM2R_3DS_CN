@@ -16,6 +16,7 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
+#include "n3ds_itemsscreen.h"
 #include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
@@ -737,6 +738,7 @@ int main(int argc, char** argv) {
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
+    N3DSItemsScreen_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
@@ -962,10 +964,12 @@ int main(int argc, char** argv) {
             N3DS_ZONE(N3DS_ZONE_OVERLAYS);
             // The bottom screen: AM2R's map while a save is being played, otherwise it stays the black the frame
             // opened with. Drawn before the top screen's overlays so those keep the top screen's mapping.
-            if (N3DSPause_inPlay() && N3DSLiveMap_available()) {
-                N3DSLiveMap_draw();
-                // After the draw, so the map this touch moves is the one just drawn: dragging pans it, a tap sets or
-                // lifts the marker.
+            if (N3DSPause_inPlay()) {
+                N3DSBottomPage page = N3DSPause_bottomPage();
+                if (page == N3DS_BOTTOM_PAGE_MAP && N3DSLiveMap_available()) N3DSLiveMap_draw();
+                else if (page == N3DS_BOTTOM_PAGE_ITEMS && N3DSItemsScreen_available()) N3DSItemsScreen_draw();
+                // After the draw, so the page this touch moves is the one just drawn: dragging pans the map, a tap
+                // picks an item or switches page from the button strip.
                 N3DSPause_updateMapTouch();
             }
             if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
