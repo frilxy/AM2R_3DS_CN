@@ -103,6 +103,7 @@ typedef struct {
     bool hud;
     bool hudLoaded;
     bool fontsEnabled; // diagnostic (cheats.ini's "fonts="): false keeps the game's own fonts
+    bool atlasDumped;  // diagnostic: the font texture has been written out once
     // How far the game's own HUD offsets overshoot the port's window on each side. The game draws its HUD into
     // gui_surface laid out for a window as wide as its picture (426) and blits that surface with displayx, so in Wide
     // the left-hand block (health, tanks, ammo, from x = 0) is shifted off the left edge while the right-hand block
@@ -1229,6 +1230,14 @@ static void N3DSAm2r_skipPauseFades(void) {
 
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
+    // Diagnostic: once the game has swapped its fonts, write the texture out. It has to happen after oControl's
+    // Create event (which is where every font_replace comes from), and outside a frame is fine: nothing is drawn here.
+    if (!gAm2r.atlasDumped && gAm2r.runner != NULL && gAm2r.runner->renderer != NULL) {
+        if (N3DSRenderer_sharedFontAtlasIndex(gAm2r.runner->renderer) >= 0) {
+            gAm2r.atlasDumped = true;
+            N3DSRenderer_dumpFontAtlas(gAm2r.runner->renderer);
+        }
+    }
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_applyScreenMode();
