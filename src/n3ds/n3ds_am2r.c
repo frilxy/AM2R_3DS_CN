@@ -1113,9 +1113,11 @@ static void N3DSAm2r_applyScreenMode(void) {
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         gAm2r.hudInset = 0.0;
         gAm2r.hudLeftInset = 0.0;
-        // 0, not 40: the renderer centres the 320-wide canvas itself (screenRect), and adding 40 here as well is what
-        // pushed everything right in the previous attempt.
-        double wantedX = 0.0;
+        // 40, the centring on a 400-wide screen: the picture positions itself by displayx, and the GUI pass's viewport
+        // does not place it - the viewport is (40,0) for the HUD, but the picture is drawn through the surface path,
+        // whose target resets the viewport to the whole screen. So displayx is what centres the picture, and 0 leaves
+        // it against the left edge.
+        double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
             N3DSGml_setVar(control, "display_scale", 1.0);
