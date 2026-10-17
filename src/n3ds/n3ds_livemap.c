@@ -40,17 +40,26 @@
 #define N3DS_STATUS_ICON_H 12
 #define N3DS_STATUS_GAP 2       // between an icon and its value
 #define N3DS_STATUS_MIN_GAP 4.0f  // the least space between two entries, whatever the counters' widths
-// The counters' row, centred on the green bar: the bar is 14 tall and the row 12, so (14 - 12) / 2 = 1 inside it.
+// The counters' row on the green bar: the icons are 12 pixels tall (the game's ammo sprites) and the bar is 14, so
+// centring them puts their top at 31.
 #define N3DS_STATUS_Y (N3DS_TITLE_BAR_TOP + 1.0f)
+// The values are drawn two pixels above the icons. A line of the font's digits is only 10 tall, so they sit higher in
+// the bar than the 12-pixel icons do; 29..38 with the shadow at 30..39 stays inside the bar, which ends at 44.
+#define N3DS_STATUS_TEXT_Y (N3DS_TITLE_BAR_TOP - 1.0f)
 // The value font is fontGUI2: digits are 6 wide with shift 7, so a rendered digit is 7 pixels.
 #define N3DS_STATUS_DIGIT_W 7
 // The energy icon: there is no stand-alone sprite for the green "E" plate the game's own HUD shows (its plate is a
 // black 33x20 background, coloured at draw time), so the port draws the plate itself. It sits on the bar, so it is
 // the brighter green the bar's highlight uses rather than the bar's own dark fill, or it would vanish into it.
+//
+// Colours here are BGR, not RGB (the renderer unpacks them with BGR_R/BGR_G/BGR_B), so a value read as RGB off a
+// screenshot has its red and blue swapped: 0x84e629 pasted in straight draws cyan instead of green.
 #define N3DS_STATUS_ETANK_W 12
 #define N3DS_STATUS_ETANK_H 12
-#define N3DS_STATUS_ETANK_COLOUR 0x84e629u  // the bar's bright highlight green, measured off a console screenshot
-#define N3DS_STATUS_ETANK_EDGE 0x0a2a04u    // the bar's dark green, for the plate's border and its E
+#define N3DS_STATUS_ETANK_COLOUR 0x29e684u  // the bar's bright highlight green, RGB 0x84e629
+#define N3DS_STATUS_ETANK_EDGE 0x042a0au    // the bar's dark green, RGB 0x0a2a04
+// Behind the ammo sprites: near-black, the ground the game's own HUD draws them on.
+#define N3DS_STATUS_ICON_BACKING 0x0a0a0au
 
 typedef struct {
     Runner* runner;
@@ -393,13 +402,19 @@ static void N3DSLiveMap_drawStatus(void) {
         float iconW, iconH;
         N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
         if (iconW > 0.0f) {
-            // Bottom-aligned with the value text, which is drawn from its own top at N3DS_STATUS_Y.
-            float iconTop = N3DS_STATUS_Y + (float) N3DS_STATUS_ICON_H - iconH;
+            // The icons keep their own row; the values were lifted two pixels above it, so the two are placed
+            // independently instead of off one shared baseline.
+            float iconTop = N3DS_STATUS_Y + (float) (N3DS_STATUS_ICON_H - iconH) * 0.5f;
             if (entries[i].drawn) {
                 N3DSLiveMap_drawEnergyPlate(x, iconTop);
             } else {
                 DataWin* dataWin = gLive.runner->dataWin;
                 Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
+                // The ammo sprites are drawn for the game's own black HUD plate: on the green bar their dark parts
+                // sink into it and the icon reads as a smudge. A darker tile behind each one restores the contrast the
+                // sprite was drawn against, and matches the plate the energy entry gets.
+                r->vtable->drawRectangle(r, x, iconTop, x + iconW, iconTop + iconH, N3DS_STATUS_ICON_BACKING, 1.0f,
+                    false);
                 Renderer_drawSpriteExt(r, entries[i].icon, 0,
                     x + (float) sprite->originX * entries[i].iconScale,
                     iconTop + (float) sprite->originY * entries[i].iconScale,
@@ -408,7 +423,7 @@ static void N3DSLiveMap_drawStatus(void) {
             x += iconW + (float) N3DS_STATUS_GAP;
         }
         float textW = N3DSLiveMap_statusTextWidth(entries[i].text);
-        N3DSLiveMap_text(entries[i].text, x, N3DS_STATUS_Y, 0);
+        N3DSLiveMap_text(entries[i].text, x, N3DS_STATUS_TEXT_Y, 0);
         x += textW;
         // The gap goes between the entries that are drawn, not after the last one and not around the hidden ones.
         drawn++;
