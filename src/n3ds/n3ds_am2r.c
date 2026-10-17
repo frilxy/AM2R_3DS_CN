@@ -1236,18 +1236,19 @@ static void N3DSAm2r_skipPauseFades(void) {
 static void N3DSAm2r_dumpLogVars(void) {
     Runner* runner = gAm2r.runner;
     if (runner == NULL || runner->vmContext == NULL) return;
-    struct { char* key; int32_t value; }* map = runner->vmContext->varNameMap;
     int32_t shown = 0;
-    for (ptrdiff_t i = 0; i < shlen(map); i++) {
-        const char* name = map[i].key;
+    int32_t total = (int32_t) shlen(runner->vmContext->varNameMap);
+    for (ptrdiff_t i = 0; i < (ptrdiff_t) total; i++) {
+        const char* name = runner->vmContext->varNameMap[i].key;
         if (name == NULL) continue;
         if (strstr(name, "log") == NULL && strstr(name, "Log") == NULL) continue;
         double value = 0.0;
         bool have = N3DSGml_getGlobal(name, -1, &value);
-        logInfo("Logvars: %s = %s%.0f\n", name, have ? "" : "(not global) ", have ? value : 0.0);
+        if (have) logInfo("Logvars: %s = %.0f\n", name, value);
+        else logInfo("Logvars: %s (not a global)\n", name);
         shown++;
     }
-    logInfo("Logvars: %d name(s) matched, %d variables in the map\n", (int) shown, (int) shlen(map));
+    logInfo("Logvars: %d name(s) matched, %d variables in the map\n", (int) shown, total);
 }
 
 void N3DSAm2r_update(void) {
