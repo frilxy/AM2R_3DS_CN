@@ -788,6 +788,22 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     // The bitmaps are drawn one pixel per pixel. The game asks for the tier it wants through sizes.ini and the closest
     // strike is used as it is: scaling a pixel font makes its strokes grey (and only 0.5 is even tolerable).
     font->tpagIndex = N3DSRenderer_sharedFontAtlasTPAG(renderer);
+    // Vertical nudge, in pixels, for the fonts where the pixel font sits a little high or low in a line the game
+    // already laid out. ascenderOffset is subtracted from the cursor, so a positive value moves the text up.
+    if (font->name != NULL) {
+        static const struct { const char* fontName; int32_t pixels; } kVertical[] = {
+            { "fontMenuTiny", -2 }, // item names sat 2px high inside their rows
+        };
+        for (size_t i = 0; i < sizeof(kVertical) / sizeof(kVertical[0]); i++) {
+            size_t length = strlen(kVertical[i].fontName);
+            if (strncmp(font->name, kVertical[i].fontName, length) != 0) continue;
+            const char* rest = font->name + length;
+            if (*rest != '\0' && strcmp(rest, "Default") != 0) continue;
+            font->ascenderOffset = kVertical[i].pixels;
+            logInfo("AM2R: %s shifted %d px vertically\n", font->name, (int) kVertical[i].pixels);
+            break;
+        }
+    }
 
     // Remember the strip (in strip-local coordinates, so a later font can shift it by this shelf itself) so that the
     // same file at the same size does not get rasterized into the texture a second time.
@@ -850,8 +866,8 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
     const char* path = ttfPath;
     if (font->name != NULL) {
         static const struct { const char* fontName; const char* path; } kOverrides[] = {
-            { "fontSubScr", "lang/fonts/04b24.ttf" },   // 8px panel headings: the file that 8px request was meant for
-            { "fontMenuTiny", "lang/fonts/uni_05_53.ttf" }, // 10px item names (it used to draw at 8px, too small)
+            { "fontSubScr", "lang/fonts/uni_05_53.ttf" },        // 10px panel headings (装备/光束/综合能力)
+            { "fontMenuTiny", "lang/fonts/uni_05_53.ttf" },      // 10px item names (it used to draw at 8px, too small)
         };
         for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
             size_t length = strlen(kOverrides[i].fontName);
