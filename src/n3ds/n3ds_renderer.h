@@ -45,8 +45,6 @@ int32_t N3DSRenderer_allocRuntimeImage(Renderer* renderer, const uint8_t* rgba, 
 bool N3DSRenderer_setRuntimeTPAGContent(Renderer* renderer, int32_t tpagIndex, uint32_t contentW, uint32_t contentH);
 // A swapped font has a whole new glyph array; a text layout cached before the swap still holds the old rectangles.
 void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);
-// Diagnostic: writes the shared font texture to N3DS_SD_DIR "font_atlas.png" so it can be looked at directly.
-bool N3DSRenderer_dumpFontAtlas(Renderer* renderer);
 // Loads the textures a room is likely to need (call when the room changes).
 void N3DSRenderer_prewarmRoom(Renderer* renderer, Runner* runner);
 void N3DSRenderer_importReadAhead(Renderer* renderer);

@@ -2594,33 +2594,6 @@ int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* base) {
     return N3DSRenderer_sharedFontAtlasIndex(base);
 }
 
-// Diagnostic: writes the shared font texture to N3DS_SD_DIR "font_atlas.png", untileing it first. Called once, after
-// every font has been swapped, so the file shows exactly what the GPU samples.
-bool N3DSRenderer_dumpFontAtlas(Renderer* base) {
-    N3DSRenderer* renderer = (N3DSRenderer*) base;
-    if (renderer == NULL || !renderer->sharedFontAtlas.used) return false;
-    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, renderer->sharedFontAtlas.tpagIndex);
-    if (capture == NULL || capture->texture.data == NULL) return false;
-
-    const uint32_t w = N3DS_FONT_ATLAS_TEXTURE_SIZE, h = N3DS_FONT_ATLAS_TEXTURE_SIZE;
-    const uint32_t* src = (const uint32_t*) capture->texture.data;
-    uint8_t* rgb = (uint8_t*) safeMalloc((size_t) w * (size_t) h * 3u);
-    for (uint32_t y = 0; y < h; y++) {
-        for (uint32_t x = 0; x < w; x++) {
-            uint32_t p = src[((size_t) (y >> 3) * (size_t) (w >> 3) + (size_t) (x >> 3)) * 64u + (size_t) N3DSRenderer_morton(x & 7u, y & 7u)];
-            // The texture holds ABGR (red in the top byte on the PICA200's little-endian words).
-            uint8_t* at = rgb + ((size_t) y * (size_t) w + (size_t) x) * 3u;
-            at[0] = (uint8_t) (p & 0xFFu);
-            at[1] = (uint8_t) ((p >> 8) & 0xFFu);
-            at[2] = (uint8_t) ((p >> 16) & 0xFFu);
-        }
-    }
-    bool ok = stbi_write_png(N3DS_SD_DIR "font_atlas.png", (int) w, (int) h, 3, rgb, (int) w * 3) != 0;
-    free(rgb);
-    logInfo("N3DS: font atlas dumped to " N3DS_SD_DIR "font_atlas.png (%s)\n", ok ? "ok" : "failed");
-    return ok;
-}
-
 // Uploads one size's strip into the shared texture at y0. Every size stacks below the one before it.
 bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;

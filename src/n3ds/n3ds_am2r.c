@@ -103,8 +103,6 @@ typedef struct {
     bool hud;
     bool hudLoaded;
     bool fontsEnabled; // diagnostic (cheats.ini's "fonts="): false keeps the game's own fonts
-    bool atlasDumped;  // diagnostic: the font texture has been written out once
-    bool logVarsDumped;  // diagnostic: the log-related global variable names have been listed once
     // How far the game's own HUD offsets overshoot the port's window on each side. The game draws its HUD into
     // gui_surface laid out for a window as wide as its picture (426) and blits that surface with displayx, so in Wide
     // the left-hand block (health, tanks, ammo, from x = 0) is shifted off the left edge while the right-hand block
@@ -1279,55 +1277,8 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
-// Diagnostic: can the game's own GUI drawing be run from outside its pause room?
-//
-// The log and items screens exist in the game as oLogScreen / oSubScr* objects, but only inside rm_subscreen. If
-// their drawing can be run on demand, the bottom screen could show the game's own pages instead of a rebuild - the
-// layout, the fonts and the Chinese wrapping would all be the game's. What that needs is a surface to draw into and
-// an instance to be `self`; oControl (object 427) is the game's own controller and is always there.
-//
-// This runs the attempt once and logs what happens, so the answer comes from the console rather than from guesswork.
-static void N3DSAm2r_probeGameGui(void) {
-    Runner* runner = gAm2r.runner;
-    if (runner == NULL || runner->vmContext == NULL) return;
-    VMContext* ctx = runner->vmContext;
-
-    int32_t drawMap = N3DSGml_scriptIndex("draw_gui_map");
-    int32_t drawGui = N3DSGml_scriptIndex("draw_gui");
-    int32_t objControl = N3DSGml_objectIndex("oControl");
-    Instance* control = objControl >= 0 ? N3DSGml_anyInstance(objControl) : NULL;
-    logInfo("GuiProbe: draw_gui_map=%d draw_gui=%d oControl=%d instance=%s\n",
-        (int) drawMap, (int) drawGui, (int) objControl, control != NULL ? "yes" : "no");
-    if (control == NULL || drawMap < 0) {
-        logInfo("GuiProbe: nothing to try\n");
-        return;
-    }
-
-    // Where the drawing lands: the game's current target, so this only tests whether the script runs at all. If it
-    // does, the next step is to point a surface at it.
-    Instance* saved = ctx->currentInstance;
-    ctx->currentInstance = control;
-    logInfo("GuiProbe: calling draw_gui_map with oControl as self\n");
-    RValue result = VM_callCodeIndex(ctx, drawMap, NULL, 0);
-    RValue_free(&result);
-    ctx->currentInstance = saved;
-    logInfo("GuiProbe: returned without crashing\n");
-}
-
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
-    // Diagnostic: once the game has swapped its fonts, write the texture out. It has to happen after oControl's
-    // Create event (which is where every font_replace comes from), and outside a frame is fine: nothing is drawn here.
-    if (!gAm2r.atlasDumped && gAm2r.runner != NULL && gAm2r.runner->renderer != NULL) {
-        if (N3DSRenderer_sharedFontAtlasIndex(gAm2r.runner->renderer) >= 0) {
-            gAm2r.atlasDumped = true;
-            N3DSRenderer_dumpFontAtlas(gAm2r.runner->renderer);
-        }
-    }
-    if (!gAm2r.logVarsDumped && gAm2r.runner != NULL) {
-        gAm2r.logVarsDumped = true;
-        N3DSAm2r_probeGameGui();
-    }
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_applyScreenMode();
