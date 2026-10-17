@@ -3,8 +3,6 @@
 
 // ===[ draw_gui ]===
 
-// Diagnostic state: the screen mode the HUD last logged its layout for.
-static int32_t gHudLoggedMode = -1;
 
 static int32_t gCode_draw_gui = -1, gCode_gui_health = -1, gCode_to_string_lz = -1;
 
@@ -233,44 +231,10 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     //
     // ws is GMLReal (float) and -Werror=double-promotion is on, so the inset is narrowed rather than promoting ws.
     N3DSScreenMode hudScreenMode = N3DS_getScreenMode();
-    GMLReal rawSpace = ws;
     if (hudScreenMode == N3DS_SCREEN_1X || hudScreenMode == N3DS_SCREEN_STRETCH) {
         ws = 0;
     } else {
         ws -= (GMLReal) N3DSAm2r_hudRightInset();
-    }
-    // Diagnostic, once per mode change: the space the game reports, the space this ends up using, and the x each
-    // frame is drawn at. Read against the "gui canvas ... -> viewport" line above it, this separates "drawn in the
-    // wrong place" from "blitted in the wrong place".
-    if ((int32_t) hudScreenMode != gHudLoggedMode) {
-        gHudLoggedMode = (int32_t) hudScreenMode;
-        logInfo("HUD: mode %d space %.2f used %.2f -> frames at %.1f / %.1f / %.1f\n",
-            (int) hudScreenMode, (double) rawSpace, (double) ws, (double) (250 + ws), (double) (276 + ws),
-            (double) (296 + ws));
-    }
-    // Diagnostic markers: a red bar at the GUI canvas's x = 0 and a blue one at its right edge, plus a magenta pair
-    // 40 columns in. On a screenshot they say where the canvas lands relative to the game picture, which separates a
-    // HUD drawn in the wrong place from a canvas blitted in the wrong place.
-    {
-        // GameMaker colours are BGR: c_red is 0x0000FF, c_blue is 0xFF0000, c_fuchsia is 0x00FFFF.
-        RValue red[1] = { R(255) };
-        callVoid(N.drawSetColor, red, 1);
-        RValue atLeft[5] = { R(0), R(0), R(3), R(60), R(0) };
-        callVoid(N.drawRectangle, atLeft, 5);
-        RValue blue[1] = { R(16711680) };
-        callVoid(N.drawSetColor, blue, 1);
-        RValue atRight[5] = { R(317), R(0), R(320), R(60), R(0) };
-        callVoid(N.drawRectangle, atRight, 5);
-        RValue fuchsia[1] = { R(16711935) };
-        callVoid(N.drawSetColor, fuchsia, 1);
-        RValue m1[5] = { R(40), R(60), R(43), R(120), R(0) };
-        callVoid(N.drawRectangle, m1, 5);
-        RValue m2[5] = { R(277), R(60), R(280), R(120), R(0) };
-        callVoid(N.drawRectangle, m2, 5);
-        // Put the colour back: the HUD below sets its own before drawing, but leaving fuchsia behind would tint
-        // anything that does not.
-        RValue white[1] = { R(16777215) };
-        callVoid(N.drawSetColor, white, 1);
     }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
