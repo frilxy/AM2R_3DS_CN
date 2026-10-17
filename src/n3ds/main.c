@@ -16,8 +16,8 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
-#include "n3ds_gamepage.h"
 #include "n3ds_itemsscreen.h"
+#include "n3ds_logscreen.h"
 #include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
@@ -740,7 +740,6 @@ int main(int argc, char** argv) {
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSItemsScreen_init(runner, renderer);
-    N3DSGamePage_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
@@ -968,16 +967,9 @@ int main(int argc, char** argv) {
             // opened with. Drawn before the top screen's overlays so those keep the top screen's mapping.
             if (N3DSPause_inPlay()) {
                 N3DSBottomPage page = N3DSPause_bottomPage();
-                // The game's own pages first: it already has the items panel and the log screens, and running its
-                // own Draw events gives them exactly as it would draw them. The port's own drawing is the fallback
-                // for anything the game does not have.
-                bool drawnByGame = false;
-                if (page == N3DS_BOTTOM_PAGE_ITEMS) drawnByGame = N3DSGamePage_draw(N3DS_GAMEPAGE_ITEMS);
-                else if (page == N3DS_BOTTOM_PAGE_LOGS) drawnByGame = N3DSGamePage_draw(N3DS_GAMEPAGE_LOGS);
-                if (!drawnByGame) {
-                    if (page == N3DS_BOTTOM_PAGE_MAP && N3DSLiveMap_available()) N3DSLiveMap_draw();
-                    else if (page == N3DS_BOTTOM_PAGE_ITEMS && N3DSItemsScreen_available()) N3DSItemsScreen_draw();
-                }
+                if (page == N3DS_BOTTOM_PAGE_MAP && N3DSLiveMap_available()) N3DSLiveMap_draw();
+                else if (page == N3DS_BOTTOM_PAGE_ITEMS && N3DSItemsScreen_available()) N3DSItemsScreen_draw();
+                else if (page == N3DS_BOTTOM_PAGE_LOGS && N3DSLogScreen_available()) N3DSLogScreen_draw();
                 // After the draw, so the page this touch moves is the one just drawn: dragging pans the map, a tap
                 // picks an item or switches page from the button strip.
                 N3DSPause_updateMapTouch();
