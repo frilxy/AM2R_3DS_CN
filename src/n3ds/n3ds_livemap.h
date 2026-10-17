@@ -19,3 +19,7 @@ void N3DSLiveMap_draw(void);
 void N3DSLiveMap_panBy(float dx, float dy);
 void N3DSLiveMap_resetPan(void);
 void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* outY);
+// The zoom steps along the bottom margin: which one a screen point falls on (-1 if not on the control), and
+// selecting one. The map's cell size follows the selection.
+int32_t N3DSLiveMap_zoomAt(int32_t sx, int32_t sy);
+void N3DSLiveMap_setZoom(int32_t step);

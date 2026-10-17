@@ -120,7 +120,15 @@ void N3DSPause_updateMapTouch(void) {
     }
     if (gPause.touchDown) {
         gPause.touchDown = false;
-        if (!gPause.dragging) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
+        if (!gPause.dragging) {
+            // The bottom margin carries the zoom steps; a tap there picks one instead of dropping a marker.
+            int32_t zoom = N3DSLiveMap_zoomAt(gPause.touchStartX, gPause.touchStartY);
+            if (zoom >= 0) {
+                N3DSLiveMap_setZoom(zoom);
+            } else {
+                N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
+            }
+        }
         gPause.dragging = false;
     }
 }

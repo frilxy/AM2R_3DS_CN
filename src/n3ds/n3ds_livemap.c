@@ -29,6 +29,14 @@
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
+// The map's zoom steps, as the pixel height of one map cell. The cells' sprites are 8x8 natively, so 8 is 1:1 and
+// the only step where nothing is resampled; anything larger is upscaled with a nearest filter, which keeps the pixel
+// art crisp, and 6 is the only downscale, where the renderer switches to a linear filter and a 1-pixel wall line
+// starts to thin out. Below 6 the wall lines break up, which is why the range stops there.
+static const int32_t kZoomSteps[] = { 6, 8, 12, 16 };
+#define N3DS_ZOOM_COUNT ((int32_t) (sizeof(kZoomSteps) / sizeof(kZoomSteps[0])))
+#define N3DS_ZOOM_DEFAULT 1  // 8 pixels a cell, the native size
+
 // The two rows at the top of the bottom screen. The green bar does not move: it stays where the game's map page
 // puts it (y 30..44) and the counters are drawn on it. What moves is the title, off the bar and into the black
 // margin above it, so the bar carries live numbers and the page's name sits in the space that was empty.
@@ -58,8 +66,15 @@
 #define N3DS_STATUS_ETANK_H 12
 #define N3DS_STATUS_ETANK_COLOUR 0x29e684u  // the bar's bright highlight green, RGB 0x84e629
 #define N3DS_STATUS_ETANK_EDGE 0x042a0au    // the bar's dark green, RGB 0x0a2a04
-// Behind the ammo sprites: near-black, the ground the game's own HUD draws them on.
-#define N3DS_STATUS_ICON_BACKING 0x0a0a0au
+// The ammo sprites are white on the game's own black plate; on the green bar a multiplicative tint in the plate's
+// green puts them in the same family as the energy plate next to them.
+#define N3DS_STATUS_ICON_TINT N3DS_STATUS_ETANK_COLOUR
+
+// The zoom control in the bottom margin. The game's footer bar ends at 212, so the control owns 212..240: 28 pixels,
+// which is enough for one line of the 12-pixel font with room above and below.
+#define N3DS_STATUS_ZOOM_TOP 212.0f
+#define N3DS_STATUS_ZOOM_LABEL_Y 220.0f
+#define N3DS_ZOOM_DIM_COLOUR 0x5a5a5au  // the grey the settings pages use for a value that is not selected
 
 typedef struct {
     Runner* runner;
@@ -75,6 +90,8 @@ typedef struct {
     int32_t lastPx, lastPy;
     // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
     float panX, panY;
+    // Which zoom step (an index into kZoomSteps) the map is drawn at.
+    int32_t zoom;
     // The black bands cover everything the bars and text draw: the saved picture has the previous frame's in it.
     float topBandEnd, bottomBandStart;
     char* title;
@@ -85,6 +102,18 @@ typedef struct {
 } N3DSLiveMap;
 
 static N3DSLiveMap gLive;
+
+// The cell size the map is currently drawn at.
+static int32_t N3DSLiveMap_cell(void) {
+    if (gLive.zoom < 0) return kZoomSteps[0];
+    if (gLive.zoom >= N3DS_ZOOM_COUNT) return kZoomSteps[N3DS_ZOOM_COUNT - 1];
+    return kZoomSteps[gLive.zoom];
+}
+
+// How much a cell's 8x8 sprites are scaled at the current step.
+static float N3DSLiveMap_cellScale(void) {
+    return (float) N3DSLiveMap_cell() / (float) N3DS_LIVEMAP_CELL;
+}
 
 void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     free(gLive.title);
@@ -108,6 +137,7 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.sprMissile = N3DSGml_spriteIndex("sGUIMissile");
     gLive.sprSMissile = N3DSGml_spriteIndex("sGUISMissile");
     gLive.sprPBomb = N3DSGml_spriteIndex("sGUIPBomb");
+    gLive.zoom = N3DS_ZOOM_DEFAULT;
     // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
     // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
     // symbols but no title, no play time and no counter.
@@ -151,7 +181,8 @@ void N3DSLiveMap_beginFrame(void) {
 
 static void N3DSLiveMap_sprite(int32_t sprite, int32_t frame, float x, float y, float alpha) {
     if (sprite < 0) return;
-    Renderer_drawSpriteExt(gLive.renderer, sprite, frame, x, y, 1.0f, 1.0f, 0.0f, 0xFFFFFF, alpha);
+    float scale = N3DSLiveMap_cellScale();
+    Renderer_drawSpriteExt(gLive.renderer, sprite, frame, x, y, scale, scale, 0.0f, 0xFFFFFF, alpha);
 }
 
 static int32_t N3DSLiveMap_cornerFrame(char c) {
@@ -170,13 +201,14 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
     int32_t cornerFrame = N3DSLiveMap_cornerFrame(corner);
     if (cornerFrame >= 0) N3DSLiveMap_sprite(gLive.sprCorner, cornerFrame, x, y, 1.0f);
     if (wallU == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y, 1.0f);
-    if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + 7.0f, 1.0f);
+    float edge = (float) N3DSLiveMap_cell() - 1.0f;
+    if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + edge, 1.0f);
     if (wallL == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x, y, 1.0f);
-    if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + 7.0f, y, 1.0f);
+    if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + edge, y, 1.0f);
     if (wallU == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y, 1.0f);
-    if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + 7.0f, 1.0f);
+    if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + edge, 1.0f);
     if (wallL == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x, y, 1.0f);
-    if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + 7.0f, y, 1.0f);
+    if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + edge, y, 1.0f);
     int32_t sp = -1;
     switch (special) {
         case '1': sp = 0; break;
@@ -199,8 +231,58 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
 }
 
 static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t py, float* x, float* y) {
-    *x = (float) (N3DS_LIVEMAP_W / 2 - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL) + gLive.panX;
-    *y = (float) (N3DS_LIVEMAP_H / 2 - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL) + gLive.panY;
+    float cell = (float) N3DSLiveMap_cell();
+    *x = ((float) N3DS_LIVEMAP_W * 0.5f - cell * 0.5f + (float) (cx - px) * cell) + gLive.panX;
+    *y = ((float) N3DS_LIVEMAP_H * 0.5f - cell * 0.5f + (float) (cy - py) * cell) + gLive.panY;
+}
+
+// The zoom control along the bottom margin: one "[1x]" per step, the current step highlighted. The brackets follow
+// the settings pages' convention for a selected value, and the enabled/disabled colouring is theirs too.
+static void N3DSLiveMap_drawZoomControl(void) {
+    static const char* kLabels[N3DS_ZOOM_COUNT] = { "0.75x", "1x", "1.5x", "2x" };
+    Renderer* r = gLive.renderer;
+    int32_t font = r->drawFont, halign = r->drawHalign;
+    uint32_t color = r->drawColor;
+    float alpha = r->drawAlpha;
+    r->drawFont = gLive.font;
+    r->drawAlpha = 1.0f;
+    // Each step owns an equal slice of the strip, so a tap lands on the step whose label is under the finger.
+    float slice = (float) N3DS_LIVEMAP_W / (float) N3DS_ZOOM_COUNT;
+    for (int32_t i = 0; i < N3DS_ZOOM_COUNT; i++) {
+        bool current = i == gLive.zoom;
+        char label[24];
+        // The brackets are the settings pages' mark for the value in effect.
+        snprintf(label, sizeof(label), "%s%s%s", current ? "[" : " ", kLabels[i], current ? "]" : " ");
+        // Unselected steps are dimmed rather than hidden, the way the settings pages grey out rows that cannot be
+        // edited; the current one is drawn in the bright text colour.
+        float centre = slice * (float) i + slice * 0.5f;
+        float width = N3DSLiveMap_statusTextWidth(label);
+        N3DSLiveMap_textColoured(label, centre - width * 0.5f, N3DS_STATUS_ZOOM_LABEL_Y, 0,
+            current ? 0xFFFFFF : N3DS_ZOOM_DIM_COLOUR);
+    }
+    r->drawFont = font;
+    r->drawHalign = halign;
+    r->drawColor = color;
+    r->drawAlpha = alpha;
+}
+
+// A tap on the zoom strip: -1 when the point is not on it.
+int32_t N3DSLiveMap_zoomAt(int32_t sx, int32_t sy) {
+    if (sy < (int32_t) N3DS_STATUS_ZOOM_TOP || sy > (int32_t) N3DS_LIVEMAP_H) return -1;
+    if (sx < 0 || sx >= N3DS_LIVEMAP_W) return -1;
+    int32_t slice = N3DS_LIVEMAP_W / N3DS_ZOOM_COUNT;
+    int32_t step = sx / slice;
+    if (step < 0) step = 0;
+    if (step >= N3DS_ZOOM_COUNT) step = N3DS_ZOOM_COUNT - 1;
+    return step;
+}
+
+void N3DSLiveMap_setZoom(int32_t step) {
+    if (step < 0) step = 0;
+    if (step >= N3DS_ZOOM_COUNT) step = N3DS_ZOOM_COUNT - 1;
+    if (step == gLive.zoom) return;
+    gLive.zoom = step;
+    logInfo("Live map: zoom %dpx a cell\n", (int) N3DSLiveMap_cell());
 }
 
 // Drags the map by a screen-space delta. The pan is clamped so the map cannot be flung off the screen: it may move
@@ -226,8 +308,9 @@ void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* ou
     if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
     float fx = (float) sx - gLive.panX;
     float fy = (float) sy - gLive.panY;
-    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) (N3DS_LIVEMAP_W / 2)) / (float) N3DS_LIVEMAP_CELL);
-    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) (N3DS_LIVEMAP_H / 2)) / (float) N3DS_LIVEMAP_CELL);
+    float cell = (float) N3DSLiveMap_cell();
+    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) N3DS_LIVEMAP_W * 0.5f) / cell);
+    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) N3DS_LIVEMAP_H * 0.5f) / cell);
 }
 
 static void N3DSLiveMap_background(int32_t background, float x, float y, float xscale) {
@@ -237,7 +320,7 @@ static void N3DSLiveMap_background(int32_t background, float x, float y, float x
 }
 
 // draw_text with a black shadow one pixel down-right, as the pause screen does.
-static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign) {
+static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour) {
     if (text == NULL || text[0] == '\0' || gLive.font < 0) return;
     Renderer* r = gLive.renderer;
     r->drawFont = gLive.font;
@@ -245,8 +328,13 @@ static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign)
     r->drawAlpha = 1.0f;
     r->drawColor = 0x000000;
     r->vtable->drawText(r, text, x + 1.0f, y + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
-    r->drawColor = 0xFFFFFF;
+    r->drawColor = colour;
     r->vtable->drawText(r, text, x, y, 1.0f, 1.0f, 0.0f, -1.0f);
+}
+
+// The usual white-on-black-shadow line.
+static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign) {
+    N3DSLiveMap_textColoured(text, x, y, halign, 0xFFFFFF);
 }
 
 static char* N3DSLiveMap_callText(int32_t script, RValue* args, int32_t argCount) {
@@ -410,15 +498,14 @@ static void N3DSLiveMap_drawStatus(void) {
             } else {
                 DataWin* dataWin = gLive.runner->dataWin;
                 Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
-                // The ammo sprites are drawn for the game's own black HUD plate: on the green bar their dark parts
-                // sink into it and the icon reads as a smudge. A darker tile behind each one restores the contrast the
-                // sprite was drawn against, and matches the plate the energy entry gets.
-                r->vtable->drawRectangle(r, x, iconTop, x + iconW, iconTop + iconH, N3DS_STATUS_ICON_BACKING, 1.0f,
-                    false);
+                // Tinted green like the energy plate. The ammo sprites are near-white on the game's own black HUD
+                // plate; left white on the green bar they read as a different family from the plate beside them, so
+                // they are multiplied by the plate's green instead. The tint is multiplicative, so the sprites' white
+                // becomes that green and their darker pixels stay darker - the shapes survive.
                 Renderer_drawSpriteExt(r, entries[i].icon, 0,
                     x + (float) sprite->originX * entries[i].iconScale,
                     iconTop + (float) sprite->originY * entries[i].iconScale,
-                    entries[i].iconScale, entries[i].iconScale, 0.0f, 0xFFFFFF, 1.0f);
+                    entries[i].iconScale, entries[i].iconScale, 0.0f, N3DS_STATUS_ICON_TINT, 1.0f);
             }
             x += iconW + (float) N3DS_STATUS_GAP;
         }
@@ -461,6 +548,8 @@ static void N3DSLiveMap_drawFrame(void) {
     }
     // In the black margin above the bar, centred there.
     N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
+    // The bottom margin's zoom steps.
+    N3DSLiveMap_drawZoomControl();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
         // steps_to_time2(gametime): gametime counts steps (60 a second), shown as HH:MM:SS. Done here, not by calling
@@ -503,8 +592,9 @@ static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
                 (float) N3DS_LIVEMAP_H, 0xFFFFFF, 1.0f);
         }
     }
-    int32_t halfW = N3DS_LIVEMAP_W / N3DS_LIVEMAP_CELL / 2 + 1;
-    int32_t halfH = N3DS_LIVEMAP_H / N3DS_LIVEMAP_CELL / 2 + 1;
+    int32_t cell = N3DSLiveMap_cell();
+    int32_t halfW = N3DS_LIVEMAP_W / cell / 2 + 1;
+    int32_t halfH = N3DS_LIVEMAP_H / cell / 2 + 1;
     for (int32_t cx = px - halfW; cx <= px + halfW; cx++) {
         if (cx < 0) continue;
         for (int32_t cy = py - halfH; cy <= py + halfH; cy++) {
