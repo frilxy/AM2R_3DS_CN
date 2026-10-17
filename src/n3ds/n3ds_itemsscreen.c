@@ -38,7 +38,8 @@
 // Ball); the rest index global.item[], which the game sets as the items are collected.
 typedef struct {
     int8_t item;
-    const char* key; // the [ItemsMenu] key, for both the name and the description
+    const char* key;    // the [ItemsMenu] key, for the row's name
+    const char* tipKey; // the [Items] key for its description; NULL when the two sections agree on a name
 } N3DSItemRow;
 
 typedef struct {
@@ -51,18 +52,21 @@ typedef struct {
     int32_t firstRow;     // this box's first row in the flat selection order
 } N3DSItemBox;
 
+// [ItemsMenu] names these rows; [Items] holds their descriptions, and it does not always use the same word: the
+// spring ball is SpringBall there and JumpBall here, the high-jump boots HiJumpBoots and HiJump.
 static const N3DSItemRow kSuitRows[] = {
-    { -1, "PowerSuit" }, { 5, "VariaSuit" }, { 9, "GravitySuit" },
+    { -1, "PowerSuit", NULL }, { 5, "VariaSuit", NULL }, { 9, "GravitySuit", NULL },
 };
 static const N3DSItemRow kBeamRows[] = {
-    { 10, "ChargeBeam" }, { 11, "IceBeam" }, { 12, "WaveBeam" }, { 13, "SpazerBeam" }, { 14, "PlasmaBeam" },
+    { 10, "ChargeBeam", NULL }, { 11, "IceBeam", NULL }, { 12, "WaveBeam", NULL }, { 13, "SpazerBeam", NULL },
+    { 14, "PlasmaBeam", NULL },
 };
 static const N3DSItemRow kMiscRows[] = {
-    { -1, "MorphBall" }, { 2, "SpiderBall" }, { 3, "SpringBall" }, { 0, "Bombs" }, { 1, "PowerGrip" },
-    { 8, "ScrewAttack" },
+    { -1, "MorphBall", NULL }, { 2, "SpiderBall", NULL }, { 3, "SpringBall", "JumpBall" }, { 0, "Bombs", NULL },
+    { 1, "PowerGrip", NULL }, { 8, "ScrewAttack", NULL },
 };
 static const N3DSItemRow kBootRows[] = {
-    { 4, "HiJumpBoots" }, { 6, "SpaceJump" }, { 7, "SpeedBooster" },
+    { 4, "HiJumpBoots", "HiJump" }, { 6, "SpaceJump", NULL }, { 7, "SpeedBooster", NULL },
 };
 
 // The four boxes, at the positions the game's page puts them. firstRow continues the flat selection order across the
@@ -176,7 +180,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
             N3DS_ITEMS_PANEL_COLOUR);
     }
     char* heading = N3DSItemsScreen_text("ItemsMenu", box->heading);
-    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 1.0f);
+    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 0.8f);
     free(heading);
 
     for (int32_t row = 0; row < box->rowCount; row++) {
@@ -190,7 +194,9 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         }
         N3DSItemsScreen_sprite(gItems.sprItem, box->x + 4.0f, rowY + 1.0f, 1.0f);
         char* label = N3DSItemsScreen_text("ItemsMenu", item->key);
-        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 14.0f, rowY, 1.0f);
+        // Three-quarter size: the boxes are 67 wide, which fits the game's own English names (PLASMA BEAM) but not
+        // their Chinese ones, where 等离子光束 is five full-width characters. At 0.75 the longest still fits.
+        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 13.0f, rowY, 0.75f);
         free(label);
     }
 }
@@ -214,18 +220,29 @@ static void N3DSItemsScreen_drawDescription(void) {
     }
     N3DSItemsScreen_rect(0.0f, (float) N3DS_ITEMS_DESC_Y, (float) N3DS_ITEMS_W,
         (float) (N3DS_ITEMS_DESC_Y + N3DS_ITEMS_DESC_H), N3DS_ITEMS_BAR_COLOUR);
+    // The description is the <key>_Tip string - the same one the game's own items page shows under the boxes. It is
+    // not <key>_Text: that is the in-play hint (how to use the item), a different sentence. The names above come from
+    // [ItemsMenu] and the tips from [Items]; the two sections do not always agree on a name, so they are read
+    // separately.
     char key[64];
-    if (item != NULL) snprintf(key, sizeof(key), "%s_Text", item->key);
-    char* description = item != NULL ? N3DSItemsScreen_text("ItemsMenu", key) : NULL;
+    const char* tipKey = item != NULL ? (item->tipKey != NULL ? item->tipKey : item->key) : NULL;
+    if (tipKey != NULL) snprintf(key, sizeof(key), "%s_Tip", tipKey);
+    char* description = tipKey != NULL ? N3DSItemsScreen_text("Items", key) : NULL;
     if (description != NULL) {
-        // The game marks its line breaks with '#', as its own log and description text does.
-        for (char* p = description; *p != '\0'; p++) {
-            if (*p == '#') *p = ' ';
+        // The game marks line breaks with '#' and puts a button glyph where the text has a '|'. This port has no
+        // glyph to put there, so the break becomes a space and the marker is dropped rather than shown as a bar.
+        char* out = description;
+        for (const char* p = description; *p != '\0'; p++) {
+            if (*p == '#') *out++ = ' ';
+            else if (*p == '|') continue;
+            else *out++ = *p;
         }
+        *out = '\0';
         N3DSItemsScreen_text1(description, 6.0f, (float) N3DS_ITEMS_DESC_Y + 1.0f, 1.0f);
         free(description);
     }
-    N3DSItemsScreen_text1("[^v] Select   [Z] Use   [X] Menu", 4.0f, (float) N3DS_ITEMS_HINT_Y, 1.0f);
+    // The hints the game's own items page puts along the bottom, in this port's terms.
+    N3DSItemsScreen_text1("触摸选择道具", 4.0f, (float) N3DS_ITEMS_HINT_Y, 1.0f);
 }
 
 void N3DSItemsScreen_draw(void) {
