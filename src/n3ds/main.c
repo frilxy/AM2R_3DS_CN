@@ -740,6 +740,7 @@ int main(int argc, char** argv) {
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSItemsScreen_init(runner, renderer);
+    N3DSLogScreen_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};

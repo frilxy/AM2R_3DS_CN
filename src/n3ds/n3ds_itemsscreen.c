@@ -25,7 +25,7 @@
 #define N3DS_ITEMS_STATUS_Y 49    // the energy/missile strip
 #define N3DS_ITEMS_STATUS_H 14
 #define N3DS_ITEMS_ROW_H 9        // one item row
-#define N3DS_ITEMS_HEADER_H 12    // the box's own title strip
+#define N3DS_ITEMS_HEADER_H 14    // the box's own title strip
 #define N3DS_ITEMS_DESC_Y 216     // the description strip
 #define N3DS_ITEMS_DESC_H 13
 #define N3DS_ITEMS_HINT_Y 230     // the button hints
@@ -188,8 +188,10 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         N3DSItemsScreen_rect(box->x, box->y, box->x + (float) box->width, box->y + (float) box->height,
             N3DS_ITEMS_PANEL_COLOUR);
     }
+    // The panel sprite's own title strip is only about six pixels tall, which is not enough for a Chinese heading, so
+    // the heading sits just under it and the rows start below that.
     char* heading = N3DSItemsScreen_text("ItemsMenu", box->heading);
-    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 0.8f);
+    N3DSItemsScreen_text1(heading != NULL ? heading : box->heading, box->x + 3.0f, box->y + 1.0f, 0.68f);
     free(heading);
 
     for (int32_t row = 0; row < box->rowCount; row++) {
@@ -205,7 +207,7 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
         char* label = N3DSItemsScreen_text("ItemsMenu", item->key);
         // Three-quarter size: the boxes are 67 wide, which fits the game's own English names (PLASMA BEAM) but not
         // their Chinese ones, where 等离子光束 is five full-width characters. At 0.75 the longest still fits.
-        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 13.0f, rowY, 0.75f);
+        N3DSItemsScreen_text1(label != NULL ? label : item->key, box->x + 12.0f, rowY, 0.7f);
         free(label);
     }
 }
