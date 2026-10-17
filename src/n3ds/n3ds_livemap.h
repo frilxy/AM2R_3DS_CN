@@ -15,6 +15,18 @@ bool N3DSLiveMap_available(void);
 void N3DSLiveMap_beginFrame(void);
 // Draws the map on the bottom screen (call after the game's frame, during play).
 void N3DSLiveMap_draw(void);
+// The frame every bottom-screen page shares, so a page's content sits between the same two bars whichever page it is:
+// a title bar flush with the top, the content, a footer bar, and the buttons along the bottom. Anything a page draws
+// outside the content band is covered, because each page draws its bars after its content.
+#define N3DS_BOTTOM_WIDTH 320
+#define N3DS_BOTTOM_HEIGHT 240
+#define N3DS_BOTTOM_BAR_H 16                  // the title bar, and the footer bar
+#define N3DS_BOTTOM_CONTENT_TOP N3DS_BOTTOM_BAR_H
+#define N3DS_BOTTOM_CONTENT_BOTTOM 180        // the footer starts here
+#define N3DS_BOTTOM_FOOTER_H 20
+#define N3DS_BOTTOM_BUTTON_H 40
+#define N3DS_BOTTOM_BUTTON_TOP (N3DS_BOTTOM_HEIGHT - N3DS_BOTTOM_BUTTON_H)
+
 // The green bar the game's own sub-screen pages put across their top, shared by every page here: the game's
 // bg_SubScrBottom stretched across the width. Drawn at `y`; the caller puts its title text on top.
 void N3DSLiveMap_drawBar(float y, float height);

@@ -22,12 +22,12 @@
 // The screen's own geometry, measured off the game's 320x240 items page.
 #define N3DS_ITEMS_W 320
 #define N3DS_ITEMS_H 240
-#define N3DS_ITEMS_STATUS_Y 0     // the energy/missile strip, flush with the top
-#define N3DS_ITEMS_STATUS_H 16
+#define N3DS_ITEMS_STATUS_Y 0     // the energy/missile strip, flush with the top (the shared title bar)
+#define N3DS_ITEMS_STATUS_H N3DS_BOTTOM_BAR_H
 #define N3DS_ITEMS_ROW_H 9        // one item row
 #define N3DS_ITEMS_HEADER_H 14    // the box's own title strip
-#define N3DS_ITEMS_DESC_Y 198     // the description strip
-#define N3DS_ITEMS_DESC_H 13
+#define N3DS_ITEMS_DESC_Y N3DS_BOTTOM_CONTENT_BOTTOM  // the description strip, where the footer starts
+#define N3DS_ITEMS_DESC_H N3DS_BOTTOM_FOOTER_H
 #define N3DS_ITEMS_HINT_Y 212     // the button hints
 
 // Colours sampled from the game's page: the panel fill, its title strip, and the selected row.
@@ -72,10 +72,10 @@ static const N3DSItemRow kBootRows[] = {
 // The four boxes, at the positions the game's page puts them. firstRow continues the flat selection order across the
 // boxes (suits 0-2, beams 3-7, misc 8-13, boots 14-16).
 static const N3DSItemBox kBoxes[] = {
-    { "Suits", 20.0f, 54.0f, 67, 44, "sSubScrSuit", 3, kSuitRows, 0 },
-    { "Beams", 20.0f, 120.0f, 67, 62, "sSubScrBeam", 5, kBeamRows, 3 },
-    { "Misc", 233.0f, 54.0f, 67, 71, "sSubScrMisc", 6, kMiscRows, 8 },
-    { "Boots", 233.0f, 140.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
+    { "Suits", 20.0f, 20.0f, 67, 44, "sSubScrSuit", 3, kSuitRows, 0 },
+    { "Beams", 20.0f, 108.0f, 67, 62, "sSubScrBeam", 5, kBeamRows, 3 },
+    { "Misc", 233.0f, 20.0f, 67, 71, "sSubScrMisc", 6, kMiscRows, 8 },
+    { "Boots", 233.0f, 132.0f, 67, 44, "sSubScrBoots", 3, kBootRows, 14 },
 };
 #define N3DS_ITEMS_BOX_COUNT ((int32_t) (sizeof(kBoxes) / sizeof(kBoxes[0])))
 #define N3DS_ITEMS_ROW_COUNT 17
@@ -163,7 +163,6 @@ static void N3DSItemsScreen_spriteAt(int32_t sprite, float left, float top, floa
 
 // The energy / missile strip along the top: the game's own numbers, laid out as its page does it.
 static void N3DSItemsScreen_drawStatus(void) {
-    N3DSLiveMap_drawBar((float) N3DS_ITEMS_STATUS_Y, (float) N3DS_ITEMS_STATUS_H);
     char text[32];
     double health = 0.0, maxHealth = 0.0, missiles = 0.0, maxMissiles = 0.0;
     N3DSGml_getGlobal("playerhealth", -1, &health);
@@ -201,7 +200,18 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
             N3DSItemsScreen_rect(box->x + 2.0f, rowY - 1.0f, box->x + (float) box->width - 2.0f,
                 rowY + (float) N3DS_ITEMS_ROW_H - 2.0f, N3DS_ITEMS_HIGHLIGHT_COLOUR);
         }
-        N3DSItemsScreen_spriteAt(gItems.sprItem, box->x + 4.0f, rowY + 1.0f, 1.0f);
+        // The bullet is 7x7 in the game's own page, which reads as a dot beside Chinese text one line tall; drawn at
+        // 1.5x it matches the row height it is marking.
+        if (gItems.sprItem >= 0) {
+            DataWin* dataWin = gItems.runner->dataWin;
+            if (dataWin != NULL && (uint32_t) gItems.sprItem < dataWin->sprt.count) {
+                Sprite* bullet = &dataWin->sprt.sprites[gItems.sprItem];
+                const float scale = 1.5f;
+                Renderer_drawSpriteExt(gItems.renderer, gItems.sprItem, 0,
+                    box->x + 4.0f + (float) bullet->originX * scale, rowY + (float) bullet->originY * scale,
+                    scale, scale, 0.0f, 0xFFFFFF, 1.0f);
+            }
+        }
         char* label = N3DSItemsScreen_text("ItemsMenu", item->key);
         // Three-quarter size: the boxes are 67 wide, which fits the game's own English names (PLASMA BEAM) but not
         // their Chinese ones, where 等离子光束 is five full-width characters. At 0.75 the longest still fits.
@@ -211,12 +221,25 @@ static void N3DSItemsScreen_drawBox(int32_t index) {
 }
 
 // Samus in the middle, between the boxes. The game's own figure sprite, centred on the screen.
+// Samus between the boxes. The figure is 201 tall, taller than the 164 the content band gives it, so it is scaled to
+// fit rather than drawn over the bars.
 static void N3DSItemsScreen_drawSamus(void) {
     if (gItems.sprPlayer < 0) return;
     DataWin* dataWin = gItems.runner->dataWin;
     if (dataWin == NULL || (uint32_t) gItems.sprPlayer >= dataWin->sprt.count) return;
-    int32_t w = (int32_t) dataWin->sprt.sprites[gItems.sprPlayer].width;
-    N3DSItemsScreen_spriteAt(gItems.sprPlayer, (float) (N3DS_ITEMS_W / 2 - w / 2), 40.0f, 1.0f);
+    Sprite* sprite = &dataWin->sprt.sprites[gItems.sprPlayer];
+    float w = (float) sprite->width;
+    float h = (float) sprite->height;
+    if (w <= 0.0f || h <= 0.0f) return;
+    float band = (float) (N3DS_BOTTOM_CONTENT_BOTTOM - N3DS_BOTTOM_CONTENT_TOP);
+    float scale = band / h;
+    if (scale > 1.0f) scale = 1.0f;
+    float drawW = w * scale;
+    float drawH = h * scale;
+    float left = ((float) N3DS_ITEMS_W - drawW) * 0.5f;
+    float top = (float) N3DS_BOTTOM_CONTENT_TOP + (band - drawH) * 0.5f;
+    Renderer_drawSpriteExt(gItems.renderer, gItems.sprPlayer, 0, left + (float) sprite->originX * scale,
+        top + (float) sprite->originY * scale, scale, scale, 0.0f, 0xFFFFFF, 1.0f);
 }
 
 // The selected item's description, along the bottom, and the button hints under it.
@@ -227,7 +250,6 @@ static void N3DSItemsScreen_drawDescription(void) {
         if (gItems.selected < box->firstRow || gItems.selected >= box->firstRow + box->rowCount) continue;
         item = &box->rows[gItems.selected - box->firstRow];
     }
-    N3DSLiveMap_drawBar((float) N3DS_ITEMS_DESC_Y, (float) N3DS_ITEMS_DESC_H);
     // The description is the <key>_Tip string - the same one the game's own items page shows under the boxes. It is
     // not <key>_Text: that is the in-play hint (how to use the item), a different sentence. The names above come from
     // [ItemsMenu] and the tips from [Items]; the two sections do not always agree on a name, so they are read
@@ -265,9 +287,13 @@ void N3DSItemsScreen_draw(void) {
     // this the whole panel lands on the top screen, over the running game.
     N3DSRenderer_beginBottomScreenGUI(r, N3DS_ITEMS_W, N3DS_ITEMS_H);
     N3DSItemsScreen_rect(0.0f, 0.0f, (float) N3DS_ITEMS_W, (float) N3DS_ITEMS_H, 0x000000u);
-    N3DSItemsScreen_drawStatus();
+    // Content first, bars second: anything a box or the figure draws past the content band is then covered by the
+    // bars instead of spilling over them, which is what keeps every page to the same frame.
     N3DSItemsScreen_drawSamus();
     for (int32_t i = 0; i < N3DS_ITEMS_BOX_COUNT; i++) N3DSItemsScreen_drawBox(i);
+    N3DSLiveMap_drawBar((float) N3DS_ITEMS_STATUS_Y, (float) N3DS_ITEMS_STATUS_H);
+    N3DSItemsScreen_drawStatus();
+    N3DSLiveMap_drawBar((float) N3DS_ITEMS_DESC_Y, (float) N3DS_ITEMS_DESC_H);
     N3DSItemsScreen_drawDescription();
     N3DSLiveMap_drawButtons(0); // left slot: the items page
     N3DSRenderer_endBottomScreenGUI(r);

@@ -23,10 +23,10 @@
 #define N3DS_LOG_W 320
 #define N3DS_LOG_H 240
 #define N3DS_LOG_TITLE_Y 0      // the title strip, flush with the top of the screen
-#define N3DS_LOG_TITLE_H 16
-#define N3DS_LOG_BODY_Y 18      // the list starts just under the title strip
-#define N3DS_LOG_FOOT_Y 200     // the footer strip, above the button row
-#define N3DS_LOG_FOOT_H 14
+#define N3DS_LOG_TITLE_H N3DS_BOTTOM_BAR_H
+#define N3DS_LOG_BODY_Y N3DS_BOTTOM_CONTENT_TOP  // the list starts just under the title strip
+#define N3DS_LOG_FOOT_Y N3DS_BOTTOM_CONTENT_BOTTOM  // the footer strip, where the content band ends
+#define N3DS_LOG_FOOT_H N3DS_BOTTOM_FOOTER_H
 #define N3DS_LOG_ROW_H 16       // one entry in the list
 #define N3DS_LOG_CAT_H 20       // a category heading, with its highlight bar
 #define N3DS_LOG_LIST_W 165     // the list column; the picture takes the rest
