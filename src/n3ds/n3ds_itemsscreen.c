@@ -289,6 +289,7 @@ void N3DSItemsScreen_tap(int32_t x, int32_t y) {
         if (row < 0 || row >= box->rowCount) return;
         if (!N3DSItemsScreen_owned(box->rows[row].item)) return;
         gItems.selected = box->firstRow + row;
+        logInfo("Items screen: selected row %d (%s)\n", (int) gItems.selected, box->rows[row].key);
         return;
     }
 }

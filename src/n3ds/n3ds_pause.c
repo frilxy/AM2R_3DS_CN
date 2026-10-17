@@ -2,6 +2,7 @@
 
 #include "n3ds_gml.h"
 #include "n3ds_itemsscreen.h"
+#include "n3ds_logscreen.h"
 #include "n3ds_livemap.h"
 #include "n3ds_input.h"
 
@@ -151,10 +152,14 @@ void N3DSPause_updateMapTouch(void) {
     if (gPause.touchDown) {
         gPause.touchDown = false;
         if (!gPause.dragging) {
+            logInfo("Touch: tap at %d,%d page %d\n", (int) gPause.touchStartX, (int) gPause.touchStartY,
+                (int) gPause.page);
             if (!N3DSPause_tapButton(gPause.touchStartX, gPause.touchStartY)) {
                 if (gPause.page == N3DS_BOTTOM_PAGE_MAP) N3DSPause_tapMap(gPause.touchStartX, gPause.touchStartY);
                 else if (gPause.page == N3DS_BOTTOM_PAGE_ITEMS) {
                     N3DSItemsScreen_tap(gPause.touchStartX, gPause.touchStartY);
+                } else if (gPause.page == N3DS_BOTTOM_PAGE_LOGS) {
+                    N3DSLogScreen_tap(gPause.touchStartX, gPause.touchStartY);
                 }
             }
         }

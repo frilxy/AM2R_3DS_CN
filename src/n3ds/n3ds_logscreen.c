@@ -357,6 +357,7 @@ void N3DSLogScreen_tap(int32_t x, int32_t y) {
         return;
     }
     int32_t entry = N3DSLogScreen_entryAt(x, y);
+    logInfo("Log screen: tap %d,%d -> entry %d\n", (int) x, (int) y, (int) entry);
     if (entry < 0) return;
     if (gLog.selected == entry && N3DSLogScreen_found(&kEntries[entry])) {
         gLog.opened = true;
