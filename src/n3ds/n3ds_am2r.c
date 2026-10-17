@@ -1113,14 +1113,16 @@ static void N3DSAm2r_applyScreenMode(void) {
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
         //
-        // The picture is 320 wide and centred, so 40 columns of bar sit at each side. The HUD belongs to the picture,
-        // but on the 3DS the screen edges are where the player reads it from, so both blocks are moved out by those 40
-        // columns: the left block starts at the screen's left edge, the right block ends at its right edge. Each block
-        // then overhangs the picture onto the bar, which is intended - it keeps the HUD where a 4:3 screen would put
-        // it rather than 40 columns in from it.
+        // The left block is moved out by the width of the bar so it sits against the screen edge like the right one.
+        // Its background (bgGUIHealth) carries about 45 columns of blank on its own left, so its visible content
+        // starts that far into the picture; measured off a screenshot, the tanks begin at picture x 45 and the right
+        // block ends at picture x 320. Moving the block left by the bar width brings the tanks to screen x 45 while
+        // the right block stays 40 columns from the right edge, which is symmetric.
+        // Every element of the block takes this one shift (the backgrounds, the tank frames, the digits and the
+        // health text all add hudShift), so the block keeps its internal alignment.
         double barWidth = (mode == N3DS_SCREEN_STRETCH) ? 0.0 : 40.0;
-        gAm2r.hudLeftInset = -barWidth;   // added to the left block's x
-        gAm2r.hudInset = -barWidth;       // subtracted from the right block's space, so negative moves it right
+        gAm2r.hudLeftInset = -barWidth;
+        gAm2r.hudInset = 0.0;
         double wantedX = mode == N3DS_SCREEN_STRETCH ? 0.0 : 40.0;
         double value = 0.0;
         if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) {
