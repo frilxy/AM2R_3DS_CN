@@ -15,6 +15,9 @@ bool N3DSLiveMap_available(void);
 void N3DSLiveMap_beginFrame(void);
 // Draws the map on the bottom screen (call after the game's frame, during play).
 void N3DSLiveMap_draw(void);
+// The green bar the game's own sub-screen pages put across their top, shared by every page here: the game's
+// bg_SubScrBottom stretched across the width. Drawn at `y`; the caller puts its title text on top.
+void N3DSLiveMap_drawBar(float y, float height);
 // The three-button strip along the bottom edge, shared by every bottom-screen page. `current` is the slot whose page
 // is showing (0 items, 1 map, 2 log).
 void N3DSLiveMap_drawButtons(int32_t current);

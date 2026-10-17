@@ -22,10 +22,10 @@
 
 #define N3DS_LOG_W 320
 #define N3DS_LOG_H 240
-#define N3DS_LOG_TITLE_Y 49     // the title strip
-#define N3DS_LOG_TITLE_H 14
-#define N3DS_LOG_BODY_Y 63      // the list starts here
-#define N3DS_LOG_FOOT_Y 216     // the footer strip
+#define N3DS_LOG_TITLE_Y 0      // the title strip, flush with the top of the screen
+#define N3DS_LOG_TITLE_H 16
+#define N3DS_LOG_BODY_Y 18      // the list starts just under the title strip
+#define N3DS_LOG_FOOT_Y 200     // the footer strip, above the button row
 #define N3DS_LOG_FOOT_H 14
 #define N3DS_LOG_ROW_H 16       // one entry in the list
 #define N3DS_LOG_CAT_H 20       // a category heading, with its highlight bar
@@ -311,8 +311,7 @@ void N3DSLogScreen_draw(void) {
     N3DSRenderer_beginBottomScreenGUI(r, N3DS_LOG_W, N3DS_LOG_H);
     N3DSLogScreen_rect(0.0f, 0.0f, (float) N3DS_LOG_W, (float) N3DS_LOG_H, 0x000000u);
     // The title strip, with the page's own name.
-    N3DSLogScreen_rect(0.0f, (float) N3DS_LOG_TITLE_Y, (float) N3DS_LOG_W,
-        (float) (N3DS_LOG_TITLE_Y + N3DS_LOG_TITLE_H), N3DS_LOG_BAR_COLOUR);
+    N3DSLiveMap_drawBar((float) N3DS_LOG_TITLE_Y, (float) N3DS_LOG_TITLE_H);
     char* title = N3DSLogScreen_getText("Subscreen", gLog.opened ? "Title_Logs" : "Title_Logs");
     if (title == NULL) title = safeStrdup("Logs");
     N3DSLogScreen_text1(title, (float) (N3DS_LOG_W / 2) - (float) (strlen(title) * 3), (float) N3DS_LOG_TITLE_Y + 1.0f,
@@ -323,8 +322,7 @@ void N3DSLogScreen_draw(void) {
     else N3DSLogScreen_drawList();
 
     // The footer strip and the button hints under it.
-    N3DSLogScreen_rect(0.0f, (float) N3DS_LOG_FOOT_Y, (float) N3DS_LOG_W,
-        (float) (N3DS_LOG_FOOT_Y + N3DS_LOG_FOOT_H), N3DS_LOG_BAR_COLOUR);
+    N3DSLiveMap_drawBar((float) N3DS_LOG_FOOT_Y, (float) N3DS_LOG_FOOT_H);
     N3DSLiveMap_drawButtons(2); // right slot: the log page
     N3DSRenderer_endBottomScreenGUI(r);
 
