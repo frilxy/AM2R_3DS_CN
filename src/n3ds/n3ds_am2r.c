@@ -1229,26 +1229,39 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
-// Diagnostic: list every global variable whose name mentions a log, and its current value. The language files hold the
-// log text ([Logs] / [NewLogs]) but not which entries the player has found - that lives in the game's globals, and the
-// reverse engineering of data.win could not pin the names down. The VM's own name table has them all, so this asks it
-// directly instead of guessing.
-static void N3DSAm2r_dumpLogVars(void) {
+// Diagnostic: can the game's own GUI drawing be run from outside its pause room?
+//
+// The log and items screens exist in the game as oLogScreen / oSubScr* objects, but only inside rm_subscreen. If
+// their drawing can be run on demand, the bottom screen could show the game's own pages instead of a rebuild - the
+// layout, the fonts and the Chinese wrapping would all be the game's. What that needs is a surface to draw into and
+// an instance to be `self`; oControl (object 427) is the game's own controller and is always there.
+//
+// This runs the attempt once and logs what happens, so the answer comes from the console rather than from guesswork.
+static void N3DSAm2r_probeGameGui(void) {
     Runner* runner = gAm2r.runner;
     if (runner == NULL || runner->vmContext == NULL) return;
-    int32_t shown = 0;
-    int32_t total = (int32_t) shlen(runner->vmContext->varNameMap);
-    for (ptrdiff_t i = 0; i < (ptrdiff_t) total; i++) {
-        const char* name = runner->vmContext->varNameMap[i].key;
-        if (name == NULL) continue;
-        if (strstr(name, "log") == NULL && strstr(name, "Log") == NULL) continue;
-        double value = 0.0;
-        bool have = N3DSGml_getGlobal(name, -1, &value);
-        if (have) logInfo("Logvars: %s = %.0f\n", name, value);
-        else logInfo("Logvars: %s (not a global)\n", name);
-        shown++;
+    VMContext* ctx = runner->vmContext;
+
+    int32_t drawMap = N3DSGml_scriptIndex("draw_gui_map");
+    int32_t drawGui = N3DSGml_scriptIndex("draw_gui");
+    int32_t objControl = N3DSGml_objectIndex("oControl");
+    Instance* control = objControl >= 0 ? N3DSGml_anyInstance(objControl) : NULL;
+    logInfo("GuiProbe: draw_gui_map=%d draw_gui=%d oControl=%d instance=%s\n",
+        (int) drawMap, (int) drawGui, (int) objControl, control != NULL ? "yes" : "no");
+    if (control == NULL || drawMap < 0) {
+        logInfo("GuiProbe: nothing to try\n");
+        return;
     }
-    logInfo("Logvars: %d name(s) matched, %d variables in the map\n", (int) shown, total);
+
+    // Where the drawing lands: the game's current target, so this only tests whether the script runs at all. If it
+    // does, the next step is to point a surface at it.
+    Instance* saved = ctx->currentInstance;
+    ctx->currentInstance = control;
+    logInfo("GuiProbe: calling draw_gui_map with oControl as self\n");
+    RValue result = VM_callCodeIndex(ctx, drawMap, NULL, 0);
+    RValue_free(&result);
+    ctx->currentInstance = saved;
+    logInfo("GuiProbe: returned without crashing\n");
 }
 
 void N3DSAm2r_update(void) {
@@ -1263,7 +1276,7 @@ void N3DSAm2r_update(void) {
     }
     if (!gAm2r.logVarsDumped && gAm2r.runner != NULL) {
         gAm2r.logVarsDumped = true;
-        N3DSAm2r_dumpLogVars();
+        N3DSAm2r_probeGameGui();
     }
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
