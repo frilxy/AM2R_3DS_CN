@@ -61,9 +61,9 @@ typedef struct {
     int32_t objectIndex[N3DS_GAMEPAGE_COUNT][8];
     int32_t partCount[N3DS_GAMEPAGE_COUNT];
     bool ready;
-} N3DSGamePage;
+} N3DSGamePageState;
 
-static N3DSGamePage gPage;
+static N3DSGamePageState gPage;
 
 static const N3DSGamePageSpec kSpecs[N3DS_GAMEPAGE_COUNT] = {
     [N3DS_GAMEPAGE_ITEMS] = { kItemsParts, (int32_t) (sizeof(kItemsParts) / sizeof(kItemsParts[0])) },
