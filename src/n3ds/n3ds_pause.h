@@ -20,3 +20,5 @@ bool N3DSPause_update(void);
 bool N3DSPause_isPaused(void);
 // In a game (global.ingame) and not on the pause screen: when the bottom screen shows the map.
 bool N3DSPause_inPlay(void);
+// Once a frame while the map is on the bottom screen: dragging pans it, a tap puts the marker down or lifts it.
+void N3DSPause_updateMapTouch(void);

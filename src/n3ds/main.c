@@ -962,7 +962,12 @@ int main(int argc, char** argv) {
             N3DS_ZONE(N3DS_ZONE_OVERLAYS);
             // The bottom screen: AM2R's map while a save is being played, otherwise it stays the black the frame
             // opened with. Drawn before the top screen's overlays so those keep the top screen's mapping.
-            if (N3DSPause_inPlay() && N3DSLiveMap_available()) N3DSLiveMap_draw();
+            if (N3DSPause_inPlay() && N3DSLiveMap_available()) {
+                N3DSLiveMap_draw();
+                // After the draw, so the map this touch moves is the one just drawn: dragging pans it, a tap sets or
+                // lifts the marker.
+                N3DSPause_updateMapTouch();
+            }
             if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
             if (gFpsCounter) N3DSFpsCounter_draw(&fpsCounter, renderer, debugMonitor.displayedFps);
             renderer->vtable->flush(renderer);
