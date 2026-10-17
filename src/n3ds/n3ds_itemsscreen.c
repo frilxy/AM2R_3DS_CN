@@ -148,11 +148,6 @@ static void N3DSItemsScreen_rect(float x0, float y0, float x1, float y1, uint32_
     gItems.renderer->vtable->drawRectangle(gItems.renderer, x0, y0, x1, y1, colour, 1.0f, false);
 }
 
-static void N3DSItemsScreen_sprite(int32_t sprite, float x, float y, float alpha) {
-    if (sprite < 0) return;
-    Renderer_drawSpriteExt(gItems.renderer, sprite, 0, x, y, 1.0f, 1.0f, 0.0f, 0xFFFFFF, alpha);
-}
-
 // The same, but x/y are the sprite's top-left corner rather than its origin. The game's panel sprites put their
 // origin at (0,33) and Samus at (0,48), so passing a corner straight through would move them up by that much - which
 // is exactly what the first version of this page did.
