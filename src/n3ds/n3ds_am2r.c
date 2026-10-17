@@ -104,6 +104,7 @@ typedef struct {
     bool hudLoaded;
     bool fontsEnabled; // diagnostic (cheats.ini's "fonts="): false keeps the game's own fonts
     bool atlasDumped;  // diagnostic: the font texture has been written out once
+    bool logVarsDumped;  // diagnostic: the log-related global variable names have been listed once
     // How far the game's own HUD offsets overshoot the port's window on each side. The game draws its HUD into
     // gui_surface laid out for a window as wide as its picture (426) and blits that surface with displayx, so in Wide
     // the left-hand block (health, tanks, ammo, from x = 0) is shifted off the left edge while the right-hand block
@@ -1228,6 +1229,27 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
+// Diagnostic: list every global variable whose name mentions a log, and its current value. The language files hold the
+// log text ([Logs] / [NewLogs]) but not which entries the player has found - that lives in the game's globals, and the
+// reverse engineering of data.win could not pin the names down. The VM's own name table has them all, so this asks it
+// directly instead of guessing.
+static void N3DSAm2r_dumpLogVars(void) {
+    Runner* runner = gAm2r.runner;
+    if (runner == NULL || runner->vmContext == NULL) return;
+    struct { char* key; int32_t value; }* map = runner->vmContext->varNameMap;
+    int32_t shown = 0;
+    for (ptrdiff_t i = 0; i < shlen(map); i++) {
+        const char* name = map[i].key;
+        if (name == NULL) continue;
+        if (strstr(name, "log") == NULL && strstr(name, "Log") == NULL) continue;
+        double value = 0.0;
+        bool have = N3DSGml_getGlobal(name, -1, &value);
+        logInfo("Logvars: %s = %s%.0f\n", name, have ? "" : "(not global) ", have ? value : 0.0);
+        shown++;
+    }
+    logInfo("Logvars: %d name(s) matched, %d variables in the map\n", (int) shown, (int) shlen(map));
+}
+
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     // Diagnostic: once the game has swapped its fonts, write the texture out. It has to happen after oControl's
@@ -1237,6 +1259,10 @@ void N3DSAm2r_update(void) {
             gAm2r.atlasDumped = true;
             N3DSRenderer_dumpFontAtlas(gAm2r.runner->renderer);
         }
+    }
+    if (!gAm2r.logVarsDumped && gAm2r.runner != NULL) {
+        gAm2r.logVarsDumped = true;
+        N3DSAm2r_dumpLogVars();
     }
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
