@@ -29,11 +29,11 @@
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
-// The map's zoom steps, as the pixel height of one map cell. The cells' sprites are 8x8 natively, so 8 is 1:1 and
-// the only step where nothing is resampled; anything larger is upscaled with a nearest filter, which keeps the pixel
-// art crisp, and 6 is the only downscale, where the renderer switches to a linear filter and a 1-pixel wall line
-// starts to thin out. Below 6 the wall lines break up, which is why the range stops there.
-static const int32_t kZoomSteps[] = { 6, 8, 12, 16 };
+// The map's zoom steps, as the pixel height of one map cell: 0.5x, 1x, 2x and 3x against the cells' native 8.
+// 8 and 16 and 24 are whole multiples, so their upscales are pixel-exact under a nearest filter; 4 is the only
+// downscale and the renderer switches to a linear filter there, where a 1-pixel wall line thins to a half-pixel
+// and the map reads as blockier than at 1x.
+static const int32_t kZoomSteps[] = { 4, 8, 16, 24 };
 #define N3DS_ZOOM_COUNT ((int32_t) (sizeof(kZoomSteps) / sizeof(kZoomSteps[0])))
 #define N3DS_ZOOM_DEFAULT 1  // 8 pixels a cell, the native size
 
@@ -62,13 +62,19 @@ static const int32_t kZoomSteps[] = { 6, 8, 12, 16 };
 //
 // Colours here are BGR, not RGB (the renderer unpacks them with BGR_R/BGR_G/BGR_B), so a value read as RGB off a
 // screenshot has its red and blue swapped: 0x84e629 pasted in straight draws cyan instead of green.
-#define N3DS_STATUS_ETANK_W 12
-#define N3DS_STATUS_ETANK_H 12
-#define N3DS_STATUS_ETANK_COLOUR 0x29e684u  // the bar's bright highlight green, RGB 0x84e629
-#define N3DS_STATUS_ETANK_EDGE 0x042a0au    // the bar's dark green, RGB 0x0a2a04
+// 6x5, measured off a console screenshot of the game's own bar: at that bar's scale the plate is 19x16 screenshot
+// pixels against a 45-pixel-tall bar, and the bar is 14 game pixels, so the plate is about 6x5 in game pixels.
+#define N3DS_STATUS_ETANK_W 6
+#define N3DS_STATUS_ETANK_H 5
+// The E is a vertical gradient, which is what the reference has: a light green top stroke, a mid green middle and a
+// dark green bottom. Literals are BGR (see the note above).
+#define N3DS_STATUS_ETANK_TOP 0x63e67bu    // RGB 0x7be663
+#define N3DS_STATUS_ETANK_MID 0x00d629u    // RGB 0x29d600
+#define N3DS_STATUS_ETANK_BOT 0x009400u    // RGB 0x009400
+#define N3DS_STATUS_ETANK_BACK 0x000000u   // the counter behind the E, which is black rather than the bar's green
 // The ammo sprites are white on the game's own black plate; on the green bar a multiplicative tint in the plate's
 // green puts them in the same family as the energy plate next to them.
-#define N3DS_STATUS_ICON_TINT N3DS_STATUS_ETANK_COLOUR
+#define N3DS_STATUS_ICON_TINT N3DS_STATUS_ETANK_MID
 
 // The zoom control in the bottom margin. The game's footer bar ends at 212, so the control owns 212..240: 28 pixels,
 // which is enough for one line of the 12-pixel font with room above and below.
@@ -240,13 +246,11 @@ static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t p
 static float N3DSLiveMap_statusTextWidth(const char* text);
 static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour);
 
-// The zoom control along the bottom margin: one "[1x]" per step, the current step highlighted. The brackets follow
+// The zoom control along the bottom margin: one "[1X]" per step, the current step highlighted. The brackets follow
 // the settings pages' convention for a selected value, and the enabled/disabled colouring is theirs too.
 static void N3DSLiveMap_drawZoomControl(void) {
-    // The step's cell size in pixels, which is what actually changes: 6, 8, 12, 16 against the sprites' native 8.
-    // A scale such as "0.75x" is unreadable at this font's size on a 320-pixel screen, and naming the cell size is
-    // the more useful of the two anyway. Each label fits its 80-pixel slice with room to spare.
-    static const char* kLabels[N3DS_ZOOM_COUNT] = { "6", "8", "12", "16" };
+    // The step's scale against the cells' native 8 pixels, upper case to match the settings pages' option text.
+    static const char* kLabels[N3DS_ZOOM_COUNT] = { "0.5X", "1X", "2X", "3X" };
     Renderer* r = gLive.renderer;
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
@@ -419,19 +423,15 @@ static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW
 static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
     Renderer* r = gLive.renderer;
     const float w = (float) N3DS_STATUS_ETANK_W, h = (float) N3DS_STATUS_ETANK_H;
-    // A green square with a dark E, the shape the game's own HUD uses for the energy bar. The proportions come from a
-    // console screenshot of that bar scaled to this 12-pixel plate: a 2-pixel stroke, a 2-pixel margin at the edges,
-    // and the arms evenly spaced - top, middle and bottom at rows 1, 5 and 9, the middle one stopping short of the
-    // right edge the way the reference does.
-    r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_COLOUR, 1.0f, false);
-    const uint32_t e = N3DS_STATUS_ETANK_EDGE;
-    const float left = x + 2.0f;
-    const float right = x + w - 1.0f;
-    const float stroke = 2.0f;
-    r->vtable->drawRectangle(r, left, top + 1.0f, left + stroke, top + h - 1.0f, e, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 1.0f, right, top + 1.0f + stroke, e, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + 5.0f, right - 1.0f, top + 5.0f + stroke, e, 1.0f, false);
-    r->vtable->drawRectangle(r, left, top + h - 3.0f, right, top + h - 1.0f, e, 1.0f, false);
+    // A black tile with a green E on it. One pixel per feature: top stroke, spine, middle stroke, spine, bottom
+    // stroke, which is exactly the 5 rows the reference plate has.
+    r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_BACK, 1.0f, false);
+    // The spine runs the full height and is two pixels wide, as the reference's is.
+    r->vtable->drawRectangle(r, x, top, x + 2.0f, top + h, N3DS_STATUS_ETANK_MID, 1.0f, false);
+    // Top, middle and bottom arms, each spanning the plate. Drawn after the spine so they cross it.
+    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, N3DS_STATUS_ETANK_TOP, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top + 2.0f, x + w, top + 3.0f, N3DS_STATUS_ETANK_MID, 1.0f, false);
+    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, N3DS_STATUS_ETANK_BOT, 1.0f, false);
 }
 
 // value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
@@ -512,8 +512,9 @@ static void N3DSLiveMap_drawStatus(void) {
         N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
         if (iconW > 0.0f) {
             // The icons keep their own row; the values were lifted two pixels above it, so the two are placed
-            // independently instead of off one shared baseline.
-            float iconTop = N3DS_STATUS_Y + (float) (N3DS_STATUS_ICON_H - iconH) * 0.5f;
+            // independently instead of off one shared baseline. Rounded down: the energy plate is 5 pixels tall
+            // against a 12-pixel row, and half a pixel would leave it straddling two rows of the screen.
+            float iconTop = floorf(N3DS_STATUS_Y + (float) (N3DS_STATUS_ICON_H - iconH) * 0.5f);
             if (entries[i].drawn) {
                 N3DSLiveMap_drawEnergyPlate(x, iconTop);
             } else {
