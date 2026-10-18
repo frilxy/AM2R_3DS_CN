@@ -240,46 +240,56 @@ static u32 N3DSInput_filterChord(u32 held) {
 }
 
 // ===[ SELECT and START on the pause screen ]===
-// The game has two pause entries, and only one of them is what a player expects from SELECT:
+// The game has two pause entries:
 //
 //   Start  -> oControl's Start handler, which sets global.ssmode = 0 ... the map.
 //   Escape -> oControl's VK_ESCAPE handler, which does the whole pause setup (camera, global.currentroom, ingame = 0,
-//             transitiontype) and then sets global.ssmode = 3 ... the menu that carries Quit.
+//             transitiontype) and then sets global.ssmode = 3 ... the menu.
 //
-// There is no key bound to Escape on the 3DS, so SELECT runs that handler directly. START does the same and then swaps
-// the menu for its Quit confirmation, exactly as the menu itself does when Quit is chosen:
-// instance_create(50, 92, 691) followed by destroying oPauseMenuOptions.
+// Nothing on the 3DS sends Escape, so the port runs that handler instead and then picks the page: START lands on the
+// menu it already opened, SELECT on the items page, which means switching global.ssmode and letting oSS_Control rebuild
+// its page objects (user event 0 destroys them, user event 1 creates them for the current ssmode - the same pair
+// oSubScrChange runs when the player changes page).
+//
+// To leave, the game's own exit is oSS_Fg's user event 0, which fades out and returns to global.currentroom. START
+// already reaches that through the game's own binding; SELECT needs it called, since the game leaves SELECT unbound.
 //
 // All of this is the game's own code on the game's own state; nothing here simulates a press sequence.
+#define N3DS_PAUSE_PAGE_ITEMS 1.0
+#define N3DS_PAUSE_PAGE_MENU  3.0
+
 static struct {
-    bool quitPending; // START was pressed: swap the menu for the Quit confirmation once it exists
-} gPauseKeys;
+    double pendingPage; // page to select once the pause room is up; -1 when there is nothing to do
+} gPauseKeys = { -1.0 };
 
-static int32_t N3DSInput_objectIndex(const char* name) {
-    return N3DSGml_objectIndex(name);
+static Instance* N3DSInput_objectInstance(const char* name) {
+    int32_t index = N3DSGml_objectIndex(name);
+    return index >= 0 ? N3DSGml_firstInstance(index) : NULL;
 }
 
-static void N3DSInput_openPauseMenu(Runner* runner) {
-    int32_t control = N3DSInput_objectIndex("oControl");
-    if (control < 0) return;
-    Instance* inst = N3DSGml_firstInstance(control);
-    if (inst == NULL) return;
-    Runner_executeEvent(runner, inst, EVENT_KEYPRESS, 27); // VK_ESCAPE
+static void N3DSInput_openPause(Runner* runner) {
+    Instance* control = N3DSInput_objectInstance("oControl");
+    if (control != NULL) Runner_executeEvent(runner, control, EVENT_KEYPRESS, 27); // VK_ESCAPE
 }
 
-// Runs once per frame while the flag is up: the menu is created by the pause room, so it may not exist on the frame
-// START was pressed.
-static void N3DSInput_applyQuitScreen(void) {
-    if (!gPauseKeys.quitPending || !N3DSPause_isPaused()) return;
-    int32_t menu = N3DSInput_objectIndex("oPauseMenuOptions");
-    int32_t quit = N3DSInput_objectIndex("oOptionsQuit");
-    if (menu < 0 || quit < 0) return;
-    Instance* menuInst = N3DSGml_firstInstance(menu);
-    if (menuInst == NULL) return; // the page is not built yet
-    N3DSGml_create(50.0f, 92.0f, quit);
-    N3DSGml_destroy(menuInst);
-    gPauseKeys.quitPending = false;
-    logInfo("Pause keys: START landed on the Quit confirmation\n");
+static void N3DSInput_closePause(Runner* runner) {
+    Instance* fg = N3DSInput_objectInstance("oSS_Fg");
+    if (fg != NULL) Runner_executeEvent(runner, fg, EVENT_OTHER, 10); // user event 0: fade out, back to currentroom
+}
+
+// Runs every frame while a page is pending: the pause room is entered a few frames after the handler fires, so the page
+// objects may not exist yet.
+static void N3DSInput_applyPendingPage(Runner* runner) {
+    if (gPauseKeys.pendingPage < 0.0 || !N3DSPause_isPaused()) return;
+    Instance* control = N3DSInput_objectInstance("oSS_Control");
+    if (control == NULL) return;
+    double page = gPauseKeys.pendingPage;
+    gPauseKeys.pendingPage = -1.0;
+    if (page == N3DS_PAUSE_PAGE_MENU) return; // the handler already opened this one
+    N3DSGml_setGlobal("ssmode", page);
+    Runner_executeEvent(runner, control, EVENT_OTHER, 10);
+    Runner_executeEvent(runner, control, EVENT_OTHER, 11);
+    logInfo("Pause keys: page %.0f\n", page);
 }
 
 bool N3DSInput_startComing(void) {
@@ -355,19 +365,26 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
-    // SELECT and START act only in play: inside the pause the game's own bindings still apply.
+    // In play, both buttons open the pause and pick a page. In the pause, SELECT leaves; START is left to the game,
+    // whose own binding already exits. The pair still toggles the debug monitor.
     {
         static u32 prevPauseKeys;
         u32 pauseKeys = held & (KEY_START | KEY_SELECT);
         u32 edges = pauseKeys & ~prevPauseKeys;
         prevPauseKeys = pauseKeys;
-        if (N3DSPause_inPlay() && edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
-            N3DSInput_openPauseMenu(runner);
-            gPauseKeys.quitPending = (edges & KEY_START) != 0;
-            held &= ~(u32) (KEY_START | KEY_SELECT);
+        if (edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
+            if (N3DSPause_inPlay()) {
+                N3DSInput_openPause(runner);
+                gPauseKeys.pendingPage = (edges & KEY_SELECT) ? N3DS_PAUSE_PAGE_ITEMS : N3DS_PAUSE_PAGE_MENU;
+                held &= ~(u32) (KEY_START | KEY_SELECT);
+            } else if (N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
+                N3DSInput_closePause(runner);
+                gPauseKeys.pendingPage = -1.0;
+                held &= ~(u32) KEY_SELECT;
+            }
         }
     }
-    N3DSInput_applyQuitScreen();
+    N3DSInput_applyPendingPage(runner);
     held = N3DSInput_filterChord(held);
     circlePosition circle, cstick;
     hidCircleRead(&circle);
