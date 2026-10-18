@@ -382,7 +382,17 @@ static inline PreprocessedText TextUtils_wrapText(Font* font, const char* text, 
                 }
             }
         }
-        start = ++end;
+        // Step past whatever the line was broken at. Advancing one character unconditionally is right when the break is
+        // the space or newline itself, but a run of CJK text has no spaces to break at: the character that did not fit
+        // was skipped too, leaving its UTF-8 sequence starting on a continuation byte, which draws as nothing - one
+        // character lost at every wrap. Only whitespace and newlines are stepped over here.
+        if (end < len && (pNew[end] == ' ' || pNew[end] == '\t')) {
+            start = ++end;
+        } else if (end < len && pNew[end] != '\n' && pNew[end] != '\r') {
+            start = end;
+        } else {
+            start = ++end;
+        }
     }
     out[outLen] = '\0';
     return ret;
