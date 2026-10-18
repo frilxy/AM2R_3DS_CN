@@ -5123,18 +5123,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
-    // Diagnostic: the save screen's play time is drawn somewhere the font-level tweaks never reached, so log every
-    // clock-shaped string with where it is drawn. A handful of lines is enough to identify the call site.
-    {
-        static int32_t clockLogs;
-        bool clockish = text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':' &&
-            text[0] >= '0' && text[0] <= '9' && text[3] >= '0' && text[3] <= '9';
-        if (clockish && clockLogs < 12) {
-            clockLogs++;
-            logInfo("Clock text: \"%s\" font %d at (%.1f,%.1f) scale (%.2f,%.2f) target %d\n", text,
-                (int) base->drawFont, (double) x, (double) y, (double) xscale, (double) yscale,
-                (int) renderer->currentTargetSurface);
-        }
+    // The save screen's play time sits one pixel into the box under it. It is not drawn like the rest of that page: the
+    // game draws "hh:mm:ss" with font 2 (fontGUIDefault, not fontGUI2) nine times in a 3x3 outline at y 2..4, which is
+    // why adjusting the font's own vertical offset never moved it while the Metroid count on the same page did. Lifting
+    // the whole outline by one puts it back inside the box.
+    //
+    // The y bound keeps this to that one line: the only other clock this port draws is the map bar's play time, which
+    // goes in at y 197.
+    if (y >= 0.0f && y < 10.0f && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
+        y -= 1.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
