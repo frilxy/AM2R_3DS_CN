@@ -245,7 +245,7 @@ static u32 N3DSInput_filterChord(u32 held) {
 // is 9. SELECT is bound to nothing in the game, so both chains below are played by the port instead of the player:
 //
 //   SELECT: Start (open the pause), then cancel  -> lands on the menu instead of the map
-//   START:  the same, then one Up                -> lands on the menu's Quit row, without confirming it
+//   START:  the same, then one Down              -> lands on the menu's Quit row, without confirming it
 //
 // The button that started a chain is swallowed for its duration, or the game would also see it and open the pause twice.
 typedef struct {
@@ -257,7 +257,7 @@ typedef struct {
 #define N3DS_MACRO_STEPS 3
 #define N3DS_MACRO_PAUSE_GAP 1   // the pause opens on the same frame Start is seen
 #define N3DS_MACRO_CANCEL_GAP 24 // long enough for rm_transition to finish and the map subscreen to accept input
-#define N3DS_MACRO_UP_GAP 12
+#define N3DS_MACRO_DOWN_GAP 12
 
 static struct {
     N3DSMacroStep steps[N3DS_MACRO_STEPS];
@@ -265,19 +265,19 @@ static struct {
     bool active;
 } gMacro;
 
-static void N3DSInput_startMacro(bool withUp) {
+static void N3DSInput_startMacro(bool withDown) {
     gMacro.steps[0] = (N3DSMacroStep) { KEY_START, N3DS_MACRO_PAUSE_GAP, 2 };
     gMacro.steps[1] = (N3DSMacroStep) { KEY_B, N3DS_MACRO_CANCEL_GAP, 2 };
     gMacro.count = 2;
-    if (withUp) {
-        gMacro.steps[2] = (N3DSMacroStep) { KEY_DUP, N3DS_MACRO_UP_GAP, 2 };
+    if (withDown) {
+        gMacro.steps[2] = (N3DSMacroStep) { KEY_DDOWN, N3DS_MACRO_DOWN_GAP, 2 };
         gMacro.count = 3;
     }
     gMacro.index = 0;
     gMacro.wait = 0;
     gMacro.held = 0;
     gMacro.active = true;
-    logInfo("Pause macro: %s\n", withUp ? "start -> menu's Quit row" : "select -> menu");
+    logInfo("Pause macro: %s\n", withDown ? "start -> menu, one step down" : "select -> menu");
 }
 
 // The keys this frame's chain wants held, and whether it is still running.
