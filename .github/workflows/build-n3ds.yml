@@ -94,7 +94,7 @@ jobs:
           create_args=()
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
-            title="AM2R for 3DS $tag (Chinese)"
+            title="AM2R_3DS_CN $tag"
             built="Built from $hash."
           else
             # A re-run keeps its run number, so it updates the same release.
@@ -115,20 +115,20 @@ jobs:
             echo "* \`am2r.cia\` — install with FBI: $base/am2r.cia"
             echo "* \`am2r.3dsx\` — for the Homebrew Launcher: $base/am2r.3dsx"
             echo
-            echo "## Localised build"
+            echo "## 中文整合版"
             echo
-            echo "The game and its pause menu are both drawn on the **top** screen. The bottom screen is black by"
-            echo "default, shows AM2R's own map while a save is being played, and goes black again when you leave the"
-            echo "game. (This line, \`bottom-screen\`, has the map; \`top-screen-zh\` builds the same code without it.)"
-            echo "Building on AM2R's own 426-pixel widescreen, the picture is fitted to the top screen at exactly"
-            echo "\`400x240\` with square pixels, so nothing is cropped and nothing is scaled. The pause menu is driven"
-            echo "with the game's own buttons (D-pad, A = OK, B = back); the touch screen is not used."
+            echo "本版本在原版移植的基础上加入了完整汉化、下屏实时地图与画面模式适配。"
             echo
-            echo "The Chinese localisation is built in: \`font_replace\`/\`background_replace\` are implemented, so the"
-            echo "game's own language files render in the bitmap fonts the layout was designed around. The language is"
-            echo "the game's own \`config.ini\` setting (\`[Screen] Language\`): the line number in \`lang/languages.txt\`,"
-            echo "counting from 0 - this build ships English then Chinese, so 0 is English and 1 is Chinese. The bundled"
-            echo "\`config.ini\` defaults to Chinese."
+            echo "* 上屏：游戏本体与暂停菜单"
+            echo "* 下屏：实时地图（拖动平移，点击放置标记）、状态计数器与缩放档位"
+            echo "* 汉化：\`font_replace\`/\`background_replace\` 已实现，中文以点阵字体渲染"
+            echo "* 画面模式：点对点（原生 320x240，默认）/ 宽屏 / 拉伸"
+            echo "* 按键：START 打开暂停（地图页），SELECT 打开道具页，再按一次返回游戏"
+            echo
+            echo "暂停菜单使用游戏自身的按键（十字键、A 确认、B 返回）；触摸屏只用于下屏地图。"
+            echo
+            echo "语言由游戏自己的 \`config.ini\` 控制（\`[Screen] Language\`）：\`lang/languages.txt\` 中的行号，从 0 开始，"
+            echo "本版本随附 English 与简体中文，0 为英文、1 为中文，默认中文。"
             echo
             echo "## SD card"
             echo
