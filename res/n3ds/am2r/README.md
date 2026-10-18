@@ -10,11 +10,16 @@ HOME Menu art for the AM2R build, picked up by cmake/n3ds.cmake: `icon.png` (48x
 > white above and below. Crop to the content first, then fit:
 >
 > ```
-> ffmpeg -i title.png -vf "crop=210:68:55:30,scale=223:-1:flags=lanczos,pad=256:128:16:28:color=white" banner.png
+> ffmpeg -i title.png -vf "crop=210:68:55:30,scale=223:-1:flags=lanczos,pad=256:128:16:28:color=black@0" \
+>        -pix_fmt rgba banner.png
 > ```
 >
 > That gives content 223x72 with 16 columns and 28 rows of margin, against the original banner's 223x62, 18/15 and
 > 33/33.
+>
+> **The padding must be transparent, not white.** The HOME Menu draws the banner over its own background, and the
+> original banner is transparent everywhere outside the logo (its corners are `0,0,0,0`). A white pad shows up as a
+> white frame on all four sides.
 Without them the title gets libctru's default homebrew icon and no banner (bannertool is needed for the banner).
 
 `sd/` holds files installed on the SD card by `tools/n3ds/make_sd.sh` only when the card doesn't have them yet:
