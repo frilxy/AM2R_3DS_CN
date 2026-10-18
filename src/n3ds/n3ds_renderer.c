@@ -5153,23 +5153,21 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         for (size_t h = 0; h < sizeof(kHeadings) / sizeof(kHeadings[0]); h++) {
             if (text != NULL && strcmp(text, kHeadings[h]) == 0) { isHeading = true; break; }
         }
-        static uint32_t drawCount;
-        static uint32_t headingAt;
-        drawCount++;
-        if (isHeading) headingAt = drawCount;
-        else if (y >= 170.0f && drawCount - headingAt < 200u) {
-            static char seenLow[24][16];
+        // Low text is deduplicated by font, position and the first bytes of the string: the earlier probe keyed on
+        // position alone, so the title screen's sliding menu exhausted the budget before the items page opened.
+        if (!isHeading && y >= 170.0f) {
+            static char seenLow[80][32];
             static int32_t seenLowCount;
-            char key[16];
-            snprintf(key, sizeof(key), "%d|%.0f", (int) base->drawFont, (double) y);
+            char key[32];
+            snprintf(key, sizeof(key), "%d|%.0f|%.0f|%.8s", (int) base->drawFont, (double) x, (double) y, text);
             bool known = false;
             for (int32_t i = 0; i < seenLowCount; i++) {
                 if (strcmp(seenLow[i], key) == 0) { known = true; break; }
             }
-            if (!known && seenLowCount < 24) {
+            if (!known && seenLowCount < 80) {
                 memcpy(seenLow[seenLowCount], key, sizeof(key));
                 seenLowCount++;
-                logInfo("Items low: font %d at (%.0f,%.0f) [%.14s]\n", (int) base->drawFont, (double) x, (double) y, text);
+                logInfo("Items low: font %d at (%.0f,%.0f) [%.20s]\n", (int) base->drawFont, (double) x, (double) y, text);
             }
         }
         if (isHeading) y -= 2.0f;
