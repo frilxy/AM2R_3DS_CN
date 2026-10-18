@@ -259,9 +259,13 @@ static u32 N3DSInput_filterChord(u32 held) {
 #define N3DS_PAUSE_PAGE_MENU  3.0
 
 static struct {
-    double pendingPage;  // page the player asked for; -1 when there is nothing to do
+    double pendingPage;   // page the player asked for; -1 when there is nothing to do
     int32_t pausedFrames; // frames spent in the pause since, for the safety net
-} gPauseKeys = { -1.0, 0 };
+    // Buttons this front end has taken over and must keep from the game until they are let go. The pause room takes a
+    // few frames to come up, and a tap that is still held when it does would otherwise reach the game's own Start
+    // binding and close the pause on its first frame - the "opens and immediately closes" of a quick press.
+    u32 swallowed;
+} gPauseKeys = { -1.0, 0, 0 };
 
 static Instance* N3DSInput_objectInstance(const char* name) {
     int32_t index = N3DSGml_objectIndex(name);
@@ -400,13 +404,17 @@ u32 N3DSInput_update(Runner* runner) {
                 // actually want now, so the room is built with it and never shows the menu first.
                 N3DSGml_setGlobal("ssmode", page);
                 gPauseKeys.pendingPage = page;
-                held &= ~(u32) (KEY_START | KEY_SELECT);
+                gPauseKeys.swallowed |= edges;
             } else if (N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
                 N3DSInput_closePause(runner);
                 gPauseKeys.pendingPage = -1.0;
-                held &= ~(u32) KEY_SELECT;
+                gPauseKeys.swallowed |= (edges & KEY_SELECT);
             }
         }
+        // Keep a taken-over button away from the game until it is released, so the room's own bindings never see the
+        // press that opened it.
+        held &= ~(pauseKeys & gPauseKeys.swallowed);
+        if (pauseKeys == 0) gPauseKeys.swallowed = 0;
     }
     N3DSInput_applyPendingPage(runner);
     held = N3DSInput_filterChord(held);
