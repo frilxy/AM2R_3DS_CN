@@ -880,6 +880,7 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
         static const struct { const char* fontName; const char* path; float emSize; } kOverrides[] = {
             { "fontSubScr", "lang/fonts/uni_05_53.ttf", 10.0f },   // panel headings (装备/光束/综合能力)
             { "fontMenuTiny", "lang/fonts/uni_05_53.ttf", 10.0f }, // item names, which drew too small at 8px
+            { "fontMenuSmall", "lang/fonts/uni_05_53.ttf", 12.0f }, // file-select slot names, a step up from 10px
         };
         for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
             size_t length = strlen(kOverrides[i].fontName);
