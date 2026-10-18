@@ -5123,6 +5123,19 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    // Diagnostic: the save screen's play time is drawn somewhere the font-level tweaks never reached, so log every
+    // clock-shaped string with where it is drawn. A handful of lines is enough to identify the call site.
+    {
+        static int32_t clockLogs;
+        bool clockish = text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':' &&
+            text[0] >= '0' && text[0] <= '9' && text[3] >= '0' && text[3] <= '9';
+        if (clockish && clockLogs < 12) {
+            clockLogs++;
+            logInfo("Clock text: \"%s\" font %d at (%.1f,%.1f) scale (%.2f,%.2f) target %d\n", text,
+                (int) base->drawFont, (double) x, (double) y, (double) xscale, (double) yscale,
+                (int) renderer->currentTargetSurface);
+        }
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
