@@ -5139,12 +5139,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         }
         y -= 3.0f;
     }
-    // The items page's four box headings sit one pixel low in their strips: 装备/光束 on the left, 其他/靴子 on the
-    // right, drawn with font 7 as a two-pass outline (x,y) and (x-1,y-1). Both passes move together.
+    // Two nudges on the items page, both found by logging what it actually draws:
     //
-    // The description bar at the bottom is still being located: it is dynamic text, so it cannot be matched by content,
-    // and the low-text probe below now only records draws that follow a heading, which is what the title screen's own
-    // menu was drowning out.
+    //  - the four box headings (装备/光束 on the left, 其他/靴子 on the right) sit one pixel low in their strips. Font 7,
+    //    drawn twice for a one-pixel outline, so both passes move together.
+    //  - the description bar sits one pixel into the strip under it. Font 6 at y 197.
+    //
+    // The description cannot be matched by content - it changes with the highlighted item - so it is matched by font and
+    // by the band it occupies. That band has to stay clear of the three button hints, which are also font 6 but at y 212
+    // and 226, and which do not move.
     {
         static const char* const kHeadings[] = {
             "\xe8\xa3\x85\xe5\xa4\x87", "\xe5\x85\xb6\xe4\xbb\x96",
@@ -5153,26 +5156,11 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         for (size_t h = 0; h < sizeof(kHeadings) / sizeof(kHeadings[0]); h++) {
             if (text != NULL && strcmp(text, kHeadings[h]) == 0) { isHeading = true; break; }
         }
-        // Nothing is recorded until the items page has been opened once: the title screen's sliding menu used up every
-        // previous budget before that page was reached. From then on one line per distinct string, whatever its y.
-        static bool sawItemsPage;
-        if (isHeading) sawItemsPage = true;
-        else if (sawItemsPage) {
-            static char seenLow[40][28];
-            static int32_t seenLowCount;
-            char key[28];
-            snprintf(key, sizeof(key), "%d|%.10s", (int) base->drawFont, text);
-            bool known = false;
-            for (int32_t i = 0; i < seenLowCount; i++) {
-                if (strcmp(seenLow[i], key) == 0) { known = true; break; }
-            }
-            if (!known && seenLowCount < 40) {
-                memcpy(seenLow[seenLowCount], key, sizeof(key));
-                seenLowCount++;
-                logInfo("Items text: font %d at (%.0f,%.0f) [%.24s]\n", (int) base->drawFont, (double) x, (double) y, text);
-            }
+        if (isHeading) {
+            y -= 2.0f;
+        } else if ((int32_t) base->drawFont == 6 && y >= 190.0f && y < 205.0f) {
+            y += 1.0f;
         }
-        if (isHeading) y -= 2.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
