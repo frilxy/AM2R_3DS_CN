@@ -5162,28 +5162,6 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             y += 2.0f;
         }
     }
-    // TEMPORARY TEST, third attempt. Both earlier attempts carried a y bound and only ever caught the slide-in
-    // animation (y -9, -5, -1); the rest position is positive and was never touched. There is no y filter now.
-    //
-    // It matches the two slot names by content, which is exact and leaves the rest of the UI alone: the version line is
-    // font 4 too, but at x 320, and the hints are font 6.
-    if (text != NULL && (strstr(text, "\xe7\x9d\x80\xe9\x99\x86\xe7\x82\xb9") != NULL ||
-                         strstr(text, "\xe5\x9c\xb0\xe8\xa1\xa8\xe6\xb4\x9e\xe7\xa9\xb4") != NULL)) {
-        static char seen[12][24];
-        static int32_t seenCount;
-        char key[24];
-        snprintf(key, sizeof(key), "%d|%.0f|%.0f", (int) base->drawFont, (double) x, (double) y);
-        bool known = false;
-        for (int32_t i = 0; i < seenCount; i++) if (strcmp(seen[i], key) == 0) { known = true; break; }
-        if (!known && seenCount < 12) {
-            memcpy(seen[seenCount], key, sizeof(key));
-            seenCount++;
-            logInfo("Slot name draw: font %d at (%.0f,%.0f) scale (%.2f,%.2f)\n", (int) base->drawFont,
-                (double) x, (double) y, (double) xscale, (double) yscale);
-        }
-        xscale *= 1.5f;
-        yscale *= 1.5f;
-    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();

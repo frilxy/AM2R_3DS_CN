@@ -880,7 +880,10 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
         static const struct { const char* fontName; const char* path; float emSize; } kOverrides[] = {
             { "fontSubScr", "lang/fonts/uni_05_53.ttf", 10.0f },   // panel headings (装备/光束/综合能力)
             { "fontMenuTiny", "lang/fonts/uni_05_53.ttf", 10.0f }, // item names, which drew too small at 8px
-            { "fontMenuSmall", "lang/fonts/uni_05_53.ttf", 12.0f }, // file-select slot names, a step up from 10px
+            // uni_05_53.ttf carries a single 10x10 bitmap strike, so asking it for 12px silently falls back to the 10px
+            // strike and only widens the advance: the glyphs themselves stay 10px. 04b09.ttf carries a real 12x12 strike
+            // and covers the same Chinese characters, and fontGUI2 already built that strip, so this reuses it.
+            { "fontMenuSmall", "lang/fonts/04b09.ttf", 12.0f }, // file-select slot names, a real step up from 10px
         };
         for (size_t i = 0; i < sizeof(kOverrides) / sizeof(kOverrides[0]); i++) {
             size_t length = strlen(kOverrides[i].fontName);
