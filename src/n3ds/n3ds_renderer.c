@@ -5162,6 +5162,14 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             y += 2.0f;
         }
     }
+    // The file-select slots put the completion percentage and the play time on what should read as one line, but they
+    // are different fonts: the time is fontGUIDefault at 16px, the percentage fontGUI2Default at 12px. Drawn from the
+    // same top edge, the shorter text sits about two pixels high. Matching on the percent sign keeps the Metroid count
+    // beside it - also font 3, but not a percentage - where it is.
+    if ((int32_t) base->drawFont == 3 && x > 200.0f && text != NULL) {
+        size_t n = strlen(text);
+        if (n >= 2 && text[n - 1] == '%') y += 2.0f;
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
