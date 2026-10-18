@@ -17,6 +17,7 @@
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
 #include "n3ds_livemap.h"
+#include "n3ds_credits.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_prof.h"
@@ -735,6 +736,7 @@ int main(int argc, char** argv) {
     Runner_setGameArgs(runner, gameArgs, (int32_t) arrlen(gameArgs));
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
+    N3DSCredits_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
@@ -966,6 +968,9 @@ int main(int argc, char** argv) {
                 // lifts the marker.
                 N3DSPause_updateMapTouch();
             }
+            // The credits roll has no place for the localisation's authors - the game assembles it from its own English
+            // literals - so they go on the bottom screen while that room is up.
+            N3DSCredits_draw();
             if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
             if (gFpsCounter) N3DSFpsCounter_draw(&fpsCounter, renderer, debugMonitor.displayedFps);
             renderer->vtable->flush(renderer);
