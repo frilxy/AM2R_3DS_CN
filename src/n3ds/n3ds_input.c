@@ -1,4 +1,5 @@
 #include "n3ds_input.h"
+#include "n3ds_pause.h"
 #include "../random.h"
 #include "n3ds_gml.h"
 #include "n3ds_platform_config.h"
@@ -238,6 +239,74 @@ static u32 N3DSInput_filterChord(u32 held) {
     return held;
 }
 
+// ===[ Pause-screen macros ]===
+// The game opens its pause at the map subscreen; the menu that carries Quit is one cancel behind it. Its bindings, per
+// res/n3ds/am2r/sd/config.ini, are joypad positions: MenuCancel is button 0 (the 3DS B), the D-pad is 12/13, and Start
+// is 9. SELECT is bound to nothing in the game, so both chains below are played by the port instead of the player:
+//
+//   SELECT: Start (open the pause), then cancel  -> lands on the menu instead of the map
+//   START:  the same, then one Up                -> lands on the menu's Quit row, without confirming it
+//
+// The button that started a chain is swallowed for its duration, or the game would also see it and open the pause twice.
+typedef struct {
+    u32 key;
+    int32_t gap;  // frames to wait before this step presses
+    int32_t hold; // frames to hold it
+} N3DSMacroStep;
+
+#define N3DS_MACRO_STEPS 3
+#define N3DS_MACRO_PAUSE_GAP 1   // the pause opens on the same frame Start is seen
+#define N3DS_MACRO_CANCEL_GAP 24 // long enough for rm_transition to finish and the map subscreen to accept input
+#define N3DS_MACRO_UP_GAP 12
+
+static struct {
+    N3DSMacroStep steps[N3DS_MACRO_STEPS];
+    int32_t count, index, wait, held;
+    bool active;
+} gMacro;
+
+static void N3DSInput_startMacro(bool withUp) {
+    gMacro.steps[0] = (N3DSMacroStep) { KEY_START, N3DS_MACRO_PAUSE_GAP, 2 };
+    gMacro.steps[1] = (N3DSMacroStep) { KEY_B, N3DS_MACRO_CANCEL_GAP, 2 };
+    gMacro.count = 2;
+    if (withUp) {
+        gMacro.steps[2] = (N3DSMacroStep) { KEY_DUP, N3DS_MACRO_UP_GAP, 2 };
+        gMacro.count = 3;
+    }
+    gMacro.index = 0;
+    gMacro.wait = 0;
+    gMacro.held = 0;
+    gMacro.active = true;
+    logInfo("Pause macro: %s\n", withUp ? "start -> menu's Quit row" : "select -> menu");
+}
+
+// The keys this frame's chain wants held, and whether it is still running.
+static u32 N3DSInput_macroKeys(void) {
+    if (!gMacro.active) return 0;
+    u32 keys = 0;
+    if (gMacro.held > 0) {
+        gMacro.held--;
+        keys |= gMacro.steps[gMacro.index].key;
+        if (gMacro.held == 0) gMacro.index++;
+        return keys;
+    }
+    if (gMacro.index >= gMacro.count) {
+        gMacro.active = false;
+        return 0;
+    }
+    if (gMacro.wait < gMacro.steps[gMacro.index].gap) {
+        gMacro.wait++;
+        return 0;
+    }
+    gMacro.wait = 0;
+    gMacro.held = gMacro.steps[gMacro.index].hold;
+    return 0;
+}
+
+bool N3DSInput_macroRunning(void) {
+    return gMacro.active;
+}
+
 bool N3DSInput_startComing(void) {
     return gStartComing;
 }
@@ -309,6 +378,21 @@ u32 N3DSInput_update(Runner* runner) {
             gTouchX = c->x + (int32_t) ((float) (c->x2 - c->x) * t);
             gTouchY = c->y + (int32_t) ((float) (c->y2 - c->y) * t);
             held |= KEY_TOUCH;
+        }
+    }
+    // SELECT is bound to nothing in AM2R and START only reaches the map, so both become chains that land where the
+    // player asked for. The key that starts a chain is swallowed while it runs, or the game would act on it as well.
+    {
+        static u32 prevPauseKeys;
+        u32 pauseKeys = held & (KEY_START | KEY_SELECT);
+        u32 edges = pauseKeys & ~prevPauseKeys;
+        prevPauseKeys = pauseKeys;
+        if (N3DSPause_inPlay() && !gMacro.active && edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
+            N3DSInput_startMacro((edges & KEY_START) != 0);
+        }
+        if (gMacro.active) {
+            u32 inject = N3DSInput_macroKeys();
+            held = (held & ~(u32) (KEY_START | KEY_SELECT)) | inject;
         }
     }
     held = N3DSInput_filterChord(held);
