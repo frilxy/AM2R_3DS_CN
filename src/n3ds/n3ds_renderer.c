@@ -5130,16 +5130,23 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     //
     // The y bound keeps this to that one line: the only other clock this port draws is the map bar's play time, which
     // goes in at y 197.
-    // TEMPORARY PROBE: paint any clock-shaped string magenta. A position change could be absorbed or missed; a colour
-    // change cannot. If the time on the save screen turns magenta, these draws are that line; if it stays white, they
-    // are something else and the search moves.
-    if (y >= 0.0f && y < 10.0f && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        static int32_t probeLogs;
-        if (probeLogs < 4) {
-            probeLogs++;
-            logInfo("Clock probe: \"%s\" y %.1f font %d\n", text, (double) y, (int) base->drawFont);
+    // TEMPORARY PROBE: list every distinct text draw with its position, so the save screen's play time can be found by
+    // where it sits rather than by its shape. The previous probes only looked at clock-shaped strings, and the visible
+    // line is evidently not one of those.
+    if (text != NULL && text[0] != '\0') {
+        static char seen[140][48];
+        static int32_t seenCount;
+        char key[48];
+        snprintf(key, sizeof(key), "%d|%.0f|%.0f|%.10s", (int) base->drawFont, (double) x, (double) y, text);
+        bool known = false;
+        for (int32_t i = 0; i < seenCount; i++) {
+            if (strcmp(seen[i], key) == 0) { known = true; break; }
         }
-        base->drawColor = 0x00FF00FFu;
+        if (!known && seenCount < 140) {
+            memcpy(seen[seenCount], key, sizeof(key));
+            seenCount++;
+            logInfo("Text: font %d at (%.0f,%.0f) [%.16s]\n", (int) base->drawFont, (double) x, (double) y, text);
+        }
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
