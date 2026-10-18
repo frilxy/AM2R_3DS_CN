@@ -5139,32 +5139,40 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         }
         y -= 3.0f;
     }
-    // TEMPORARY PROBE for the items page: the four box headings by name, and everything drawn low on the screen, so the
-    // description bar's font and y can be told apart from the button hints below it.
-    if (text != NULL && text[0] != '\0') {
-        static char seenBottom[48][24];
-        static int32_t seenBottomCount;
-        static const char* const headings[] = { "\xe8\xa3\x85\xe5\xa4\x87", "\xe5\x85\xb6\xe4\xbb\x96",
-                                                "\xe5\x85\x89\xe6\x9d\x9f", "\xe9\x9d\xb4\xe5\xad\x90" };
-        for (size_t h = 0; h < sizeof(headings) / sizeof(headings[0]); h++) {
-            if (strcmp(text, headings[h]) == 0) {
-                logInfo("Items heading: font %d at (%.0f,%.0f) [%s]\n", (int) base->drawFont, (double) x, (double) y, text);
-                break;
-            }
+    // The items page's four box headings sit one pixel low in their strips: 装备/光束 on the left, 其他/靴子 on the
+    // right, drawn with font 7 as a two-pass outline (x,y) and (x-1,y-1). Both passes move together.
+    //
+    // The description bar at the bottom is still being located: it is dynamic text, so it cannot be matched by content,
+    // and the low-text probe below now only records draws that follow a heading, which is what the title screen's own
+    // menu was drowning out.
+    {
+        static const char* const kHeadings[] = {
+            "\xe8\xa3\x85\xe5\xa4\x87", "\xe5\x85\xb6\xe4\xbb\x96",
+            "\xe5\x85\x89\xe6\x9d\x9f", "\xe9\x9d\xb4\xe5\xad\x90" };
+        bool isHeading = false;
+        for (size_t h = 0; h < sizeof(kHeadings) / sizeof(kHeadings[0]); h++) {
+            if (text != NULL && strcmp(text, kHeadings[h]) == 0) { isHeading = true; break; }
         }
-        if (y >= 170.0f && seenBottomCount < 48) {
-            char key[24];
-            snprintf(key, sizeof(key), "%d|%.0f|%.0f", (int) base->drawFont, (double) x, (double) y);
+        static uint32_t drawCount;
+        static uint32_t headingAt;
+        drawCount++;
+        if (isHeading) headingAt = drawCount;
+        else if (y >= 170.0f && drawCount - headingAt < 200u) {
+            static char seenLow[24][16];
+            static int32_t seenLowCount;
+            char key[16];
+            snprintf(key, sizeof(key), "%d|%.0f", (int) base->drawFont, (double) y);
             bool known = false;
-            for (int32_t i = 0; i < seenBottomCount; i++) {
-                if (strcmp(seenBottom[i], key) == 0) { known = true; break; }
+            for (int32_t i = 0; i < seenLowCount; i++) {
+                if (strcmp(seenLow[i], key) == 0) { known = true; break; }
             }
-            if (!known) {
-                memcpy(seenBottom[seenBottomCount], key, sizeof(key));
-                seenBottomCount++;
+            if (!known && seenLowCount < 24) {
+                memcpy(seenLow[seenLowCount], key, sizeof(key));
+                seenLowCount++;
                 logInfo("Items low: font %d at (%.0f,%.0f) [%.14s]\n", (int) base->drawFont, (double) x, (double) y, text);
             }
         }
+        if (isHeading) y -= 2.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
