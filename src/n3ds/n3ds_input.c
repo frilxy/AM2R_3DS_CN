@@ -259,8 +259,9 @@ static u32 N3DSInput_filterChord(u32 held) {
 #define N3DS_PAUSE_PAGE_MENU  3.0
 
 static struct {
-    double pendingPage; // page to select once the pause room is up; -1 when there is nothing to do
-} gPauseKeys = { -1.0 };
+    double pendingPage;  // page the player asked for; -1 when there is nothing to do
+    int32_t pausedFrames; // frames spent in the pause since, for the safety net
+} gPauseKeys = { -1.0, 0 };
 
 static Instance* N3DSInput_objectInstance(const char* name) {
     int32_t index = N3DSGml_objectIndex(name);
@@ -277,19 +278,38 @@ static void N3DSInput_closePause(Runner* runner) {
     if (fg != NULL) Runner_executeEvent(runner, fg, EVENT_OTHER, 10); // user event 0: fade out, back to currentroom
 }
 
-// Runs every frame while a page is pending: the pause room is entered a few frames after the handler fires, so the page
-// objects may not exist yet.
+// Whether the page the player asked for is the one on screen. The page objects are what tell: the menu is
+// oPauseMenuOptions, the items page is oSubscreenMenu.
+static bool N3DSInput_pageIsUp(double page) {
+    if (page == N3DS_PAUSE_PAGE_MENU) return N3DSInput_objectInstance("oPauseMenuOptions") != NULL;
+    if (page == N3DS_PAUSE_PAGE_ITEMS) return N3DSInput_objectInstance("oSubscreenMenu") != NULL;
+    return true;
+}
+
+// Safety net. The page is normally chosen by writing global.ssmode before the room loads, so oSS_Control's Create builds
+// it directly and nothing flashes. If the room loaded first and the page objects do not match after a moment, rebuild
+// them here - the pair oSubScrChange runs when the player changes page.
 static void N3DSInput_applyPendingPage(Runner* runner) {
-    if (gPauseKeys.pendingPage < 0.0 || !N3DSPause_isPaused()) return;
+    if (gPauseKeys.pendingPage < 0.0 || !N3DSPause_isPaused()) {
+        gPauseKeys.pausedFrames = 0;
+        return;
+    }
+    gPauseKeys.pausedFrames++;
+    if (N3DSInput_pageIsUp(gPauseKeys.pendingPage)) {
+        gPauseKeys.pendingPage = -1.0;
+        gPauseKeys.pausedFrames = 0;
+        return;
+    }
+    if (gPauseKeys.pausedFrames < 15) return; // give the room its frames to build the page first
     Instance* control = N3DSInput_objectInstance("oSS_Control");
     if (control == NULL) return;
     double page = gPauseKeys.pendingPage;
     gPauseKeys.pendingPage = -1.0;
-    if (page == N3DS_PAUSE_PAGE_MENU) return; // the handler already opened this one
+    gPauseKeys.pausedFrames = 0;
     N3DSGml_setGlobal("ssmode", page);
     Runner_executeEvent(runner, control, EVENT_OTHER, 10);
     Runner_executeEvent(runner, control, EVENT_OTHER, 11);
-    logInfo("Pause keys: page %.0f\n", page);
+    logInfo("Pause keys: rebuilt page %.0f after the room had loaded\n", page);
 }
 
 bool N3DSInput_startComing(void) {
@@ -374,8 +394,12 @@ u32 N3DSInput_update(Runner* runner) {
         prevPauseKeys = pauseKeys;
         if (edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
             if (N3DSPause_inPlay()) {
+                double page = (edges & KEY_SELECT) ? N3DS_PAUSE_PAGE_ITEMS : N3DS_PAUSE_PAGE_MENU;
                 N3DSInput_openPause(runner);
-                gPauseKeys.pendingPage = (edges & KEY_SELECT) ? N3DS_PAUSE_PAGE_ITEMS : N3DS_PAUSE_PAGE_MENU;
+                // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
+                // actually want now, so the room is built with it and never shows the menu first.
+                N3DSGml_setGlobal("ssmode", page);
+                gPauseKeys.pendingPage = page;
                 held &= ~(u32) (KEY_START | KEY_SELECT);
             } else if (N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
                 N3DSInput_closePause(runner);
