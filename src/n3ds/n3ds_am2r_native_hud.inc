@@ -238,12 +238,6 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         // game's Step, a step before the port restates the value for the views, so the game's variable still holds 106
         // here even though the picture being drawn is 400 wide - which is what put the block 26 columns past the edge.
         ws = (GMLReal) N3DSAm2r_pictureSpace() - (GMLReal) N3DSAm2r_hudRightInset();
-        static int32_t hudLogs;
-        if (hudLogs < 8) {
-            hudLogs++;
-            logInfo("HUD: laid out for picture %d, inset %.1f, right block at %.1f\n",
-                (int) (320.0 + N3DSAm2r_pictureSpace()), N3DSAm2r_hudRightInset(), (double) (250 + ws));
-        }
     }
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
