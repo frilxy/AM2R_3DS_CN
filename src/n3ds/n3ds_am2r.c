@@ -56,7 +56,7 @@ static const char* const kCheatLabels[CHEAT_COUNT] = {
     "Cheats", "Unlimited Health", "Unlimited Ammo", "Super Beam", "Super Bombs", "Super Missiles",
 };
 static const char* const kCheatLabelsZh[CHEAT_COUNT] = {
-    "作弊", "无限生命", "无限弹药", "强化光束", "强化炸弹", "强化导弹",
+    "金手指", "无限生命", "无限弹药", "强化光束", "强化炸弹", "强化导弹",
 };
 static const char* const kCheatTips[CHEAT_COUNT] = {
     "Turn all cheats on or off",
@@ -67,7 +67,7 @@ static const char* const kCheatTips[CHEAT_COUNT] = {
     "Missiles destroy anything they hit, Metroids too",
 };
 static const char* const kCheatTipsZh[CHEAT_COUNT] = {
-    "打开或关闭全部作弊",
+    "打开或关闭全部金手指",
     "能量始终保持全满",
     "导弹、超级导弹与强力炸弹始终保持全满",
     "光束击中任何目标都会将其摧毁",
@@ -211,7 +211,7 @@ static RValue hookGetText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t arg
     // The main menu's hint for the Display entry. The port adds that entry (the game has no screen-mode page), so its
     // hint is the port's own text and has to be translated like the rest of the front end.
     if (strcmp(section, "OptionsMain") == 0 && strcmp(key, "Display_Tip") == 0) {
-        return RValue_makeOwnedString(safeStrdup(N3DSAm2r_text("Screen mode and cheats", "画面模式与作弊")));
+        return RValue_makeOwnedString(safeStrdup(N3DSAm2r_text("Screen mode and cheats", "画面模式与金手指")));
     }
     char cacheKey[256] = "";
     if (argCount == 2 && args[0].type == RVALUE_STRING && args[1].type == RVALUE_STRING) {
@@ -535,8 +535,8 @@ static void N3DSAm2r_registerPortGlyphs(void) {
     static const char* const kPortChinese[] = {
         // Titles, row labels and row values.
         // The bottom screen's own two buttons - they are drawn by this port, so nothing else registers them.
-        "萨姆斯", "地图", "画面模式与作弊",
-        "显示", "作弊", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
+        "萨姆斯", "地图", "画面模式与金手指",
+        "显示", "金手指", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
         "宽屏填满屏幕；拉伸压缩填满；点对点原生 320x240",
@@ -545,7 +545,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "繁重的游戏脚本改用内置代码运行：更快，行为相同",
         // The Cheats page's rows and tips.
         "无限生命", "无限弹药", "强化光束", "强化炸弹", "强化导弹",
-        "打开或关闭全部作弊", "能量始终保持全满",
+        "打开或关闭全部金手指", "能量始终保持全满",
         "导弹、超级导弹与强力炸弹始终保持全满",
         "光束击中任何目标都会将其摧毁",
         "炸弹与强力炸弹击中任何目标都会将其摧毁",
@@ -832,7 +832,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     float x = N3DS_AM2R_PAGE_X, y = N3DS_AM2R_PAGE_Y - 8.0f;
     Instance* title = N3DSGml_create(x, y, gAm2r.objMenuLabel);
     if (title != NULL) {
-        N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? N3DSAm2r_text("Display", "显示") : N3DSAm2r_text("Cheats", "作弊"));
+        N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? N3DSAm2r_text("Display", "显示") : N3DSAm2r_text("Cheats", "金手指"));
     }
     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
     int count = N3DSAm2r_pageRowCount(page);
@@ -845,7 +845,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
                 : i == DISPLAY_ROW_FRAMESKIP ? N3DSAm2r_text("Frameskip", "跳帧")
                 : i == DISPLAY_ROW_NATIVE ? N3DSAm2r_text("Fast scripts", "快速脚本")
                 : i == DISPLAY_ROW_FPS ? N3DSAm2r_text("FPS counter", "帧率显示")
-                : N3DSAm2r_text("Cheats", "作弊"))
+                : N3DSAm2r_text("Cheats", "金手指"))
             : (N3DSAm2r_languageIs("schinese") ? kCheatLabelsZh[i] : kCheatLabels[i]);
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
         gAm2r.pageRows[i] = row != NULL ? (int32_t) row->instanceId : -1;
