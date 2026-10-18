@@ -1,7 +1,8 @@
 #include "n3ds_input.h"
-#include "../random.h"
 #include "n3ds_gml.h"
+#include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
+#include "../random.h"
 
 #include "../log.h"
 #include "../runner.h"
@@ -238,6 +239,49 @@ static u32 N3DSInput_filterChord(u32 held) {
     return held;
 }
 
+// ===[ SELECT and START on the pause screen ]===
+// The game has two pause entries, and only one of them is what a player expects from SELECT:
+//
+//   Start  -> oControl's Start handler, which sets global.ssmode = 0 ... the map.
+//   Escape -> oControl's VK_ESCAPE handler, which does the whole pause setup (camera, global.currentroom, ingame = 0,
+//             transitiontype) and then sets global.ssmode = 3 ... the menu that carries Quit.
+//
+// There is no key bound to Escape on the 3DS, so SELECT runs that handler directly. START does the same and then swaps
+// the menu for its Quit confirmation, exactly as the menu itself does when Quit is chosen:
+// instance_create(50, 92, 691) followed by destroying oPauseMenuOptions.
+//
+// All of this is the game's own code on the game's own state; nothing here simulates a press sequence.
+static struct {
+    bool quitPending; // START was pressed: swap the menu for the Quit confirmation once it exists
+} gPauseKeys;
+
+static int32_t N3DSInput_objectIndex(const char* name) {
+    return N3DSGml_objectIndex(name);
+}
+
+static void N3DSInput_openPauseMenu(Runner* runner) {
+    int32_t control = N3DSInput_objectIndex("oControl");
+    if (control < 0) return;
+    Instance* inst = N3DSGml_firstInstance(control);
+    if (inst == NULL) return;
+    Runner_executeEvent(runner, inst, EVENT_KEYPRESS, 27); // VK_ESCAPE
+}
+
+// Runs once per frame while the flag is up: the menu is created by the pause room, so it may not exist on the frame
+// START was pressed.
+static void N3DSInput_applyQuitScreen(void) {
+    if (!gPauseKeys.quitPending || !N3DSPause_isPaused()) return;
+    int32_t menu = N3DSInput_objectIndex("oPauseMenuOptions");
+    int32_t quit = N3DSInput_objectIndex("oOptionsQuit");
+    if (menu < 0 || quit < 0) return;
+    Instance* menuInst = N3DSGml_firstInstance(menu);
+    if (menuInst == NULL) return; // the page is not built yet
+    N3DSGml_create(50.0f, 92.0f, quit);
+    N3DSGml_destroy(menuInst);
+    gPauseKeys.quitPending = false;
+    logInfo("Pause keys: START landed on the Quit confirmation\n");
+}
+
 bool N3DSInput_startComing(void) {
     return gStartComing;
 }
@@ -311,6 +355,19 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
+    // SELECT and START act only in play: inside the pause the game's own bindings still apply.
+    {
+        static u32 prevPauseKeys;
+        u32 pauseKeys = held & (KEY_START | KEY_SELECT);
+        u32 edges = pauseKeys & ~prevPauseKeys;
+        prevPauseKeys = pauseKeys;
+        if (N3DSPause_inPlay() && edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
+            N3DSInput_openPauseMenu(runner);
+            gPauseKeys.quitPending = (edges & KEY_START) != 0;
+            held &= ~(u32) (KEY_START | KEY_SELECT);
+        }
+    }
+    N3DSInput_applyQuitScreen();
     held = N3DSInput_filterChord(held);
     circlePosition circle, cstick;
     hidCircleRead(&circle);
