@@ -32,7 +32,7 @@
 //    fixed amount per missile instead, from myhealth.
 
 #define N3DS_AM2R_PAGE_X 50.0f
-#define N3DS_AM2R_PAGE_Y 72.0f
+#define N3DS_AM2R_PAGE_Y 64.0f
 #define N3DS_AM2R_ROW_SEP 16.0f
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
@@ -119,7 +119,7 @@ typedef struct {
     N3DSAm2rPage page;
     int32_t pageFrames;
     int32_t pageTitle;
-    int32_t creditLines[2]; // static labels under the page: the localisation's authors, empty when unknown
+    int32_t creditLines[3]; // static labels under the page: the localisation's authors, empty when unknown
     char author1[160];
     char author2[160];
     int32_t pageRows[CHEAT_COUNT + 1 > DISPLAY_ROW_COUNT ? CHEAT_COUNT + 1 : DISPLAY_ROW_COUNT];
@@ -549,6 +549,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         // The Cheats page's rows and tips.
         "无限生命", "无限弹药", "强化光束", "强化炸弹", "强化导弹",
         "打开或关闭全部金手指", "能量始终保持全满",
+        "3DS 移植：B站 等璃籽", "译者：",
         "导弹、超级导弹与强力炸弹始终保持全满",
         "光束击中任何目标都会将其摧毁",
         "炸弹与强力炸弹击中任何目标都会将其摧毁",
@@ -652,6 +653,8 @@ static void N3DSAm2r_applyHud(void) {
 }
 
 // ===[ Init ]===
+
+static void N3DSAm2r_loadAuthors(void);
 
 void N3DSAm2r_init(Runner* runner) {
     memset(&gAm2r, 0, sizeof(gAm2r));
@@ -874,19 +877,22 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
         N3DSGml_setVar(row, "optionid", (double) i);
         N3DSGml_setVarString(row, "label", label);
     }
-    gAm2r.creditLines[0] = gAm2r.creditLines[1] = -1;
+    gAm2r.creditLines[0] = gAm2r.creditLines[1] = gAm2r.creditLines[2] = -1;
     if (page == PAGE_DISPLAY) {
         // Two static lines under the rows, the way the game's own Display page prints the translators beneath its
         // language row. Not rows: they are not selectable and carry no value.
-        const char* lines[2] = { gAm2r.author1, gAm2r.author2 };
+        // The language file's two author lines, then the 3DS port itself.
+        char portLine[96];
+        snprintf(portLine, sizeof(portLine), "%sB站 等璃籽", N3DSAm2r_text("3DS port: ", "3DS 移植："));
+        const char* lines[3] = { gAm2r.author1, gAm2r.author2, portLine };
         // Clear of the last row (which starts at y + SEP*count and is about one row tall) and above the tip bar.
-        float creditY = y + N3DS_AM2R_ROW_SEP * (float) count + 18.0f;
-        for (int32_t i = 0; i < 2; i++) {
+        float creditY = y + N3DS_AM2R_ROW_SEP * (float) count + 14.0f;
+        for (int32_t i = 0; i < 3; i++) {
             if (lines[i][0] == '\0') continue;
             char text[200];
             snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "        ", lines[i]);
             // An option row not registered in the page's op array: drawn like the rows above, but not selectable.
-            Instance* line = N3DSGml_create(x, creditY + 12.0f * (float) i, gAm2r.objPauseOption);
+            Instance* line = N3DSGml_create(x, creditY + 11.0f * (float) i, gAm2r.objPauseOption);
             if (line == NULL) continue;
             N3DSGml_setVarString(line, "text", text);
             gAm2r.creditLines[i] = (int32_t) line->instanceId;
@@ -900,7 +906,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
 
 static void N3DSAm2r_closePage(void) {
     N3DSGml_destroy(N3DSGml_instanceById(gAm2r.pageTitle));
-    for (int32_t i = 0; i < 2; i++) {
+    for (int32_t i = 0; i < 3; i++) {
         if (gAm2r.creditLines[i] >= 0) N3DSGml_destroy(N3DSGml_instanceById(gAm2r.creditLines[i]));
         gAm2r.creditLines[i] = -1;
     }
