@@ -5162,22 +5162,19 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             y += 2.0f;
         }
     }
-    // TEMPORARY PROBE: find which font the file-select slot names use. It deliberately has NO y bound - the same trap
-    // as the save clock, whose resting position sat outside a y filter that only ever caught its slide-in animation.
-    // Deduplicated by content so the title screen's own text cannot exhaust the budget.
-    if (text != NULL && text[0] != '\0' && x < 200.0f) {
-        static char seen[24][32];
-        static int32_t seenCount;
-        char key[32];
-        snprintf(key, sizeof(key), "%d|%.10s", (int) base->drawFont, text);
-        bool known = false;
-        for (int32_t i = 0; i < seenCount; i++) if (strcmp(seen[i], key) == 0) { known = true; break; }
-        if (!known && seenCount < 24) {
-            memcpy(seen[seenCount], key, sizeof(key));
-            seenCount++;
-            logInfo("Slot text: font %d at (%.0f,%.0f) scale (%.2f,%.2f) [%.20s]\n", (int) base->drawFont,
-                (double) x, (double) y, (double) xscale, (double) yscale, text);
+    // TEMPORARY TEST: the slot names grew in neither build even though they are drawn with font 4, the same font whose
+    // 12px override visibly grew the version line - and their measured width is identical (295px) across both builds.
+    // Those draws go into a surface (y is negative), so the size is probably normalised away downstream. This scales the
+    // draws themselves, which tells whether that path reaches the screen at all.
+    if ((int32_t) base->drawFont == 4 && x < 200.0f && y < 0.0f) {
+        static int32_t testLogs;
+        if (testLogs < 6) {
+            testLogs++;
+            logInfo("Slot scale test: font %d at (%.0f,%.0f) scale (%.2f,%.2f) -> x1.5 [%.10s]\n",
+                (int) base->drawFont, (double) x, (double) y, (double) xscale, (double) yscale, text != NULL ? text : "");
         }
+        xscale *= 1.5f;
+        yscale *= 1.5f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
