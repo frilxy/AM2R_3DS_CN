@@ -3,6 +3,7 @@
 
 #include "n3ds_font_replace.h"
 #include "n3ds_gml.h"
+#include "../text_utils.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_renderer.h"
 #include "n3ds_screen.h"
@@ -33,6 +34,7 @@
 
 #define N3DS_AM2R_PAGE_X 50.0f
 #define N3DS_AM2R_PAGE_Y 92.0f
+#define N3DS_AM2R_CREDIT_Y 190.0f
 #define N3DS_AM2R_ROW_SEP 16.0f
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
@@ -1306,9 +1308,28 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
-// The localisation's authors, centred under the main settings menu. They come from the language file's [Header]
-// Author/Author2, which the game only reads "Language" from, plus the 3DS port itself. oMenuLabel centres its "text",
-// which is what the page titles use; the option rows would need "label" and draw left-aligned.
+// Width of a mixed Latin/CJK string in a font, for centring the credit lines: an option row draws its label from its
+// own x, so the x has to be chosen to centre the text.
+static float N3DSAm2r_textWidth(int32_t fontIndex, const char* text) {
+    DataWin* dw = gAm2r.runner != NULL ? gAm2r.runner->dataWin : NULL;
+    if (dw == NULL || fontIndex < 0 || (uint32_t) fontIndex >= dw->font.count) return 0.0f;
+    Font* font = &dw->font.fonts[fontIndex];
+    int32_t len = (int32_t) strlen(text);
+    float width = 0.0f;
+    int32_t pos = 0;
+    while (pos < len) {
+        uint16_t cp = TextUtils_decodeUtf8(text, len, &pos);
+        const FontGlyph* glyph = TextUtils_findGlyph(font, cp);
+        width += glyph != NULL && glyph->shift > 0 ? (float) glyph->shift : 8.0f;
+    }
+    return width;
+}
+
+// The localisation's authors, under the main settings menu. They come from the language file's [Header]
+// Author/Author2, which the game only reads "Language" from, plus the 3DS port itself.
+//
+// Plain option rows rather than page titles: a title is drawn large, white, on the green highlight bar, while an
+// unselected row is the small grey the settings pages use for rows that are not acting.
 static void N3DSAm2r_updateCredits(void) {
     Instance* main = N3DSGml_firstInstance(gAm2r.objOptionsMain);
     bool show = main != NULL && gAm2r.page == PAGE_NONE;
@@ -1320,16 +1341,19 @@ static void N3DSAm2r_updateCredits(void) {
         return;
     }
     if (gAm2r.creditLines[0] >= 0) return; // already up
+    int32_t font = N3DSGml_fontIndex("fontMenuTinyDefault");
+    if (font < 0) font = N3DSGml_fontIndex("fontSubScrDefault");
     char portLine[96];
     snprintf(portLine, sizeof(portLine), "%sB站 等璃籽", N3DSAm2r_text("3DS port: ", "3DS 移植："));
     const char* lines[3] = { gAm2r.author1, gAm2r.author2, portLine };
     for (int32_t i = 0; i < 3; i++) {
         if (lines[i][0] == '\0') continue;
         char text[200];
-        snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "", lines[i]);
-        Instance* line = N3DSGml_create(N3DS_AM2R_PAGE_X, 190.0f + 12.0f * (float) i, gAm2r.objMenuLabel);
+        snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "    ", lines[i]);
+        float x = (320.0f - N3DSAm2r_textWidth(font, text)) * 0.5f;
+        Instance* line = N3DSGml_create(x, N3DS_AM2R_CREDIT_Y + 12.0f * (float) i, gAm2r.objPauseOption);
         if (line == NULL) continue;
-        N3DSGml_setVarString(line, "text", text);
+        N3DSGml_setVarString(line, "label", text);
         gAm2r.creditLines[i] = (int32_t) line->instanceId;
     }
 }
