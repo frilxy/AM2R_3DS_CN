@@ -5130,14 +5130,16 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     //
     // The y bound keeps this to that one line: the only other clock this port draws is the map bar's play time, which
     // goes in at y 197.
+    // TEMPORARY PROBE: paint any clock-shaped string magenta. A position change could be absorbed or missed; a colour
+    // change cannot. If the time on the save screen turns magenta, these draws are that line; if it stays white, they
+    // are something else and the search moves.
     if (y >= 0.0f && y < 10.0f && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        static int32_t liftLogs;
-        if (liftLogs < 6) {
-            liftLogs++;
-            logInfo("Clock lift: \"%s\" y %.1f -> %.1f font %d\n", text, (double) y, (double) (y - 20.0f),
-                (int) base->drawFont);
+        static int32_t probeLogs;
+        if (probeLogs < 4) {
+            probeLogs++;
+            logInfo("Clock probe: \"%s\" y %.1f font %d\n", text, (double) y, (int) base->drawFont);
         }
-        y -= 20.0f;
+        base->drawColor = 0x00FF00FFu;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
