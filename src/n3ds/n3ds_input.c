@@ -303,6 +303,18 @@ static u32 N3DSInput_macroKeys(void) {
     return 0;
 }
 
+// In the pause, SELECT goes back to the game. The game leaves SELECT unbound, so this plays the one press that does
+// leave the pause - Start - which is what the player already uses to get out.
+static void N3DSInput_startResumeMacro(void) {
+    gMacro.steps[0] = (N3DSMacroStep) { KEY_START, 1, 2 };
+    gMacro.count = 1;
+    gMacro.index = 0;
+    gMacro.wait = 0;
+    gMacro.held = 0;
+    gMacro.active = true;
+    logInfo("Pause macro: select -> back to the game\n");
+}
+
 bool N3DSInput_macroRunning(void) {
     return gMacro.active;
 }
@@ -387,8 +399,12 @@ u32 N3DSInput_update(Runner* runner) {
         u32 pauseKeys = held & (KEY_START | KEY_SELECT);
         u32 edges = pauseKeys & ~prevPauseKeys;
         prevPauseKeys = pauseKeys;
-        if (N3DSPause_inPlay() && !gMacro.active && edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
-            N3DSInput_startMacro((edges & KEY_START) != 0);
+        if (!gMacro.active && edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
+            if (N3DSPause_inPlay()) {
+                N3DSInput_startMacro((edges & KEY_START) != 0);
+            } else if (N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
+                N3DSInput_startResumeMacro();
+            }
         }
         if (gMacro.active) {
             u32 inject = N3DSInput_macroKeys();
