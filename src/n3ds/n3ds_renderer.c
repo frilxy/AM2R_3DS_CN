@@ -5134,9 +5134,10 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         static int32_t liftLogs;
         if (liftLogs < 6) {
             liftLogs++;
-            logInfo("Clock lift: \"%s\" y %.1f -> %.1f\n", text, (double) y, (double) (y - 4.0f));
+            logInfo("Clock lift: \"%s\" y %.1f -> %.1f font %d\n", text, (double) y, (double) (y - 20.0f),
+                (int) base->drawFont);
         }
-        y -= 4.0f;
+        y -= 20.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
