@@ -1094,6 +1094,14 @@ static double N3DSAm2r_centredDisplayX(double pictureW, double scale) {
 // from x = 0) is pushed off the left edge, and the right-hand block (map, Metroid counter, laid out at 250/272/276/296 +
 // widescreen_space) reaches past the right one. Reporting each side's loss lets the native draw_gui move both blocks
 // back in, so each keeps the margin the game gave it.
+// The columns the port adds to the game's 320 to make the picture. In Wide that is N3DS_AM2R_NATIVE_SPACE, stated by
+// this front end rather than read from the game: the game's own 106 makes a 426-wide picture the screen cannot show.
+// The HUD is laid out with this, not with the game's variable - draw_gui runs inside the game's Step, a step before
+// the port restates the value for the views, so the variable is a step stale where the HUD is concerned.
+double N3DSAm2r_pictureSpace(void) {
+    return N3DS_getScreenMode() == N3DS_SCREEN_WIDE ? N3DS_AM2R_NATIVE_SPACE : 0.0;
+}
+
 double N3DSAm2r_hudRightInset(void) {
     return gAm2r.hudInset;
 }

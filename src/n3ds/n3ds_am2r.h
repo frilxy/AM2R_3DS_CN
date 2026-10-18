@@ -33,6 +33,7 @@ void N3DSAm2r_setHudEnabled(bool on);
 // HUD rides the picture's transform, so its right-hand block (map, Metroid counter, laid out past widescreen_space)
 // loses those columns too; the native HUD takes this much off that block's x offsets, which is what sets the HUD's
 // right margin.
+double N3DSAm2r_pictureSpace(void);
 double N3DSAm2r_hudRightInset(void);
 
 // How far the picture is cut off the left of the screen (Wide: 13; 1x and the game-sized-window modes: 0). The game's
