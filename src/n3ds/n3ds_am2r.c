@@ -32,7 +32,7 @@
 //    fixed amount per missile instead, from myhealth.
 
 #define N3DS_AM2R_PAGE_X 50.0f
-#define N3DS_AM2R_PAGE_Y 64.0f
+#define N3DS_AM2R_PAGE_Y 92.0f
 #define N3DS_AM2R_ROW_SEP 16.0f
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
@@ -877,27 +877,6 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
         N3DSGml_setVar(row, "optionid", (double) i);
         N3DSGml_setVarString(row, "label", label);
     }
-    gAm2r.creditLines[0] = gAm2r.creditLines[1] = gAm2r.creditLines[2] = -1;
-    if (page == PAGE_DISPLAY) {
-        // Two static lines under the rows, the way the game's own Display page prints the translators beneath its
-        // language row. Not rows: they are not selectable and carry no value.
-        // The language file's two author lines, then the 3DS port itself.
-        char portLine[96];
-        snprintf(portLine, sizeof(portLine), "%sB站 等璃籽", N3DSAm2r_text("3DS port: ", "3DS 移植："));
-        const char* lines[3] = { gAm2r.author1, gAm2r.author2, portLine };
-        // Clear of the last row (which starts at y + SEP*count and is about one row tall) and above the tip bar.
-        float creditY = y + N3DS_AM2R_ROW_SEP * (float) count + 14.0f;
-        for (int32_t i = 0; i < 3; i++) {
-            if (lines[i][0] == '\0') continue;
-            char text[200];
-            snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "        ", lines[i]);
-            // An option row not registered in the page's op array: drawn like the rows above, but not selectable.
-            Instance* line = N3DSGml_create(x, creditY + 11.0f * (float) i, gAm2r.objPauseOption);
-            if (line == NULL) continue;
-            N3DSGml_setVarString(line, "text", text);
-            gAm2r.creditLines[i] = (int32_t) line->instanceId;
-        }
-    }
     N3DSGml_setGlobal("curropt", (double) selected);
     gAm2r.page = page;
     gAm2r.pageFrames = 0;
@@ -906,10 +885,6 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
 
 static void N3DSAm2r_closePage(void) {
     N3DSGml_destroy(N3DSGml_instanceById(gAm2r.pageTitle));
-    for (int32_t i = 0; i < 3; i++) {
-        if (gAm2r.creditLines[i] >= 0) N3DSGml_destroy(N3DSGml_instanceById(gAm2r.creditLines[i]));
-        gAm2r.creditLines[i] = -1;
-    }
     for (int i = 0; i < N3DSAm2r_pageRowCount(gAm2r.page); i++) N3DSGml_destroy(N3DSAm2r_pageRow(i));
     gAm2r.page = PAGE_NONE;
     N3DSAm2r_saveCheats();
@@ -1331,6 +1306,34 @@ static void N3DSAm2r_skipPauseFades(void) {
     }
 }
 
+// The localisation's authors, centred under the main settings menu. They come from the language file's [Header]
+// Author/Author2, which the game only reads "Language" from, plus the 3DS port itself. oMenuLabel centres its "text",
+// which is what the page titles use; the option rows would need "label" and draw left-aligned.
+static void N3DSAm2r_updateCredits(void) {
+    Instance* main = N3DSGml_firstInstance(gAm2r.objOptionsMain);
+    bool show = main != NULL && gAm2r.page == PAGE_NONE;
+    if (!show) {
+        for (int32_t i = 0; i < 3; i++) {
+            if (gAm2r.creditLines[i] >= 0) N3DSGml_destroy(N3DSGml_instanceById(gAm2r.creditLines[i]));
+            gAm2r.creditLines[i] = -1;
+        }
+        return;
+    }
+    if (gAm2r.creditLines[0] >= 0) return; // already up
+    char portLine[96];
+    snprintf(portLine, sizeof(portLine), "%sB站 等璃籽", N3DSAm2r_text("3DS port: ", "3DS 移植："));
+    const char* lines[3] = { gAm2r.author1, gAm2r.author2, portLine };
+    for (int32_t i = 0; i < 3; i++) {
+        if (lines[i][0] == '\0') continue;
+        char text[200];
+        snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "", lines[i]);
+        Instance* line = N3DSGml_create(N3DS_AM2R_PAGE_X, 190.0f + 12.0f * (float) i, gAm2r.objMenuLabel);
+        if (line == NULL) continue;
+        N3DSGml_setVarString(line, "text", text);
+        gAm2r.creditLines[i] = (int32_t) line->instanceId;
+    }
+}
+
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     N3DSAm2r_stopStraySpinLoops();
@@ -1340,6 +1343,7 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_checkWidescreenSurface();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();
+    N3DSAm2r_updateCredits();
     if (gAm2r.page != PAGE_NONE) {
         N3DSAm2r_updatePage();
     } else if (gAm2r.objOptionsDisplay >= 0) {
