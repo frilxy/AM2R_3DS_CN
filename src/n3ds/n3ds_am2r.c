@@ -32,7 +32,7 @@
 //    fixed amount per missile instead, from myhealth.
 
 #define N3DS_AM2R_PAGE_X 50.0f
-#define N3DS_AM2R_PAGE_Y 92.0f
+#define N3DS_AM2R_PAGE_Y 72.0f
 #define N3DS_AM2R_ROW_SEP 16.0f
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
@@ -119,6 +119,9 @@ typedef struct {
     N3DSAm2rPage page;
     int32_t pageFrames;
     int32_t pageTitle;
+    int32_t creditLines[2]; // static labels under the page: the localisation's authors, empty when unknown
+    char author1[160];
+    char author2[160];
     int32_t pageRows[CHEAT_COUNT + 1 > DISPLAY_ROW_COUNT ? CHEAT_COUNT + 1 : DISPLAY_ROW_COUNT];
 } N3DSAm2r;
 
@@ -727,10 +730,28 @@ void N3DSAm2r_init(Runner* runner) {
     N3DSAm2rNative_setEnabled(true);
     N3DSAm2r_loadCheats();
     N3DSAm2r_loadLanguages();
+    N3DSAm2r_loadAuthors();
     // The 3DS front end's own pages are not in any language file, so their characters have to be offered to the font
     // loader before oControl builds the atlas, or they render as blanks.
     N3DSAm2r_registerPortGlyphs();
     N3DSAm2rNative_init(runner);
+}
+
+// The language file's [Header] Author / Author2: the game itself only reads "Language" from that section, so on the
+// PC build these appear under the Display page's language row, and here they are shown below the front end's own rows.
+static void N3DSAm2r_loadAuthors(void) {
+    gAm2r.author1[0] = '\0';
+    gAm2r.author2[0] = '\0';
+    int32_t slot = N3DSAm2r_languageSlot();
+    if (slot < 0 || slot >= gLanguageCount) return;
+    char path[512];
+    snprintf(path, sizeof(path), N3DS_SD_DIR "lang/%s", gLanguages[slot].file);
+    char author[160];
+    N3DSAm2r_readIniString(path, "Header", "Author", author, sizeof(author));
+    if (author[0] != '\0') snprintf(gAm2r.author1, sizeof(gAm2r.author1), "%s", author);
+    N3DSAm2r_readIniString(path, "Header", "Author2", author, sizeof(author));
+    if (author[0] != '\0') snprintf(gAm2r.author2, sizeof(gAm2r.author2), "%s", author);
+    if (gAm2r.author1[0] != '\0') logInfo("AM2R: localisation authors: %s / %s\n", gAm2r.author1, gAm2r.author2);
 }
 
 // ===[ Options ]===
@@ -853,6 +874,24 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
         N3DSGml_setVar(row, "optionid", (double) i);
         N3DSGml_setVarString(row, "label", label);
     }
+    gAm2r.creditLines[0] = gAm2r.creditLines[1] = -1;
+    if (page == PAGE_DISPLAY) {
+        // Two static lines under the rows, the way the game's own Display page prints the translators beneath its
+        // language row. Not rows: they are not selectable and carry no value.
+        const char* lines[2] = { gAm2r.author1, gAm2r.author2 };
+        // Clear of the last row (which starts at y + SEP*count and is about one row tall) and above the tip bar.
+        float creditY = y + N3DS_AM2R_ROW_SEP * (float) count + 18.0f;
+        for (int32_t i = 0; i < 2; i++) {
+            if (lines[i][0] == '\0') continue;
+            char text[200];
+            snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "        ", lines[i]);
+            // An option row not registered in the page's op array: drawn like the rows above, but not selectable.
+            Instance* line = N3DSGml_create(x, creditY + 12.0f * (float) i, gAm2r.objPauseOption);
+            if (line == NULL) continue;
+            N3DSGml_setVarString(line, "text", text);
+            gAm2r.creditLines[i] = (int32_t) line->instanceId;
+        }
+    }
     N3DSGml_setGlobal("curropt", (double) selected);
     gAm2r.page = page;
     gAm2r.pageFrames = 0;
@@ -861,6 +900,10 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
 
 static void N3DSAm2r_closePage(void) {
     N3DSGml_destroy(N3DSGml_instanceById(gAm2r.pageTitle));
+    for (int32_t i = 0; i < 2; i++) {
+        if (gAm2r.creditLines[i] >= 0) N3DSGml_destroy(N3DSGml_instanceById(gAm2r.creditLines[i]));
+        gAm2r.creditLines[i] = -1;
+    }
     for (int i = 0; i < N3DSAm2r_pageRowCount(gAm2r.page); i++) N3DSGml_destroy(N3DSAm2r_pageRow(i));
     gAm2r.page = PAGE_NONE;
     N3DSAm2r_saveCheats();
