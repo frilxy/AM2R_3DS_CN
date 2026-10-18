@@ -5162,6 +5162,23 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             y += 2.0f;
         }
     }
+    // TEMPORARY PROBE: the file-select slot names turn out not to use fontMenuSmall, whatever index the earlier dump
+    // reported. They are drawn at a negative y (a surface-local row), so log those draws with the font index and the
+    // scale the game asks for.
+    if (text != NULL && text[0] != '\0' && y < 30.0f && x < 200.0f) {
+        static char seen[16][24];
+        static int32_t seenCount;
+        char key[24];
+        snprintf(key, sizeof(key), "%d|%.0f|%.0f", (int) base->drawFont, (double) x, (double) y);
+        bool known = false;
+        for (int32_t i = 0; i < seenCount; i++) if (strcmp(seen[i], key) == 0) { known = true; break; }
+        if (!known && seenCount < 16) {
+            memcpy(seen[seenCount], key, sizeof(key));
+            seenCount++;
+            logInfo("Slot text: font %d at (%.0f,%.0f) scale (%.2f,%.2f) [%s]\n", (int) base->drawFont,
+                (double) x, (double) y, (double) xscale, (double) yscale, text);
+        }
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
