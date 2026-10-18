@@ -1074,6 +1074,10 @@ int32_t N3DSAm2r_gameWidth(void) {
 // Stretch and 2x leave the game's own values alone: they give it a window as wide as its picture, so its own 1:1 layout
 // is already what those modes want before the port transforms it.
 #define N3DS_AM2R_WIDE_SCREEN_W 400
+// The game's picture is 320 + widescreen_space wide. Its own 106 makes a 426x240 (16:9) picture, which the 400-wide top
+// screen can only show by giving up 13 columns each side. At 80 the picture is exactly 400x240: every column the game
+// draws is a column on the screen, with nothing cropped and nothing scaled.
+#define N3DS_AM2R_NATIVE_SPACE 80.0
 // The game's default widescreen space is 106 (its 426-wide picture is 320 + it). It is NOT a HUD inset: the HUD is
 // laid out at 250 + the space the game currently reports, so the inset has to be that live value - see the
 // point-for-point branch in N3DSAm2r_applyScreenMode.
@@ -1188,6 +1192,15 @@ static void N3DSAm2r_applyScreenMode(void) {
     if (N3DSGml_getVar(control, "widescreen", &widescreen) && widescreen < 0.5) {
         N3DSGml_setVar(control, "widescreen", 1.0);
         widescreen = 1.0;
+    }
+    // Native fullscreen: the picture is 320 + widescreen_space wide, and 80 makes exactly the screen's 400. The game
+    // writes its own 106 whenever a room is entered (oGotoRoom.Step), so it is restated every frame like the flag
+    // above. The widescreen surface is resized to match by the game, through checkWidescreenSurface below.
+    if (mode == N3DS_SCREEN_WIDE) {
+        double space = 0.0;
+        if (N3DSGml_getVar(control, "widescreen_space", &space) && space != N3DS_AM2R_NATIVE_SPACE) {
+            N3DSGml_setVar(control, "widescreen_space", N3DS_AM2R_NATIVE_SPACE);
+        }
     }
     double space = 0.0;
     if (widescreen < 0.5) {
