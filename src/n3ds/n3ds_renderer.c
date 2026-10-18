@@ -5123,30 +5123,21 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
-    // The save screen's play time sits one pixel into the box under it. It is not drawn like the rest of that page: the
-    // game draws "hh:mm:ss" with font 2 (fontGUIDefault, not fontGUI2) nine times in a 3x3 outline at y 2..4, which is
-    // why adjusting the font's own vertical offset never moved it while the Metroid count on the same page did. Lifting
-    // the whole outline by one puts it back inside the box.
+    // The save screen's play time sits one pixel into the box under it. It is drawn with font 2 (fontGUIDefault), not
+    // fontGUI2 - which is why the font-level vertical tweak never moved it while the Metroid count beside it did - and
+    // it is drawn nine times in a 3x3 black outline, so the whole outline has to move together.
     //
-    // The y bound keeps this to that one line: the only other clock this port draws is the map bar's play time, which
-    // goes in at y 197.
-    // TEMPORARY PROBE: list every distinct text draw with its position, so the save screen's play time can be found by
-    // where it sits rather than by its shape. The previous probes only looked at clock-shaped strings, and the visible
-    // line is evidently not one of those.
-    if (text != NULL && text[0] != '\0') {
-        static char seen[140][48];
-        static int32_t seenCount;
-        char key[48];
-        snprintf(key, sizeof(key), "%d|%.0f|%.0f|%.10s", (int) base->drawFont, (double) x, (double) y, text);
-        bool known = false;
-        for (int32_t i = 0; i < seenCount; i++) {
-            if (strcmp(seen[i], key) == 0) { known = true; break; }
+    // Matching on the font and the hh:mm:ss shape alone, with no y bound: the slot texts slide into place when the page
+    // opens, so their y sweeps through the top of the screen before settling, and keying on a small y only ever caught
+    // the animation. The map bar's play time is drawn with a different font, so it is not caught here.
+    if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
+        static int32_t loggedY = -1000;
+        int32_t rounded = (int32_t) (y + 0.5f);
+        if (rounded != loggedY) {
+            loggedY = rounded;
+            logInfo("Save time: \"%s\" font 2 at (%.0f,%.0f) -> lifted 3\n", text, (double) x, (double) y);
         }
-        if (!known && seenCount < 140) {
-            memcpy(seen[seenCount], key, sizeof(key));
-            seenCount++;
-            logInfo("Text: font %d at (%.0f,%.0f) [%.16s]\n", (int) base->drawFont, (double) x, (double) y, text);
-        }
+        y -= 3.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
