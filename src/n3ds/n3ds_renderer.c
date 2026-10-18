@@ -5143,7 +5143,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     //
     //  - the four box headings (装备/光束 on the left, 其他/靴子 on the right) sit one pixel low in their strips. Font 7,
     //    drawn twice for a one-pixel outline, so both passes move together.
-    //  - the description bar sits one pixel into the strip under it. Font 6 at y 197.
+    //  - the description bar sits two pixels into the strip under it. Font 6 at y 197.
     //
     // The description cannot be matched by content - it changes with the highlighted item - so it is matched by font and
     // by the band it occupies. That band has to stay clear of the three button hints, which are also font 6 but at y 212
@@ -5159,7 +5159,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         if (isHeading) {
             y -= 2.0f;
         } else if ((int32_t) base->drawFont == 6 && y >= 190.0f && y < 205.0f) {
-            y += 1.0f;
+            y += 2.0f;
         }
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
