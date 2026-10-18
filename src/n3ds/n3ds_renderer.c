@@ -5131,7 +5131,12 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // The y bound keeps this to that one line: the only other clock this port draws is the map bar's play time, which
     // goes in at y 197.
     if (y >= 0.0f && y < 10.0f && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        y -= 1.0f;
+        static int32_t liftLogs;
+        if (liftLogs < 6) {
+            liftLogs++;
+            logInfo("Clock lift: \"%s\" y %.1f -> %.1f\n", text, (double) y, (double) (y - 4.0f));
+        }
+        y -= 4.0f;
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
