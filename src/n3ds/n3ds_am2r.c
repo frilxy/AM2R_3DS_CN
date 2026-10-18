@@ -124,6 +124,8 @@ typedef struct {
     int32_t creditLines[3]; // static labels under the page: the localisation's authors, empty when unknown
     char author1[160];
     char author2[160];
+    char creditText[3][200];  // exact strings of the three credit rows, so draw_text can spot them
+    int32_t creditFont;       // fontMenuTinyDefault: what the credit rows are drawn with
     int32_t pageRows[CHEAT_COUNT + 1 > DISPLAY_ROW_COUNT ? CHEAT_COUNT + 1 : DISPLAY_ROW_COUNT];
 } N3DSAm2r;
 
@@ -184,6 +186,20 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
         RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, a, 3) : RValue_makeUndefined();
         RValue_free(&translated);
         return result;
+    }
+    // The credit rows are plain option rows, so they take the settings pages' font - the large one the menu is drawn
+    // with. Draw them with the small font instead, restoring the game's afterwards.
+    if (argCount == 3 && args[2].type == RVALUE_STRING && args[2].string != NULL && gAm2r.creditFont >= 0) {
+        for (int32_t i = 0; i < 3; i++) {
+            if (gAm2r.creditText[i][0] == '\0' || strcmp(args[2].string, gAm2r.creditText[i]) != 0) continue;
+            Renderer* renderer = ctx->runner != NULL ? ctx->runner->renderer : NULL;
+            if (renderer == NULL) break;
+            int32_t font = renderer->drawFont;
+            renderer->drawFont = gAm2r.creditFont;
+            RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
+            renderer->drawFont = font;
+            return result;
+        }
     }
     return gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
 }
@@ -1343,6 +1359,7 @@ static void N3DSAm2r_updateCredits(void) {
     if (gAm2r.creditLines[0] >= 0) return; // already up
     int32_t font = N3DSGml_fontIndex("fontMenuTinyDefault");
     if (font < 0) font = N3DSGml_fontIndex("fontSubScrDefault");
+    gAm2r.creditFont = font;
     char portLine[96];
     snprintf(portLine, sizeof(portLine), "%sB站 等璃籽", N3DSAm2r_text("3DS port: ", "3DS 移植："));
     const char* lines[3] = { gAm2r.author1, gAm2r.author2, portLine };
@@ -1354,6 +1371,9 @@ static void N3DSAm2r_updateCredits(void) {
         Instance* line = N3DSGml_create(x, N3DS_AM2R_CREDIT_Y + 12.0f * (float) i, gAm2r.objPauseOption);
         if (line == NULL) continue;
         N3DSGml_setVarString(line, "label", text);
+        // A row draws at half alpha when it is not enabled - the grey the settings pages use for rows that cannot act.
+        N3DSGml_setVar(line, "enabled", 0.0);
+        snprintf(gAm2r.creditText[i], sizeof(gAm2r.creditText[i]), "%s", text);
         gAm2r.creditLines[i] = (int32_t) line->instanceId;
     }
 }
