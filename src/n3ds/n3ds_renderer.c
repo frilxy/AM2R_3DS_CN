@@ -5162,20 +5162,20 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             y += 2.0f;
         }
     }
-    // TEMPORARY PROBE: the file-select slot names turn out not to use fontMenuSmall, whatever index the earlier dump
-    // reported. They are drawn at a negative y (a surface-local row), so log those draws with the font index and the
-    // scale the game asks for.
-    if (text != NULL && text[0] != '\0' && y < 30.0f && x < 200.0f) {
-        static char seen[16][24];
+    // TEMPORARY PROBE: find which font the file-select slot names use. It deliberately has NO y bound - the same trap
+    // as the save clock, whose resting position sat outside a y filter that only ever caught its slide-in animation.
+    // Deduplicated by content so the title screen's own text cannot exhaust the budget.
+    if (text != NULL && text[0] != '\0' && x < 200.0f) {
+        static char seen[24][32];
         static int32_t seenCount;
-        char key[24];
-        snprintf(key, sizeof(key), "%d|%.0f|%.0f", (int) base->drawFont, (double) x, (double) y);
+        char key[32];
+        snprintf(key, sizeof(key), "%d|%.10s", (int) base->drawFont, text);
         bool known = false;
         for (int32_t i = 0; i < seenCount; i++) if (strcmp(seen[i], key) == 0) { known = true; break; }
-        if (!known && seenCount < 16) {
+        if (!known && seenCount < 24) {
             memcpy(seen[seenCount], key, sizeof(key));
             seenCount++;
-            logInfo("Slot text: font %d at (%.0f,%.0f) scale (%.2f,%.2f) [%s]\n", (int) base->drawFont,
+            logInfo("Slot text: font %d at (%.0f,%.0f) scale (%.2f,%.2f) [%.20s]\n", (int) base->drawFont,
                 (double) x, (double) y, (double) xscale, (double) yscale, text);
         }
     }
