@@ -5165,6 +5165,61 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             }
             x -= 26.0f;
         }
+        // The scan prompts ("扫描周围环境中" etc., oScanning) mirror the popups: left-aligned at the picture's left
+        // edge, and the game shifts them left by the same 53 in wide - which the 400-wide picture only covers with 40.
+        // The missing 13 come back as the prompt's first glyph ("扫") hanging half past the screen's left edge, so the
+        // anchor moves right by the same 26 the popups move left.
+        else {
+            static const char* const kLeftEdgePrompts[] = {
+                // Chinese.
+                "\xe6\x89\xab\xe6\x8f\x8f\xe5\x91\xa8\xe5\x9b\xb4\xe7\x8e\xaf\xe5\xa2\x83\xe4\xb8\xad", // 扫描周围环境中
+                "\xe6\x89\xab\xe6\x8f\x8f\xe7\x94\x9f\xe7\x89\xa9\xe4\xb8\xad",                         // 扫描生物中
+                "\xe6\x89\xab\xe6\x8f\x8f\xe6\x9c\xba\xe6\xa2\xb0\xe4\xb8\xad",                         // 扫描机械中
+                "\xe6\x89\xab\xe6\x8f\x8f\xe8\x83\xbd\xe9\x87\x8f\xe6\xba\x90\xe4\xb8\xad",             // 扫描能量源中
+                // English.
+                "Scanning Environment",
+                "Scanning Bioform",
+                "Scanning Mechanism",
+                "Energy Pattern Scan",
+            };
+            bool isLeftEdgePrompt = false;
+            for (size_t i = 0; i < sizeof(kLeftEdgePrompts) / sizeof(kLeftEdgePrompts[0]); i++) {
+                if (strcmp(text, kLeftEdgePrompts[i]) == 0) { isLeftEdgePrompt = true; break; }
+            }
+            if (isLeftEdgePrompt) {
+                static int32_t scanLogs;
+                if (scanLogs < 12) {
+                    scanLogs++;
+                    logInfo("Scan shift: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f, text \"%s\"\n",
+                        (double) x, (double) y, base->drawHalign, base->drawValign, base->drawFont,
+                        (double) xscale, (double) yscale, text);
+                }
+                x += 26.0f;
+            }
+        }
+        // Ghost detector: draw_cool_text draws one coloured face and eight one-pixel black outline passes at x/y +- 1,
+        // so the face and every outline pass land on distinct pixels. The same string twice at the same (x, y) in one
+        // frame therefore means a second, independent draw of the whole string - the "text drawn twice, slightly apart"
+        // ghosting seen on the save-select screen in Wide. This logs the first such pairs so the second drawer can be
+        // named; it is diagnostic only and removed once the ghost is traced.
+        {
+            static const char* prevText = NULL;
+            static float prevX = 0.0f, prevY = 0.0f;
+            static int32_t prevFrame = -1;
+            static int32_t ghostLogs = 0;
+            int32_t frame = base->runner != NULL ? base->runner->frameCount : -1;
+            if (prevText != NULL && frame == prevFrame && strcmp(text, prevText) == 0 &&
+                x == prevX && y == prevY && ghostLogs < 20) {
+                ghostLogs++;
+                logInfo("Ghost text: \"%s\" twice at (%.1f,%.1f) font %d halign %d valign %d gradient %d color %08x\n",
+                    text, (double) x, (double) y, base->drawFont, base->drawHalign, base->drawValign,
+                    (int) gradient, (uint32_t) base->drawColor);
+            }
+            prevText = text;
+            prevX = x;
+            prevY = y;
+            prevFrame = frame;
+        }
     }
     // The save screen's play time sits one pixel into the box under it. It is drawn with font 2 (fontGUIDefault), not
     // fontGUI2 - which is why the font-level vertical tweak never moved it while the Metroid count beside it did - and
