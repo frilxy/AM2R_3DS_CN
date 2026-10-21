@@ -5123,6 +5123,49 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    // The "Game saved" note and the "X acquired" popups are laid out for the game's own 426-wide picture (320 +
+    // widescreen_space = 106) and right-aligned against its right edge, but in Wide the port states widescreen_space =
+    // 80 so the picture is a native 400 wide while the game's Step still lays these strings out at 426 columns. Their
+    // right-aligned anchor therefore lands 26 columns past the screen's right edge, clipping the note to "已保" (the
+    // tail is off screen) and leaving the popup's 1px outline column at the left edge (the "ghost" beside the text).
+    //
+    // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
+    // matching on the string content moves every pass together. The shift only applies in Wide - the other modes draw
+    // the game's plain 320x240 picture whose own layout already fits.
+    if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
+        static const char* const kRightEdgePopups[] = {
+            // Chinese.
+            "\xe5\xb7\xb2\xe4\xbf\x9d\xe5\xad\x98",             // 已保存
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe8\x83\xbd\xe9\x87\x8f\xe5\x8c\x85",         // 获得了能量包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe5\xaf\xbc\xe5\xbc\xb9\xe5\x8c\x85",         // 获得了导弹包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe8\xb6\x85\xe7\xba\xa7\xe5\xaf\xbc\xe5\xbc\xb9\xe5\x8c\x85", // 获得了超级导弹包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe9\x87\x8d\xe7\xa3\x85\xe7\x82\xb8\xe5\xbc\xb9\xe5\x8c\x85", // 获得了重磅炸弹包
+            // English.
+            "Game Saved",
+            "Energy Tank Acquired",
+            "Missile Tank Acquired",
+            "Super Missile Tank Acquired",
+            "Power Bomb Tank Acquired",
+        };
+        bool isRightEdgePopup = false;
+        for (size_t i = 0; i < sizeof(kRightEdgePopups) / sizeof(kRightEdgePopups[0]); i++) {
+            if (strcmp(text, kRightEdgePopups[i]) == 0) { isRightEdgePopup = true; break; }
+        }
+        // The 426-wide layout puts the right edge 26 columns past the 400-wide screen. Move the anchor back in so the
+        // note is fully visible again; the same 26 restores the popup outline to the face, removing the ghost.
+        if (isRightEdgePopup) {
+            // Diagnostic for the first hits, so one hardware run pins the real anchor and alignment instead of a
+            // derived value. Remove once the position is settled (mirrors the 256e7d1 probe).
+            static int32_t popupLogs;
+            if (popupLogs < 12) {
+                popupLogs++;
+                logInfo("Popup shift: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f, text \"%s\"\n",
+                    (double) x, (double) y, base->drawHalign, base->drawValign, base->drawFont,
+                    (double) xscale, (double) yscale, text);
+            }
+            x -= 26.0f;
+        }
+    }
     // The save screen's play time sits one pixel into the box under it. It is drawn with font 2 (fontGUIDefault), not
     // fontGUI2 - which is why the font-level vertical tweak never moved it while the Metroid count beside it did - and
     // it is drawn nine times in a 3x3 black outline, so the whole outline has to move together.
