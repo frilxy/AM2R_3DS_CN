@@ -457,6 +457,7 @@ typedef struct {
     uint32_t frameSpriteDrawCalls;
     uint32_t frameSpritePartDrawCalls;
     uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
+    uint32_t fontSubtexLogCount; // diagnostic: how many font sub-texture sizes have been logged
     uint32_t textCallLogCount; // diagnostic: how many draw_text calls have been logged
     uint32_t textPathLogCount; // diagnostic: how many text path decisions have been logged
     uint32_t frameDirectSpriteHits;
@@ -4247,6 +4248,18 @@ static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32
         subtex.width = (uint16_t) lroundf((u1 - u0) * texW);
         subtex.height = (uint16_t) lroundf((v1 - v0) * texH);
         if (subtex.width == 0 || subtex.height == 0) return;
+        // TEMPORARY: the glyph rectangle as the GPU will see it. A sub-texture width that does not match srcW makes
+        // drawImage divide by it and land under 1.0, which switches the atlas to linear filtering and smears the
+        // bitmap glyph - the bottom screen's doubled-looking text. First few glyphs only.
+        if (renderer->sharedFontAtlas.used && tpagIndex == renderer->sharedFontAtlas.tpagIndex &&
+            renderer->fontSubtexLogCount < 10u) {
+            renderer->fontSubtexLogCount++;
+            logInfo("N3DS: font subtex src %d,%d %dx%d -> subtex %ux%u at %g,%g in %g,%g scale %g,%g; "
+                    "viewScale %g,%g texFilter %d\n",
+                (int) srcOffX, (int) srcOffY, (int) srcW, (int) srcH, (unsigned) subtex.width, (unsigned) subtex.height,
+                (double) x, (double) y, (double) xscale, (double) yscale,
+                (double) renderer->viewScaleX, (double) renderer->viewScaleY, (int) renderer->base.texFilter);
+        }
 
         C2D_Image image = {
             .tex = dynamicCapture->image.tex,
@@ -5229,10 +5242,11 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // opens, so their y sweeps through the top of the screen before settling, and keying on a small y only ever caught
     // the animation. The map bar's play time is drawn with a different font, so it is not caught here.
     if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        static int32_t loggedY = -1000;
-        int32_t rounded = (int32_t) (y + 0.5f);
-        if (rounded != loggedY) {
-            loggedY = rounded;
+        // Capped: the outline draws this nine times a frame, so an uncapped line per distinct y turned into thousands
+        // of lines that buried the other diagnostics.
+        static int32_t saveTimeLogs;
+        if (saveTimeLogs < 8) {
+            saveTimeLogs++;
             logInfo("Save time: \"%s\" font 2 at (%.0f,%.0f) -> lifted 3\n", text, (double) x, (double) y);
         }
         y -= 3.0f;
