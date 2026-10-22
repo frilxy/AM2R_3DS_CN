@@ -142,6 +142,8 @@ static N3DSAm2rText* gTextCache = NULL;
 
 // draw_text's original entry point, kept when the hook below replaces it by name (see N3DSAm2r_init).
 static BuiltinFunc gDrawTextBuiltin = NULL;
+// instance_create's original entry point, kept the same way (see hookInstanceCreate).
+static BuiltinFunc gInstanceCreateBuiltin = NULL;
 
 static RValue hookGetText(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookGetXJoyBtnName(VMContext* ctx, RValue* args, int32_t argCount);
@@ -151,6 +153,7 @@ static RValue hookDamageSamusKnockdown(VMContext* ctx, RValue* args, int32_t arg
 static RValue hookDamageSamusPush(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDrawText(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookInstanceCreate(VMContext* ctx, RValue* args, int32_t argCount);
 
 static N3DSAm2rHook gHooks[] = {
     { "get_text", hookGetText, -1 },
@@ -202,6 +205,28 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
         }
     }
     return gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
+}
+
+// ===[ Water / lava ripple filter ]===
+// oWaterFXV2 builds a full-screen surface in its Create event and ripples it in Step and Draw. The port has no
+// equivalent for that pass - gpuSetColorWriteEnable, which it needs, is not implemented - so none of it ever reached
+// the screen. It used to be handled by destroying the instance every frame (the old N3DSAm2r_dropWaterFilter): the
+// game rebuilt it, the port destroyed it again, and that ran for as long as water was on screen. That cost showed up
+// as the water areas' step time climbing from about 4.7 to 11 ms with the frame rate falling to 30.
+//
+// Refusing the creation outright is cheaper and safer than that loop: no instance, no surface, no VRAM taken, and
+// nothing for the game to rebuild. The object draws nothing and nothing reads it, so skipping it changes no game
+// state - the ripple effect is simply absent, which is exactly what the screen already showed.
+static RValue hookInstanceCreate(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount >= 3 && gAm2r.objWaterFX >= 0 && RValue_toInt32(args[2]) == gAm2r.objWaterFX) {
+        static int32_t skipped;
+        if (skipped < 3) {
+            skipped++;
+            logInfo("AM2R: the water ripple filter is not created (it has no 3DS equivalent)\n");
+        }
+        return RValue_makeReal((GMLReal) INSTANCE_NOONE);
+    }
+    return gInstanceCreateBuiltin != NULL ? gInstanceCreateBuiltin(ctx, args, argCount) : RValue_makeUndefined();
 }
 
 // ===[ Nintendo buttons ]===
@@ -745,6 +770,9 @@ void N3DSAm2r_init(Runner* runner) {
         } else if (strcmp(name, "draw_text") == 0) {
             gDrawTextBuiltin = vm->funcCallCache[i].builtin;
             vm->funcCallCache[i].builtin = (void*) hookDrawText;
+        } else if (strcmp(name, "instance_create") == 0) {
+            gInstanceCreateBuiltin = vm->funcCallCache[i].builtin;
+            vm->funcCallCache[i].builtin = (void*) hookInstanceCreate;
         }
     }
     // Fast scripts default to on; cheats.ini can turn them off.
@@ -1025,18 +1053,9 @@ static void N3DSAm2r_applyCheats(void) {
 }
 
 // ===[ Water / lava ripple filter ]===
-
-static void N3DSAm2r_dropWaterFilter(void) {
-    if (gAm2r.objWaterFX < 0) return;
-    Instance* filter = N3DSGml_anyInstance(gAm2r.objWaterFX);
-    if (filter == NULL) return;
-    double surface = -1.0;
-    Renderer* renderer = gAm2r.runner->renderer;
-    if (N3DSGml_getVar(filter, "mysurf", &surface) && surface >= 0.0 && renderer != NULL) {
-        renderer->vtable->surfaceFree(renderer, (int32_t) surface);
-    }
-    N3DSGml_destroy(filter);
-}
+// Handled by refusing the object's creation outright - see hookInstanceCreate, next to hookDrawText. This used to
+// destroy the instance every frame instead, which had the game rebuild it every frame for as long as water was on
+// screen; that is what made the water areas slow.
 
 int32_t N3DSAm2r_gameWidth(void) {
     if (!gAm2r.active) return 0;
@@ -1406,7 +1425,6 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_applyScreenMode();
     N3DSAm2r_applyHud();
     N3DSAm2r_checkWidescreenSurface();
-    N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();
     N3DSAm2r_updateCredits();
     if (gAm2r.page != PAGE_NONE) {
