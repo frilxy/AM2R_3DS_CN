@@ -712,6 +712,9 @@ bool N3DSAm2r_hudEnabled(void) {
 // so walking it forward finds the oldest first.
 #define N3DS_WATER_DROP_CAP 8   // a splash is a handful
 #define N3DS_FX_SPARK_CAP 24
+// Pixels per frame a drop with no motion of its own is given, so it reaches the water and the game retires it. Two is
+// the pace a slow drip reads at; the drop covers the ~90 pixels to the surface in under a second.
+#define N3DS_WATER_DROP_FALL_SPEED 2.0f
 
 static void N3DSAm2r_capWaterEffects(void) {
     if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
@@ -726,14 +729,18 @@ static void N3DSAm2r_capWaterEffects(void) {
         if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) {
             if (drops == 0 || inst->y < dropMinY) dropMinY = inst->y;
             if (drops == 0 || inst->y > dropMaxY) dropMaxY = inst->y;
+            // The drop is meant to fall: oWaterDrop has no Step event, it destroys itself in Alarm 2 once
+            // y >= global.waterlevel - 8, and that is the only way it ever goes away. On hardware the drops sat in a
+            // 32-pixel band and never reached the water, so that test never passed and they piled up instead. Give a
+            // drop that has no motion of its own a gentle fall, and the game's own rule finishes the job. A drop the
+            // game did give motion to is left exactly as it is.
+            if (inst->vspeed == 0.0f && inst->gravity == 0.0f) inst->vspeed = N3DS_WATER_DROP_FALL_SPEED;
             drops++;
         } else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) {
             sparks++;
         }
     }
-    // TEMPORARY diagnostic: the game retires a drop when it reaches global.waterlevel (oWaterDrop's Alarm 2), so see
-    // what that global holds on hardware and where the drops actually are. If waterlevel is 0 the game's own landing
-    // test can never pass and the drops live forever - which is what the growing count looks like.
+    // TEMPORARY diagnostic: what the global holds and where the drops are, to confirm they now travel down to it.
     {
         static int32_t probes;
         static int32_t nextProbe;
