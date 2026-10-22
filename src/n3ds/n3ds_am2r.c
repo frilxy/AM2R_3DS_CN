@@ -83,11 +83,27 @@ typedef struct {
     int32_t script; // the game's own script, called by the hook
 } N3DSAm2rHook;
 
+// One entry of the water-effects ageing map (see N3DSAm2r_retireStaleEffects): the instance and the frame it was first
+// seen on. A stb_ds map is an array of these, keyed by value.
+typedef struct {
+    int32_t key;
+    int32_t value;
+} N3DSAm2rFxAge;
+
 typedef struct {
     Runner* runner;
     bool active;
     int32_t objOptionsMain, objOptionsDisplay, objOptionsControl, objControl;
     int32_t objMenuLabel, objOptionLR, objPauseOption, objWaterFX;
+    // The water and lava splash drops (oWaterDrop) and their sparks (oFXAnimSpark). Both retire themselves when they
+    // land or their animation ends, which assumes the frame rate holds: a drop falls one step per frame, so a frame
+    // rate that has already dropped makes each one live proportionally longer and more of them exist at once, which
+    // drops it further. Once that loop started it took the water areas from 59 fps down to 7. The port ages these
+    // itself instead (see N3DSAm2r_retireStaleEffects), by frames rather than by how fast they fall.
+    int32_t objWaterDrop, objFXAnimSpark;
+    // Which instances have been seen and when, for that ageing. Keyed by instanceId and kept across frames; a stb_ds
+    // map is an array of {key, value}, so the element is a struct rather than a bare counter.
+    N3DSAm2rFxAge* fxAges;
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
     int32_t objCharacter;
@@ -324,6 +340,10 @@ static RValue hookGetXJoyBtnSprite(MAYBE_UNUSED VMContext* ctx, RValue* args, in
 // room_change(room, transition): at boot the game shows rm_controller (a "use a gamepad" notice) before the title;
 // on the 3DS that's skipped, straight to the title screen (the notice's room only waits and goes there).
 static RValue hookRoomChange(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    // The effects tracked for retirement (see N3DSAm2r_retireStaleEffects) belong to the room being left: their
+    // instance ids are never seen again, so their rows would only grow the map.
+    hmfree(gAm2r.fxAges);
+    gAm2r.fxAges = NULL;
     if (argCount > 0 && gAm2r.roomController >= 0 && gAm2r.roomTitle >= 0 && RValue_toInt32(args[0]) == gAm2r.roomController) {
         RValue_free(&args[0]);
         args[0] = RValue_makeReal((GMLReal) gAm2r.roomTitle);
@@ -688,6 +708,52 @@ bool N3DSAm2r_hudEnabled(void) {
     return true;
 }
 
+// ===[ Stale water effects ]===
+// oWaterDrop falls one step per frame and destroys itself when it lands; oFXAnimSpark destroys itself when its
+// animation ends. Both therefore assume the frame rate holds, and in the water areas it does not: the water is full of
+// splash drops, each one costs step time, and a frame rate that has already dropped makes every drop live
+// proportionally longer before it lands. More drops alive means a lower frame rate, which means they live longer
+// still - a loop measured on hardware as 59 fps falling to 7, with oWaterDrop going from 7 instances to 572.
+//
+// Waiting for a drop to land cannot break that loop, because landing is exactly what got slower. So the port retires
+// these effects on its own clock instead: one seen for longer than the limit below is destroyed outright, landed or
+// not. The limits are generous multiples of their normal lifetime at 60 fps (a drop takes about a second from spawn to
+// water), so nothing is retired while the frame rate holds, and the loop cannot start.
+//
+// Only these two objects are affected: both are pure presentation, hold no game state, and destroying one is exactly
+// what the game does to it on landing.
+#define N3DS_WATER_DROP_MAX_FRAMES 240   // ~4 s at 60 fps; a drop's own life is about one
+#define N3DS_FX_SPARK_MAX_FRAMES 180     // ~3 s; a spark's animation is well under one
+
+static void N3DSAm2r_retireStaleEffects(void) {
+    if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
+    Runner* runner = gAm2r.runner;
+    if (runner == NULL) return;
+    int32_t frame = (int32_t) runner->frameCount;
+    // The map is emptied whenever the room changes (see hookRoomChange): the effects belong to a room, and the ids of a
+    // room that has been left are never seen again, so keeping their rows would grow the map for the life of the
+    // program. Within a room, a row is removed as soon as its effect is retired, so the map holds only the effects
+    // currently alive.
+    ptrdiff_t count = arrlen(runner->instances);
+    for (ptrdiff_t i = 0; i < count; i++) {
+        Instance* inst = runner->instances[i];
+        if (inst == NULL || inst->destroyed) continue;
+        bool isDrop = gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop;
+        bool isSpark = gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark;
+        if (!isDrop && !isSpark) continue;
+        int32_t key = (int32_t) inst->instanceId;
+        ptrdiff_t slot = hmgeti(gAm2r.fxAges, key);
+        if (slot < 0) {
+            hmput(gAm2r.fxAges, key, frame);
+            continue;
+        }
+        int32_t limit = isDrop ? N3DS_WATER_DROP_MAX_FRAMES : N3DS_FX_SPARK_MAX_FRAMES;
+        if (frame - gAm2r.fxAges[slot].value < limit) continue;
+        hmdel(gAm2r.fxAges, key);
+        N3DSGml_destroy(inst);
+    }
+}
+
 static void N3DSAm2r_applyHud(void) {
     if (!gAm2r.hudLoaded) return;
     double shown = 0.0;
@@ -700,6 +766,7 @@ static void N3DSAm2r_applyHud(void) {
 static void N3DSAm2r_loadAuthors(void);
 
 void N3DSAm2r_init(Runner* runner) {
+    hmfree(gAm2r.fxAges); // a re-init must not leak the previous effects map
     memset(&gAm2r, 0, sizeof(gAm2r));
     gAm2r.runner = runner;
     gAm2r.fontsEnabled = true; // cheats.ini's "fonts=0" turns the font swapping off (a diagnostic)
@@ -712,6 +779,8 @@ void N3DSAm2r_init(Runner* runner) {
     gAm2r.objOptionLR = N3DSGml_objectIndex("oOptionLR");
     gAm2r.objPauseOption = N3DSGml_objectIndex("oPauseOption");
     gAm2r.objWaterFX = N3DSGml_objectIndex("oWaterFXV2");
+    gAm2r.objWaterDrop = N3DSGml_objectIndex("oWaterDrop");
+    gAm2r.objFXAnimSpark = N3DSGml_objectIndex("oFXAnimSpark");
     gAm2r.objBeam = N3DSGml_objectIndex("oBeam");
     gAm2r.objMissile = N3DSGml_objectIndex("oMissile");
     gAm2r.objMissileExpl = N3DSGml_objectIndex("oMissileExpl");
@@ -1425,6 +1494,7 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_applyScreenMode();
     N3DSAm2r_applyHud();
     N3DSAm2r_checkWidescreenSurface();
+    N3DSAm2r_retireStaleEffects();
     N3DSAm2r_hideKeyboardRow();
     N3DSAm2r_updateCredits();
     if (gAm2r.page != PAGE_NONE) {
