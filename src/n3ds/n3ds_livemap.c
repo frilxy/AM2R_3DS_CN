@@ -93,6 +93,12 @@ typedef struct {
     int32_t sprMissile, sprSMissile, sprPBomb;
     uint32_t frame;
     int32_t lastPx, lastPy;
+    // The zoom step the cached layer was drawn at, so a zoom change invalidates it.
+    int32_t lastZoom;
+    // The cells' fingerprint the cached layer was built from, so newly explored cells invalidate it.
+    uint32_t lastCellsHash;
+    // True while the cached static layer matches the current camera.
+    bool cacheReady;
     // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
     float panX, panY;
     // Which zoom step (an index into kZoomSteps) the map is drawn at.
@@ -203,18 +209,26 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
     char wallU = cell[0], wallR = cell[1], wallD = cell[2], wallL = cell[3], color = cell[4], special = cell[5];
     char corner = cell[6];
     if (color >= '1' && color <= '4') N3DSLiveMap_sprite(gLive.sprBlock, color - '1', x, y, 1.0f);
-    int32_t cornerFrame = N3DSLiveMap_cornerFrame(corner);
-    if (cornerFrame >= 0) N3DSLiveMap_sprite(gLive.sprCorner, cornerFrame, x, y, 1.0f);
-    if (wallU == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y, 1.0f);
-    float edge = (float) N3DSLiveMap_cell() - 1.0f;
-    if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + edge, 1.0f);
-    if (wallL == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x, y, 1.0f);
-    if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + edge, y, 1.0f);
-    if (wallU == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y, 1.0f);
-    if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + edge, 1.0f);
-    if (wallL == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x, y, 1.0f);
-    if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + edge, y, 1.0f);
+    // At 0.5x a cell is four pixels and the wall bars are one: the four walls, four passages and the corner tile land
+    // on top of each other and read as noise rather than as a room. The block colour and the special marker carry all
+    // the information that still survives at this size, so the rest is skipped - which also takes the busiest zoom
+    // step from about eleven draws a cell to two. Special markers (items, save points, transitions) stay: they are the
+    // reason to open the map at this zoom at all.
     int32_t sp = -1;
+    bool skipDetail = N3DSLiveMap_cell() <= N3DS_LIVEMAP_CELL / 2;
+    if (!skipDetail) {
+        int32_t cornerFrame = N3DSLiveMap_cornerFrame(corner);
+        if (cornerFrame >= 0) N3DSLiveMap_sprite(gLive.sprCorner, cornerFrame, x, y, 1.0f);
+        if (wallU == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y, 1.0f);
+        float edge = (float) N3DSLiveMap_cell() - 1.0f;
+        if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + edge, 1.0f);
+        if (wallL == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x, y, 1.0f);
+        if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + edge, y, 1.0f);
+        if (wallU == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y, 1.0f);
+        if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + edge, 1.0f);
+        if (wallL == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x, y, 1.0f);
+        if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + edge, y, 1.0f);
+    }
     switch (special) {
         case '1': sp = 0; break;
         case '2': sp = 1; break;
@@ -551,19 +565,15 @@ static void N3DSLiveMap_drawStatus(void) {
     r->drawAlpha = alpha;
 }
 
-static void N3DSLiveMap_drawFrame(void) {
+// The parts of the frame that only change with the camera or the language: the black bands, both bars, the counters'
+// backing, the title and the zoom steps. Drawn into the cached layer.
+static void N3DSLiveMap_drawStaticFrame(void) {
     Renderer* r = gLive.renderer;
-    // The game's draw state is left as it was.
-    int32_t font = r->drawFont, halign = r->drawHalign;
-    uint32_t color = r->drawColor;
-    float alpha = r->drawAlpha;
     // The green bar keeps its place at y 30; the title moves up into the black margin above it and the counters are
     // drawn on the bar itself, so the bar carries the live numbers instead of the page's name.
     r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
     r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
     N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
-    // On the bar, so after it: the counters are readable against the green, and the bar is not drawn over them.
-    N3DSLiveMap_drawStatus();
     N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);
@@ -577,8 +587,19 @@ static void N3DSLiveMap_drawFrame(void) {
     }
     // In the black margin above the bar, centred there.
     N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
-    // The bottom margin's zoom steps.
+    // The bottom margin's zoom steps. They change with the zoom step, which invalidates the cache, so they belong here.
     N3DSLiveMap_drawZoomControl();
+}
+
+// The parts that change without the camera moving: the counters, the collection percentage and the clock. Drawn every
+// frame over the cached layer. Their text sits on the bars that layer already drew, so only the glyphs are redrawn.
+static void N3DSLiveMap_drawLiveFrame(void) {
+    Renderer* r = gLive.renderer;
+    // The game's draw state is left as it was.
+    int32_t font = r->drawFont, halign = r->drawHalign;
+    uint32_t color = r->drawColor;
+    float alpha = r->drawAlpha;
+    N3DSLiveMap_drawStatus();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
         // steps_to_time2(gametime): gametime counts steps (60 a second), shown as HH:MM:SS. Done here, not by calling
@@ -605,6 +626,31 @@ static void N3DSLiveMap_drawFrame(void) {
     r->drawHalign = halign;
     r->drawColor = color;
     r->drawAlpha = alpha;
+}
+
+// A cheap fingerprint of what the cells would draw: the explored value of every cell in view. Walking the arrays here
+// costs two lookups a cell, which is far cheaper than the sprite draws it saves, and it catches the one change the
+// camera cannot: a cell becoming explored while the map stays put. Callers compare it with the value the cache was
+// built from.
+static uint32_t N3DSLiveMap_cellsFingerprint(int32_t px, int32_t py) {
+    RValue* dmap = N3DSLiveMap_array("dmap");
+    if (dmap == NULL) return 0u;
+    uint32_t hash = 2166136261u;
+    int32_t cell = N3DSLiveMap_cell();
+    int32_t halfW = N3DS_LIVEMAP_W / cell / 2 + 1;
+    int32_t halfH = N3DS_LIVEMAP_H / cell / 2 + 1;
+    for (int32_t cx = px - halfW; cx <= px + halfW; cx++) {
+        if (cx < 0) continue;
+        for (int32_t cy = py - halfH; cy <= py + halfH; cy++) {
+            if (cy < 0) continue;
+            int32_t index = cx * GML_LEGACY_ARRAY_STRIDE + cy;
+            RValue explored = GMLArray_getOnArrayRef(dmap, index);
+            if (explored.type == RVALUE_UNDEFINED || explored.type == RVALUE_STRING) continue;
+            hash = (hash ^ (uint32_t) (int32_t) RValue_toReal(explored)) * 16777619u;
+            hash = (hash ^ (uint32_t) index) * 16777619u;
+        }
+    }
+    return hash;
 }
 
 static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
@@ -666,14 +712,46 @@ void N3DSLiveMap_draw(void) {
     double pxd = 0.0, pyd = 0.0;
     if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
     int32_t px = (int32_t) pxd, py = (int32_t) pyd;
+    // The picture is split in two. The cells, the bars, the zoom labels and the title only change when the map is
+    // panned, zoomed or something new is explored, so they live in a cached texture and are redrawn only when that
+    // camera changes - they are thousands of sprite draws, and they used to be redrawn every frame. The counters, the
+    // clock and the pulsing marker change constantly (or every second) and are cheap, so they are drawn per frame on
+    // top of the cached layer.
+    //
+    // The counters sit on the same background bars, so the bars stay in the cached layer and only their text is
+    // redrawn over it.
+    //
+    // Exploration is the one change the camera does not show: a cell can turn explored while the map stays put, and
+    // then the cached layer is stale. The fingerprint below walks the same cells the draw would (two array lookups
+    // each, no drawing) and is compared with the value the cache was built from, so a new room shows up on the frame
+    // it is explored.
+    uint32_t cellsHash = N3DSLiveMap_cellsFingerprint(px, py);
+    bool cameraMoved = px != gLive.lastPx || py != gLive.lastPy || gLive.lastZoom != gLive.zoom ||
+        cellsHash != gLive.lastCellsHash;
     gLive.lastPx = px;
     gLive.lastPy = py;
-    // Redrawn every frame. The dual-screen line kept a copy of the finished picture and blitted it back on frames
-    // where nothing had changed, which needs a second 320x240 texture and the copy-to-texture path; this port redraws
-    // the few hundred cells instead, which is a fraction of a millisecond and has nothing to keep in sync.
+    gLive.lastZoom = gLive.zoom;
+    gLive.lastCellsHash = cellsHash;
+    if (cameraMoved) gLive.cacheReady = false;
+    if (!gLive.cacheReady) {
+        // Drawn into the cache with its own 1:1 mapping, then blitted back on the frames that follow.
+        if (N3DSRenderer_beginBottomCacheDraw(gLive.renderer)) {
+            N3DSLiveMap_drawCells(px, py);
+            N3DSLiveMap_drawStaticFrame();
+            N3DSRenderer_endBottomCacheDraw(gLive.renderer);
+            gLive.cacheReady = true;
+        }
+    }
     N3DSRenderer_beginBottomScreenGUI(gLive.renderer, N3DS_LIVEMAP_W, N3DS_LIVEMAP_H);
-    N3DSLiveMap_drawCells(px, py);
-    N3DSLiveMap_drawFrame();
+    // The cached layer can be missing (the first frame, or the cache could not be allocated); then the static layer
+    // is drawn directly so the bottom screen is never left black.
+    if (gLive.cacheReady) {
+        N3DSRenderer_blitBottomCache(gLive.renderer);
+    } else {
+        N3DSLiveMap_drawCells(px, py);
+        N3DSLiveMap_drawStaticFrame();
+    }
+    N3DSLiveMap_drawLiveFrame();
     N3DSLiveMap_drawHighlight();
     N3DSRenderer_endBottomScreenGUI(gLive.renderer);
 }

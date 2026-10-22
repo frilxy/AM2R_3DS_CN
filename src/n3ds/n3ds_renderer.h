@@ -61,6 +61,16 @@ C3D_RenderTarget* N3DSRenderer_getTopTarget(Renderer* renderer);
 void N3DSRenderer_beginBottomScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
 void N3DSRenderer_beginBottomScreenGUIEx(Renderer* renderer, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY);
 void N3DSRenderer_endBottomScreenGUI(Renderer* renderer);
+// The bottom screen's static layer, cached in a texture the port owns. Most of the map (its cells, bars, zoom labels
+// and title) only changes when the map is panned, zoomed or newly explored, so it is drawn into this cache once and
+// blitted back on later frames; the counters, the clock and the pulsing marker stay per-frame and are drawn on top.
+// Call invalidate whenever the static layer would change, then draw it into the cache with begin/end (the caller
+// draws exactly what it would draw to the bottom screen), and blit it inside a bottom-screen GUI pass.
+void N3DSRenderer_invalidateBottomCache(Renderer* renderer);
+bool N3DSRenderer_beginBottomCacheDraw(Renderer* renderer);
+void N3DSRenderer_endBottomCacheDraw(Renderer* renderer);
+void N3DSRenderer_blitBottomCache(Renderer* renderer);
+void N3DSRenderer_freeBottomCache(Renderer* renderer);
 // Deletes surfaces freed during earlier frames. Call outside C3D_FrameBegin/End; all = everything (shutdown).
 void N3DSRenderer_collectGarbage(Renderer* renderer, bool all);
 void N3DSRenderer_logDiag(Renderer* renderer);
