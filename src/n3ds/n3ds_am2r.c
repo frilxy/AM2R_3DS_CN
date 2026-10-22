@@ -91,8 +91,8 @@ typedef struct {
     // The water and lava splash drops (oWaterDrop) and their sparks (oFXAnimSpark). Both retire themselves when they
     // land or their animation ends, which assumes the frame rate holds: a drop falls one step per frame, so a frame
     // rate that has already dropped makes each one live proportionally longer and more of them exist at once, which
-    // drops it further. Once that loop started it took the water areas from 59 fps down to 7. The port ages these
-    // itself instead (see N3DSAm2r_retireStaleEffects), by frames rather than by how fast they fall.
+    // drops it further. Once that loop started it took the water areas from 59 fps down to 7. The port bounds how many
+    // of them may exist instead (see N3DSAm2r_capWaterEffects).
     int32_t objWaterDrop, objFXAnimSpark;
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
@@ -694,54 +694,59 @@ bool N3DSAm2r_hudEnabled(void) {
     return true;
 }
 
-// ===[ Stale water effects ]===
-// oWaterDrop falls one step per frame and destroys itself when it lands; oFXAnimSpark destroys itself when its
-// animation ends. Both therefore assume the frame rate holds, and in the water areas it does not: the water is full of
-// splash drops, each one costs step time, and a frame rate that has already dropped makes every drop live
-// proportionally longer before it lands. More drops alive means a lower frame rate, which means they live longer
-// still - a loop measured on hardware as 59 fps falling to 7, with oWaterDrop going from 7 instances to 572.
+// ===[ Water effect count ]===
+// oWaterDrop is the splash thrown up when something enters water, and oFXAnimSpark a small spark animation. Both are
+// meant to destroy themselves - a drop when it lands, a spark when its animation ends - and both assume the frame rate
+// holds, because a drop falls one step per frame. In the water areas it does not hold: a frame rate that has already
+// dropped makes every drop live proportionally longer, so more of them exist at once, which lowers the frame rate
+// further. On hardware that loop ran 59 fps down to 7 with oWaterDrop going from 7 instances to 572.
 //
-// Waiting for a drop to land cannot break that loop, because landing is exactly what got slower. So the port retires
-// these effects on its own clock instead: one seen for longer than the limit below is destroyed outright, landed or
-// not. The limits are generous multiples of their normal lifetime at 60 fps (a drop takes about a second from spawn to
-// water), so nothing is retired while the frame rate holds, and the loop cannot start.
+// Two previous attempts tied the cut-off to how long an effect had been alive (first a side table, then a per-instance
+// variable). Both went wrong in ways that were hard to see from the sofa: the first destroyed every drop immediately,
+// the second did nothing at all. Neither is worth another try, because neither is needed.
 //
-// Only these two objects are affected: both are pure presentation, hold no game state, and destroying one is exactly
-// what the game does to it on landing.
-#define N3DS_WATER_DROP_MAX_FRAMES 240   // ~4 s at 60 fps; a drop's own life is about one
-#define N3DS_FX_SPARK_MAX_FRAMES 180     // ~3 s; a spark's animation is well under one
+// Capping the count does the same job with nothing to get out of step: the total is counted, and once there are more
+// than the cap the oldest are destroyed until the count fits. Nothing happens at all below the cap, so the effects
+// behave exactly as the game wrote them; above it the cost has a ceiling, which is the only thing the loop needs
+// broken. `runner->instances` is in creation order - it is appended to, and compaction is a stable in-place filter -
+// so walking it forward finds the oldest first.
+#define N3DS_WATER_DROP_CAP 24   // a splash is a handful; this leaves room for several at once
+#define N3DS_FX_SPARK_CAP 24
 
-static void N3DSAm2r_retireStaleEffects(void) {
+static void N3DSAm2r_capWaterEffects(void) {
     if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
-    int32_t frame = (int32_t) runner->frameCount;
-    // The age lives on the instance itself, in a variable of the port's own naming, so there is no side table to keep
-    // in step with the instance list and nothing to clear when a room is left: an effect the game destroys takes its
-    // record with it.
-    //
-    // The variable's id must be allocated first. The game never names this variable, so looking it up by name finds
-    // nothing, and N3DSGml_getVar/setVar do nothing at all for an unknown name - which is why an earlier version of
-    // this never retired a single drop. VM_getOrAllocateVarID registers the name on first use.
-    static int32_t bornVarId = -1;
-    if (bornVarId < 0) bornVarId = VM_getOrAllocateVarID(runner->vmContext, "n3ds_fx_born");
-    if (bornVarId < 0) return;
+    int32_t drops = 0, sparks = 0;
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
         Instance* inst = runner->instances[i];
         if (inst == NULL || inst->destroyed) continue;
-        bool isDrop = gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop;
-        bool isSpark = gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark;
-        if (!isDrop && !isSpark) continue;
-        RValue* born = IntRValueHashMap_findSlot(&inst->selfVars, bornVarId);
-        if (born == NULL) {
-            // First frame this effect has been seen: stamp it and leave it alone.
-            Instance_setSelfVar(inst, bornVarId, RValue_makeReal((double) frame));
-            continue;
+        if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) drops++;
+        else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) sparks++;
+    }
+    int32_t excessDrops = drops - N3DS_WATER_DROP_CAP;
+    int32_t excessSparks = sparks - N3DS_FX_SPARK_CAP;
+    if (excessDrops <= 0 && excessSparks <= 0) return;
+    // TEMPORARY: log the first few trims, so one run shows the cap working and at what count.
+    static int32_t trims;
+    if (trims < 6) {
+        trims++;
+        logInfo("Effects: trimming drops %d -> %d, sparks %d -> %d\n", drops, N3DS_WATER_DROP_CAP, sparks,
+            N3DS_FX_SPARK_CAP);
+    }
+    // Oldest first, and only as many as are over the cap. arrlen is re-read every step because destroying an instance
+    // runs its Destroy event, which may create or remove instances and reallocate the array.
+    for (ptrdiff_t i = 0; i < arrlen(runner->instances) && (excessDrops > 0 || excessSparks > 0); i++) {
+        Instance* inst = runner->instances[i];
+        if (inst == NULL || inst->destroyed) continue;
+        if (excessDrops > 0 && gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) {
+            N3DSGml_destroy(inst);
+            excessDrops--;
+        } else if (excessSparks > 0 && gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) {
+            N3DSGml_destroy(inst);
+            excessSparks--;
         }
-        int32_t limit = isDrop ? N3DS_WATER_DROP_MAX_FRAMES : N3DS_FX_SPARK_MAX_FRAMES;
-        if ((double) frame - RValue_toReal(*born) < (double) limit) continue;
-        N3DSGml_destroy(inst);
     }
 }
 
@@ -1484,7 +1489,7 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_applyScreenMode();
     N3DSAm2r_applyHud();
     N3DSAm2r_checkWidescreenSurface();
-    N3DSAm2r_retireStaleEffects();
+    N3DSAm2r_capWaterEffects();
     N3DSAm2r_hideKeyboardRow();
     N3DSAm2r_updateCredits();
     if (gAm2r.page != PAGE_NONE) {
