@@ -716,9 +716,16 @@ static void N3DSAm2r_retireStaleEffects(void) {
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
     int32_t frame = (int32_t) runner->frameCount;
-    // The age lives on the instance itself, in a variable of the port's own naming. That way there is no side table to
-    // keep in step with the instance list, and nothing to clear when a room is left: an effect the game destroys takes
-    // its record with it.
+    // The age lives on the instance itself, in a variable of the port's own naming, so there is no side table to keep
+    // in step with the instance list and nothing to clear when a room is left: an effect the game destroys takes its
+    // record with it.
+    //
+    // The variable's id must be allocated first. The game never names this variable, so looking it up by name finds
+    // nothing, and N3DSGml_getVar/setVar do nothing at all for an unknown name - which is why an earlier version of
+    // this never retired a single drop. VM_getOrAllocateVarID registers the name on first use.
+    static int32_t bornVarId = -1;
+    if (bornVarId < 0) bornVarId = VM_getOrAllocateVarID(runner->vmContext, "n3ds_fx_born");
+    if (bornVarId < 0) return;
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
         Instance* inst = runner->instances[i];
@@ -726,14 +733,14 @@ static void N3DSAm2r_retireStaleEffects(void) {
         bool isDrop = gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop;
         bool isSpark = gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark;
         if (!isDrop && !isSpark) continue;
-        double born = 0.0;
-        if (!N3DSGml_getVar(inst, "n3ds_fx_born", &born)) {
+        RValue* born = IntRValueHashMap_findSlot(&inst->selfVars, bornVarId);
+        if (born == NULL) {
             // First frame this effect has been seen: stamp it and leave it alone.
-            N3DSGml_setVar(inst, "n3ds_fx_born", (double) frame);
+            Instance_setSelfVar(inst, bornVarId, RValue_makeReal((double) frame));
             continue;
         }
         int32_t limit = isDrop ? N3DS_WATER_DROP_MAX_FRAMES : N3DS_FX_SPARK_MAX_FRAMES;
-        if ((double) frame - born < (double) limit) continue;
+        if ((double) frame - RValue_toReal(*born) < (double) limit) continue;
         N3DSGml_destroy(inst);
     }
 }
