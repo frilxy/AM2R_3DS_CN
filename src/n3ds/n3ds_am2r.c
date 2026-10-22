@@ -710,11 +710,12 @@ bool N3DSAm2r_hudEnabled(void) {
 // behave exactly as the game wrote them; above it the cost has a ceiling, which is the only thing the loop needs
 // broken. `runner->instances` is in creation order - it is appended to, and compaction is a stable in-place filter -
 // so walking it forward finds the oldest first.
-#define N3DS_WATER_DROP_CAP 8   // a splash is a handful
-#define N3DS_FX_SPARK_CAP 24
-// Pixels per frame a drop with no motion of its own is given, so it reaches the water and the game retires it. Two is
-// the pace a slow drip reads at; the drop covers the ~90 pixels to the surface in under a second.
-#define N3DS_WATER_DROP_FALL_SPEED 2.0f
+#define N3DS_WATER_DROP_CAP 48   // far above the seven or eight a splash makes: a backstop, not a rule
+#define N3DS_FX_SPARK_CAP 48
+// Pixels per frame a drop with no motion of its own is given, so it reaches the water and the game retires it. A slow
+// cave drip reads at about a pixel a frame, and the drop then takes a couple of seconds to reach the surface - long
+// enough to be seen falling rather than blinking out.
+#define N3DS_WATER_DROP_FALL_SPEED 1.0f
 
 static void N3DSAm2r_capWaterEffects(void) {
     if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
