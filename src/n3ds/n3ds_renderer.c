@@ -47,6 +47,11 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_TOP_HEIGHT 240
 #define N3DS_BOTTOM_WIDTH 320
 #define N3DS_BOTTOM_HEIGHT 240
+// The scan prompts sit flush to the picture's left edge on the game's own 426-wide picture, where the first glyph's
+// ink starts about ten columns left of its anchor. On the port's 400-wide picture that same anchor would leave the
+// ink one column off screen, so the anchor is moved right by this much: enough to keep a two-column margin, small
+// enough to still read as flush-to-edge.
+#define N3DS_WIDE_SCAN_PROMPT_INSET 2.0f
 #define N3DS_SDMC_ASSET_BASE N3DS_SD_DIR "gfx"
 #define N3DS_ROMFS_ASSET_BASE "romfs:/gfx"
 #define N3DS_RENDERER_FILE_BUFFER_SIZE (32u * 1024u)
@@ -457,8 +462,6 @@ typedef struct {
     uint32_t frameSpriteDrawCalls;
     uint32_t frameSpritePartDrawCalls;
     uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
-    uint32_t fontSubtexLogCount; // diagnostic: how many font sub-texture sizes have been logged
-    uint32_t leftEdgeLogCount; // diagnostic: how many left-edge text anchors have been logged
     uint32_t textCallLogCount; // diagnostic: how many draw_text calls have been logged
     uint32_t textPathLogCount; // diagnostic: how many text path decisions have been logged
     uint32_t frameDirectSpriteHits;
@@ -4249,16 +4252,6 @@ static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32
         subtex.width = (uint16_t) lroundf((u1 - u0) * texW);
         subtex.height = (uint16_t) lroundf((v1 - v0) * texH);
         if (subtex.width == 0 || subtex.height == 0) return;
-        // TEMPORARY: the glyph rectangle as the GPU will see it, on the bottom screen only (the startup screens use
-        // the same atlas and filled the first ten slots). A sub-texture width that does not match srcW makes drawImage
-        // divide by it and land under 1.0, which switches the atlas to linear filtering and smears the bitmap glyph.
-        if (renderer->sharedFontAtlas.used && tpagIndex == renderer->sharedFontAtlas.tpagIndex &&
-            renderer->activeSceneTarget == N3DS_SCENE_TARGET_BOTTOM && renderer->fontSubtexLogCount < 16u) {
-            renderer->fontSubtexLogCount++;
-            logInfo("N3DS: font subtex src %d,%d %dx%d -> subtex %ux%u at %g,%g scale %g,%g texFilter %d\n",
-                (int) srcOffX, (int) srcOffY, (int) srcW, (int) srcH, (unsigned) subtex.width, (unsigned) subtex.height,
-                (double) x, (double) y, (double) xscale, (double) yscale, (int) renderer->base.texFilter);
-        }
 
         C2D_Image image = {
             .tex = dynamicCapture->image.tex,
@@ -5135,32 +5128,14 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
-    // The "Game saved" note and the "X acquired" popups are laid out for the game's own 426-wide picture (320 +
-    // widescreen_space = 106) and right-aligned against its right edge, but in Wide the port states widescreen_space =
-    // 80 so the picture is a native 400 wide while the game's Step still lays these strings out at 426 columns. Their
-    // right-aligned anchor therefore lands 26 columns past the screen's right edge, clipping the note to "已保" (the
-    // tail is off screen) and leaving the popup's 1px outline column at the left edge (the "ghost" beside the text).
+    // The "Game saved" note and the "X acquired" popups are laid out for the game's own picture (320 plus the game's
+    // widescreen_space, 106 - so 426 columns wide) and right-aligned against its right edge. Wide shows that picture
+    // 1:1 on the 400-wide screen, which cuts 26 columns off the right, so their anchor lands past the screen and the
+    // note is clipped to "已保".
     //
     // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
-    // matching on the string content moves every pass together. The shift only applies in Wide - the other modes draw
+    // matching on the string content moves every pass together. The shifts only apply in Wide - the other modes draw
     // the game's plain 320x240 picture whose own layout already fits.
-    // TEMPORARY probe: any left-aligned string anchored near the screen's left edge in Wide, whatever it says. The
-    // scan prompt could not be caught by matching on its text (the language file spells it several ways and it is
-    // drawn by a path the name match never saw), so this catches it by geometry instead: a left-aligned draw whose
-    // anchor sits inside the first few columns is either flush or hanging off, and its x says which.
-    if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL && base->drawHalign == 0 && x < 14.0f &&
-        renderer->leftEdgeLogCount < 24u) {
-        bool nonAscii = false;
-        for (const char* c = text; *c != '\0'; c++) {
-            if ((unsigned char) *c >= 0x80u) { nonAscii = true; break; }
-        }
-        if (nonAscii) {
-            renderer->leftEdgeLogCount++;
-            logInfo("Left edge: x %.1f y %.1f font %d scale %.2fx%.2f len %u \"%s\"\n",
-                (double) x, (double) y, base->drawFont, (double) xscale, (double) yscale,
-                (unsigned) strlen(text), text);
-        }
-    }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
         static const char* const kRightEdgePopups[] = {
             // Chinese.
@@ -5180,79 +5155,37 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         for (size_t i = 0; i < sizeof(kRightEdgePopups) / sizeof(kRightEdgePopups[0]); i++) {
             if (strcmp(text, kRightEdgePopups[i]) == 0) { isRightEdgePopup = true; break; }
         }
-        // The 426-wide layout puts the right edge 26 columns past the 400-wide screen. Move the anchor back in so the
-        // note is fully visible again; the same 26 restores the popup outline to the face, removing the ghost.
+        // The 426-wide layout puts the right edge 26 columns past the 400-wide screen. Moving the anchor back by 26
+        // puts the right edge back to 57 columns from the screen's edge, which is exactly where it sits on the game's
+        // own 426-wide picture, so the note reads as it does there.
         if (isRightEdgePopup) {
-            // Diagnostic for the first hits, so one hardware run pins the real anchor and alignment instead of a
-            // derived value. Remove once the position is settled (mirrors the 256e7d1 probe).
-            static int32_t popupLogs;
-            if (popupLogs < 12) {
-                popupLogs++;
-                logInfo("Popup shift: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f, text \"%s\"\n",
-                    (double) x, (double) y, base->drawHalign, base->drawValign, base->drawFont,
-                    (double) xscale, (double) yscale, text);
-            }
             x -= 26.0f;
         }
-        // The scan prompts ("扫描周围环境中" etc., oScanning) mirror the popups: left-aligned at the picture's left
-        // edge, and the game shifts them left by the same 53 in wide - which the 400-wide picture only covers with 40.
-        // The missing 13 come back as the prompt's first glyph ("扫") hanging half past the screen's left edge, so the
-        // anchor moves right by the same 26 the popups move left.
+        // The scan prompts ("扫描周围环境中" / "扫描生物中" / ... from oScanning) are left-aligned at the picture's left
+        // edge. On the game's own 426-wide picture that anchor is 11, and the first glyph's ink starts about 10 columns
+        // to its left, so the ink lands within a column of the screen's edge - flush, not clipped. The same layout on
+        // the 400-wide screen would put that ink at -1 (one column of "扫" off the edge), so the anchor moves right by
+        // just enough to keep a two-column margin, which reads as flush-to-edge without the glyph touching the border.
         else {
-            static const char* const kLeftEdgePrompts[] = {
-                // Chinese.
-                "\xe6\x89\xab\xe6\x8f\x8f\xe5\x91\xa8\xe5\x9b\xb4\xe7\x8e\xaf\xe5\xa2\x83\xe4\xb8\xad", // 扫描周围环境中
-                "\xe6\x89\xab\xe6\x8f\x8f\xe7\x94\x9f\xe7\x89\xa9\xe4\xb8\xad",                         // 扫描生物中
-                "\xe6\x89\xab\xe6\x8f\x8f\xe6\x9c\xba\xe6\xa2\xb0\xe4\xb8\xad",                         // 扫描机械中
-                "\xe6\x89\xab\xe6\x8f\x8f\xe8\x83\xbd\xe9\x87\x8f\xe6\xba\x90\xe4\xb8\xad",             // 扫描能量源中
-                // English.
-                "Scanning Environment",
-                "Scanning Bioform",
-                "Scanning Mechanism",
-                "Energy Pattern Scan",
-            };
+            // The language file spells the same prompt several ways ("扫描周围环境中" / "扫描环境中") and a friend text can
+            // arrive with a suffix, so the leading 扫描 decides it. English has no such marker and matches by name.
             bool isLeftEdgePrompt = false;
-            for (size_t i = 0; i < sizeof(kLeftEdgePrompts) / sizeof(kLeftEdgePrompts[0]); i++) {
-                if (strcmp(text, kLeftEdgePrompts[i]) == 0) { isLeftEdgePrompt = true; break; }
-            }
-            // The exact strings are a moving target: the language file spells the same prompt several ways
-            // ("扫描周围环境中" / "扫描环境中") and a friend text can arrive with a suffix, so the leading 扫描 decides it.
-            // English has no such marker, so it still matches by name.
-            if (text != NULL && strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0) isLeftEdgePrompt = true;
-            if (isLeftEdgePrompt) {
-                static int32_t scanLogs;
-                if (scanLogs < 24) {
-                    scanLogs++;
-                    size_t textLen = text != NULL ? strlen(text) : 0;
-                    logInfo("Scan text: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f len %u \"%s\"\n",
-                        (double) x, (double) y, base->drawHalign, base->drawValign, base->drawFont,
-                        (double) xscale, (double) yscale, (unsigned) textLen, text != NULL ? text : "");
+            if (text != NULL && strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0) {
+                isLeftEdgePrompt = true;
+            } else {
+                static const char* const kLeftEdgePrompts[] = {
+                    "Scanning Environment",
+                    "Scanning Bioform",
+                    "Scanning Mechanism",
+                    "Energy Pattern Scan",
+                };
+                for (size_t i = 0; i < sizeof(kLeftEdgePrompts) / sizeof(kLeftEdgePrompts[0]); i++) {
+                    if (strcmp(text, kLeftEdgePrompts[i]) == 0) { isLeftEdgePrompt = true; break; }
                 }
-                x += 26.0f;
             }
-        }
-        // Ghost detector: draw_cool_text draws one coloured face and eight one-pixel black outline passes at x/y +- 1,
-        // so the face and every outline pass land on distinct pixels. The same string twice at the same (x, y) in one
-        // frame therefore means a second, independent draw of the whole string - the "text drawn twice, slightly apart"
-        // ghosting seen on the save-select screen in Wide. This logs the first such pairs so the second drawer can be
-        // named; it is diagnostic only and removed once the ghost is traced.
-        {
-            static const char* prevText = NULL;
-            static float prevX = 0.0f, prevY = 0.0f;
-            static int32_t prevFrame = -1;
-            static int32_t ghostLogs = 0;
-            int32_t frame = base->runner != NULL ? base->runner->frameCount : -1;
-            if (prevText != NULL && frame == prevFrame && strcmp(text, prevText) == 0 &&
-                x == prevX && y == prevY && ghostLogs < 20) {
-                ghostLogs++;
-                logInfo("Ghost text: \"%s\" twice at (%.1f,%.1f) font %d halign %d valign %d gradient %d color %08x\n",
-                    text, (double) x, (double) y, base->drawFont, base->drawHalign, base->drawValign,
-                    (int) gradient, (uint32_t) base->drawColor);
+            if (isLeftEdgePrompt) {
+                x += N3DS_WIDE_SCAN_PROMPT_INSET;
             }
-            prevText = text;
-            prevX = x;
-            prevY = y;
-            prevFrame = frame;
         }
     }
     // The save screen's play time sits one pixel into the box under it. It is drawn with font 2 (fontGUIDefault), not
@@ -5263,11 +5196,12 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // opens, so their y sweeps through the top of the screen before settling, and keying on a small y only ever caught
     // the animation. The map bar's play time is drawn with a different font, so it is not caught here.
     if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        // Capped: the outline draws this nine times a frame, so an uncapped line per distinct y turned into thousands
-        // of lines that buried the other diagnostics.
-        static int32_t saveTimeLogs;
-        if (saveTimeLogs < 8) {
-            saveTimeLogs++;
+        // The nine outline passes differ only by a pixel, so logging one per distinct y keeps this to a handful of
+        // lines instead of one per pass per frame.
+        static int32_t loggedY = -1000;
+        int32_t rounded = (int32_t) (y + 0.5f);
+        if (rounded != loggedY) {
+            loggedY = rounded;
             logInfo("Save time: \"%s\" font 2 at (%.0f,%.0f) -> lifted 3\n", text, (double) x, (double) y);
         }
         y -= 3.0f;
