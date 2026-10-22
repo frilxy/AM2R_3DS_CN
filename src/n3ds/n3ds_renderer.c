@@ -4248,17 +4248,15 @@ static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32
         subtex.width = (uint16_t) lroundf((u1 - u0) * texW);
         subtex.height = (uint16_t) lroundf((v1 - v0) * texH);
         if (subtex.width == 0 || subtex.height == 0) return;
-        // TEMPORARY: the glyph rectangle as the GPU will see it. A sub-texture width that does not match srcW makes
-        // drawImage divide by it and land under 1.0, which switches the atlas to linear filtering and smears the
-        // bitmap glyph - the bottom screen's doubled-looking text. First few glyphs only.
+        // TEMPORARY: the glyph rectangle as the GPU will see it, on the bottom screen only (the startup screens use
+        // the same atlas and filled the first ten slots). A sub-texture width that does not match srcW makes drawImage
+        // divide by it and land under 1.0, which switches the atlas to linear filtering and smears the bitmap glyph.
         if (renderer->sharedFontAtlas.used && tpagIndex == renderer->sharedFontAtlas.tpagIndex &&
-            renderer->fontSubtexLogCount < 10u) {
+            renderer->activeSceneTarget == N3DS_SCENE_TARGET_BOTTOM && renderer->fontSubtexLogCount < 16u) {
             renderer->fontSubtexLogCount++;
-            logInfo("N3DS: font subtex src %d,%d %dx%d -> subtex %ux%u at %g,%g in %g,%g scale %g,%g; "
-                    "viewScale %g,%g texFilter %d\n",
+            logInfo("N3DS: font subtex src %d,%d %dx%d -> subtex %ux%u at %g,%g scale %g,%g texFilter %d\n",
                 (int) srcOffX, (int) srcOffY, (int) srcW, (int) srcH, (unsigned) subtex.width, (unsigned) subtex.height,
-                (double) x, (double) y, (double) xscale, (double) yscale,
-                (double) renderer->viewScaleX, (double) renderer->viewScaleY, (int) renderer->base.texFilter);
+                (double) x, (double) y, (double) xscale, (double) yscale, (int) renderer->base.texFilter);
         }
 
         C2D_Image image = {
@@ -5199,13 +5197,18 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             for (size_t i = 0; i < sizeof(kLeftEdgePrompts) / sizeof(kLeftEdgePrompts[0]); i++) {
                 if (strcmp(text, kLeftEdgePrompts[i]) == 0) { isLeftEdgePrompt = true; break; }
             }
+            // The exact strings are a moving target: the language file spells the same prompt several ways
+            // ("扫描周围环境中" / "扫描环境中") and a friend text can arrive with a suffix, so the leading 扫描 decides it.
+            // English has no such marker, so it still matches by name.
+            if (text != NULL && strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0) isLeftEdgePrompt = true;
             if (isLeftEdgePrompt) {
                 static int32_t scanLogs;
-                if (scanLogs < 12) {
+                if (scanLogs < 24) {
                     scanLogs++;
-                    logInfo("Scan shift: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f, text \"%s\"\n",
+                    size_t textLen = text != NULL ? strlen(text) : 0;
+                    logInfo("Scan text: x %.1f y %.1f halign %d valign %d font %d scale %.2fx%.2f len %u \"%s\"\n",
                         (double) x, (double) y, base->drawHalign, base->drawValign, base->drawFont,
-                        (double) xscale, (double) yscale, text);
+                        (double) xscale, (double) yscale, (unsigned) textLen, text != NULL ? text : "");
                 }
                 x += 26.0f;
             }
