@@ -47,6 +47,11 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_TOP_HEIGHT 240
 #define N3DS_BOTTOM_WIDTH 320
 #define N3DS_BOTTOM_HEIGHT 240
+// The scan prompts sit flush to the picture's left edge on the game's own 426-wide picture, where the first glyph's
+// ink starts about ten columns left of its anchor. On the port's 400-wide picture that same anchor would leave the
+// ink one column off screen, so the anchor is moved right by this much: enough to keep a two-column margin, small
+// enough to still read as flush-to-edge.
+#define N3DS_WIDE_SCAN_PROMPT_INSET 2.0f
 #define N3DS_SDMC_ASSET_BASE N3DS_SD_DIR "gfx"
 #define N3DS_ROMFS_ASSET_BASE "romfs:/gfx"
 #define N3DS_RENDERER_FILE_BUFFER_SIZE (32u * 1024u)
@@ -5123,6 +5128,66 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    // The "Game saved" note and the "X acquired" popups are laid out for the game's own picture (320 plus the game's
+    // widescreen_space, 106 - so 426 columns wide) and right-aligned against its right edge. Wide shows that picture
+    // 1:1 on the 400-wide screen, which cuts 26 columns off the right, so their anchor lands past the screen and the
+    // note is clipped to "已保".
+    //
+    // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
+    // matching on the string content moves every pass together. The shifts only apply in Wide - the other modes draw
+    // the game's plain 320x240 picture whose own layout already fits.
+    if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
+        static const char* const kRightEdgePopups[] = {
+            // Chinese.
+            "\xe5\xb7\xb2\xe4\xbf\x9d\xe5\xad\x98",             // 已保存
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe8\x83\xbd\xe9\x87\x8f\xe5\x8c\x85",         // 获得了能量包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe5\xaf\xbc\xe5\xbc\xb9\xe5\x8c\x85",         // 获得了导弹包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe8\xb6\x85\xe7\xba\xa7\xe5\xaf\xbc\xe5\xbc\xb9\xe5\x8c\x85", // 获得了超级导弹包
+            "\xe8\x8e\xb7\xe5\xbe\x97\xe4\xba\x86\xe9\x87\x8d\xe7\xa3\x85\xe7\x82\xb8\xe5\xbc\xb9\xe5\x8c\x85", // 获得了重磅炸弹包
+            // English.
+            "Game Saved",
+            "Energy Tank Acquired",
+            "Missile Tank Acquired",
+            "Super Missile Tank Acquired",
+            "Power Bomb Tank Acquired",
+        };
+        bool isRightEdgePopup = false;
+        for (size_t i = 0; i < sizeof(kRightEdgePopups) / sizeof(kRightEdgePopups[0]); i++) {
+            if (strcmp(text, kRightEdgePopups[i]) == 0) { isRightEdgePopup = true; break; }
+        }
+        // The 426-wide layout puts the right edge 26 columns past the 400-wide screen. Moving the anchor back by 26
+        // puts the right edge back to 57 columns from the screen's edge, which is exactly where it sits on the game's
+        // own 426-wide picture, so the note reads as it does there.
+        if (isRightEdgePopup) {
+            x -= 26.0f;
+        }
+        // The scan prompts ("扫描周围环境中" / "扫描生物中" / ... from oScanning) are left-aligned at the picture's left
+        // edge. On the game's own 426-wide picture that anchor is 11, and the first glyph's ink starts about 10 columns
+        // to its left, so the ink lands within a column of the screen's edge - flush, not clipped. The same layout on
+        // the 400-wide screen would put that ink at -1 (one column of "扫" off the edge), so the anchor moves right by
+        // just enough to keep a two-column margin, which reads as flush-to-edge without the glyph touching the border.
+        else {
+            // The language file spells the same prompt several ways ("扫描周围环境中" / "扫描环境中") and a friend text can
+            // arrive with a suffix, so the leading 扫描 decides it. English has no such marker and matches by name.
+            bool isLeftEdgePrompt = false;
+            if (text != NULL && strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0) {
+                isLeftEdgePrompt = true;
+            } else {
+                static const char* const kLeftEdgePrompts[] = {
+                    "Scanning Environment",
+                    "Scanning Bioform",
+                    "Scanning Mechanism",
+                    "Energy Pattern Scan",
+                };
+                for (size_t i = 0; i < sizeof(kLeftEdgePrompts) / sizeof(kLeftEdgePrompts[0]); i++) {
+                    if (strcmp(text, kLeftEdgePrompts[i]) == 0) { isLeftEdgePrompt = true; break; }
+                }
+            }
+            if (isLeftEdgePrompt) {
+                x += N3DS_WIDE_SCAN_PROMPT_INSET;
+            }
+        }
+    }
     // The save screen's play time sits one pixel into the box under it. It is drawn with font 2 (fontGUIDefault), not
     // fontGUI2 - which is why the font-level vertical tweak never moved it while the Metroid count beside it did - and
     // it is drawn nine times in a 3x3 black outline, so the whole outline has to move together.
@@ -5131,6 +5196,8 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // opens, so their y sweeps through the top of the screen before settling, and keying on a small y only ever caught
     // the animation. The map bar's play time is drawn with a different font, so it is not caught here.
     if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
+        // The nine outline passes differ only by a pixel, so logging one per distinct y keeps this to a handful of
+        // lines instead of one per pass per frame.
         static int32_t loggedY = -1000;
         int32_t rounded = (int32_t) (y + 0.5f);
         if (rounded != loggedY) {
