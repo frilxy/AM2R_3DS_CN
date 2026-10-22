@@ -5208,17 +5208,30 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     }
     // Two nudges on the items page, both found by logging what it actually draws:
     //
-    //  - the four box headings (装备/光束 on the left, 其他/靴子 on the right) sit one pixel low in their strips. Font 7,
-    //    drawn twice for a one-pixel outline, so both passes move together.
+    //  - the four box headings (护甲/光束 on the left, 综合能力/护靴 on the right) sit two pixels low in their strips,
+    //    which pushes their text onto the strip's bottom edge. Font 7, drawn twice for a one-pixel outline, so both
+    //    passes move together.
     //  - the description bar sits two pixels into the strip under it. Font 6 at y 197.
+    //
+    // The headings are matched by their text because they are the only strings in that font that sit on a box top. The
+    // strings come from the language file's [ItemsMenu] section, so they follow a translation: 装备/其他/靴子 were the
+    // older wording and no longer match anything, which is why only 光束 moved.
     //
     // The description cannot be matched by content - it changes with the highlighted item - so it is matched by font and
     // by the band it occupies. That band has to stay clear of the three button hints, which are also font 6 but at y 212
     // and 226, and which do not move.
     {
         static const char* const kHeadings[] = {
-            "\xe8\xa3\x85\xe5\xa4\x87", "\xe5\x85\xb6\xe4\xbb\x96",
-            "\xe5\x85\x89\xe6\x9d\x9f", "\xe9\x9d\xb4\xe5\xad\x90" };
+            "\xe6\x8a\xa4\xe7\x94\xb2",                                     // 护甲   (Suits)
+            "\xe7\xbb\xbc\xe5\x90\x88\xe8\x83\xbd\xe5\x8a\x9b",             // 综合能力 (Misc)
+            "\xe5\x85\x89\xe6\x9d\x9f",                                     // 光束   (Beams)
+            "\xe6\x8a\xa4\xe9\x9d\xb4",                                     // 护靴   (Boots)
+            // The English language file's wording, so the nudge does not depend on the language.
+            "Suits",
+            "Misc",
+            "Beams",
+            "Boots",
+        };
         bool isHeading = false;
         for (size_t h = 0; h < sizeof(kHeadings) / sizeof(kHeadings[0]); h++) {
             if (text != NULL && strcmp(text, kHeadings[h]) == 0) { isHeading = true; break; }
