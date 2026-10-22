@@ -4033,7 +4033,7 @@ static void dispatchCollisionEvents(Runner* runner) {
                         int32_t fullCount = fullEnd - fullBase;
                         memmove(runner->instanceSnapshots + snapBase, runner->instanceSnapshots + fullBase,
                             (size_t) fullCount * sizeof(Instance*));
-                        arrsetlen(runner->instanceSnapshots, fullBase);
+                        arrsetlen(runner->instanceSnapshots, snapBase + fullCount);
                         snapEnd = snapBase + fullCount;
                         snapIdx = fullHitIndex - fullBase + snapBase;
                         spatialSnapshot = false;
