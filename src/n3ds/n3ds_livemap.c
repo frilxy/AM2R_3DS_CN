@@ -97,6 +97,8 @@ typedef struct {
     int32_t lastZoom;
     // The cells' fingerprint the cached layer was built from, so newly explored cells invalidate it.
     uint32_t lastCellsHash;
+    // The pan the cached layer was drawn at, so a drag invalidates it.
+    float lastPanX, lastPanY;
     // True while the cached static layer matches the current camera.
     bool cacheReady;
     // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
@@ -727,11 +729,13 @@ void N3DSLiveMap_draw(void) {
     // it is explored.
     uint32_t cellsHash = N3DSLiveMap_cellsFingerprint(px, py);
     bool cameraMoved = px != gLive.lastPx || py != gLive.lastPy || gLive.lastZoom != gLive.zoom ||
-        cellsHash != gLive.lastCellsHash;
+        cellsHash != gLive.lastCellsHash || gLive.panX != gLive.lastPanX || gLive.panY != gLive.lastPanY;
     gLive.lastPx = px;
     gLive.lastPy = py;
     gLive.lastZoom = gLive.zoom;
     gLive.lastCellsHash = cellsHash;
+    gLive.lastPanX = gLive.panX;
+    gLive.lastPanY = gLive.panY;
     if (cameraMoved) gLive.cacheReady = false;
     if (!gLive.cacheReady) {
         // Drawn into the cache with its own 1:1 mapping, then blitted back on the frames that follow.
