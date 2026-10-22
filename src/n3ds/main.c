@@ -1060,6 +1060,35 @@ int main(int argc, char** argv) {
                 (double) statsFrames / seconds, statsStepMs / statsFrames, statsDrawMs / statsFrames, statsWaitMs / statsFrames, (unsigned) statsFrames, statsMaxFrameMs,
                 runner->currentRoom != NULL ? runner->currentRoom->name : "-",
                 (unsigned long) (mi.uordblks / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects);
+            // TEMPORARY diagnostic: how many instances each object has right now, most first. A room whose step time
+            // climbs while the player stands still is either leaking instances or running a few very costly ones, and
+            // the per-object count says which object to look at instead of guessing from the total.
+            {
+                uint32_t objectCount = runner->dataWin != NULL ? runner->dataWin->objt.count : 0u;
+                uint32_t* counts = objectCount > 0 ? safeCalloc(objectCount, sizeof(uint32_t)) : NULL;
+                if (counts != NULL) {
+                    int32_t live = 0;
+                    for (ptrdiff_t i = 0; i < arrlen(runner->instances); i++) {
+                        Instance* inst = runner->instances[i];
+                        if (inst == NULL || inst->destroyed) continue;
+                        if (inst->objectIndex >= 0 && (uint32_t) inst->objectIndex < objectCount) counts[inst->objectIndex]++;
+                        live++;
+                    }
+                    logInfo("Instances: %d live;", live);
+                    for (int32_t rank = 0; rank < 8; rank++) {
+                        uint32_t best = 0, bestCount = 0;
+                        for (uint32_t o = 0; o < objectCount; o++) {
+                            if (counts[o] > bestCount) { bestCount = counts[o]; best = o; }
+                        }
+                        if (bestCount == 0) break;
+                        const char* objectName = runner->dataWin->objt.objects[best].name;
+                        logInfo(" %s x%u", objectName != NULL ? objectName : "?", bestCount);
+                        counts[best] = 0;
+                    }
+                    logInfo("\n");
+                    free(counts);
+                }
+            }
             statsStartMs = nowMs;
             statsFrames = 0;
             statsStepMs = 0.0;
