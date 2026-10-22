@@ -710,25 +710,24 @@ bool N3DSAm2r_hudEnabled(void) {
 // behave exactly as the game wrote them; above it the cost has a ceiling, which is the only thing the loop needs
 // broken. `runner->instances` is in creation order - it is appended to, and compaction is a stable in-place filter -
 // so walking it forward finds the oldest first.
-#define N3DS_WATER_DROP_CAP 48   // far above the seven or eight a splash makes: a backstop, not a rule
-#define N3DS_FX_SPARK_CAP 48
-// Pixels per frame a drop with no motion of its own is given, so it reaches the water and the game retires it. A slow
-// cave drip reads at about a pixel a frame, and the drop then takes a couple of seconds to reach the surface - long
-// enough to be seen falling rather than blinking out.
-#define N3DS_WATER_DROP_FALL_SPEED 1.0f
+// Each drop costs about 0.23 ms of step time on hardware (measured: 7 drops gave 4.6 ms, 512 gave 121 ms), which is far
+// more than one sprite should - the frame's GPU flushes climb with the count, so the cost is in the drawing, not in the
+// drops' own logic. Whatever the reason, the count has to stay small: eight is about 1.8 ms, which the frame affords;
+// forty-eight is about 11 ms, which it does not.
+#define N3DS_WATER_DROP_CAP 8
+#define N3DS_FX_SPARK_CAP 24
 
 static void N3DSAm2r_capWaterEffects(void) {
     if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
-    // The water's surface: what a drop lands on. oWaterDrop's Alarm 2 destroys it at y >= waterlevel - 8, but that
-    // alarm does not run for these instances on the port - drops were measured reaching y 888 with waterlevel at 896,
-    // i.e. already past that threshold, and surviving to pile up. The same rule is therefore applied here, where it
-    // cannot be skipped. A room with no water leaves the global at 0, and then there is nothing to land on.
+    // The water's surface, reported by the diagnostic below only. The game retires a drop at y >= waterlevel - 8, but
+    // that rule lives in oWaterDrop's Alarm 2, which does not run for these instances on the port: drops were measured
+    // reaching y 888 with waterlevel at 896 - past that threshold - and surviving to pile up. Nothing here acts on it;
+    // the count cap below is what keeps the cost bounded.
     double waterlevel = 0.0;
     if (!N3DSGml_getGlobal("waterlevel", -1, &waterlevel)) waterlevel = 0.0;
-    float landY = (float) waterlevel - 8.0f;
-    int32_t drops = 0, sparks = 0, landed = 0;
+    int32_t drops = 0, sparks = 0;
     float dropMinY = 0.0f, dropMaxY = 0.0f;
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
@@ -737,31 +736,21 @@ static void N3DSAm2r_capWaterEffects(void) {
         if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) {
             if (drops == 0 || inst->y < dropMinY) dropMinY = inst->y;
             if (drops == 0 || inst->y > dropMaxY) dropMaxY = inst->y;
-            // A drop the game gave motion to is left exactly as it is; one with none gets a gentle fall, because it is
-            // meant to travel down to the water and that is the only way it goes away.
-            if (inst->vspeed == 0.0f && inst->gravity == 0.0f) inst->vspeed = N3DS_WATER_DROP_FALL_SPEED;
-            // Landed - the game's own rule, applied here because its alarm never fires.
-            if (waterlevel > 0.0 && inst->y >= landY) {
-                N3DSGml_destroy(inst);
-                landed++;
-                continue;
-            }
             drops++;
         } else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) {
             sparks++;
         }
     }
-    // TEMPORARY diagnostic: the count, the band the drops occupy and how many landed this frame, so one run shows them
-    // reaching the water and being retired there rather than piling up.
+    // TEMPORARY diagnostic: the count and the band the drops occupy, so one run shows whether they move at all.
     {
         static int32_t probes;
         static int32_t nextProbe;
         int32_t frame = (int32_t) runner->frameCount;
-        if ((drops > 0 || landed > 0) && frame >= nextProbe && probes < 12) {
+        if (drops > 0 && frame >= nextProbe && probes < 12) {
             probes++;
             nextProbe = frame + 300;
-            logInfo("Effects: drops %d y %.0f..%.0f, landed %d, waterlevel %.0f\n", drops, (double) dropMinY,
-                (double) dropMaxY, landed, waterlevel);
+            logInfo("Effects: drops %d y %.0f..%.0f, waterlevel %.0f\n", drops, (double) dropMinY,
+                (double) dropMaxY, waterlevel);
         }
     }
     int32_t excessDrops = drops - N3DS_WATER_DROP_CAP;
