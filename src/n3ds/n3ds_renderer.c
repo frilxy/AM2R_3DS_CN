@@ -458,6 +458,7 @@ typedef struct {
     uint32_t frameSpritePartDrawCalls;
     uint32_t fontPartLogCount; // diagnostic: how many font draws have been logged
     uint32_t fontSubtexLogCount; // diagnostic: how many font sub-texture sizes have been logged
+    uint32_t leftEdgeLogCount; // diagnostic: how many left-edge text anchors have been logged
     uint32_t textCallLogCount; // diagnostic: how many draw_text calls have been logged
     uint32_t textPathLogCount; // diagnostic: how many text path decisions have been logged
     uint32_t frameDirectSpriteHits;
@@ -5143,6 +5144,23 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
     // matching on the string content moves every pass together. The shift only applies in Wide - the other modes draw
     // the game's plain 320x240 picture whose own layout already fits.
+    // TEMPORARY probe: any left-aligned string anchored near the screen's left edge in Wide, whatever it says. The
+    // scan prompt could not be caught by matching on its text (the language file spells it several ways and it is
+    // drawn by a path the name match never saw), so this catches it by geometry instead: a left-aligned draw whose
+    // anchor sits inside the first few columns is either flush or hanging off, and its x says which.
+    if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL && base->drawHalign == 0 && x < 14.0f &&
+        renderer->leftEdgeLogCount < 24u) {
+        bool nonAscii = false;
+        for (const char* c = text; *c != '\0'; c++) {
+            if ((unsigned char) *c >= 0x80u) { nonAscii = true; break; }
+        }
+        if (nonAscii) {
+            renderer->leftEdgeLogCount++;
+            logInfo("Left edge: x %.1f y %.1f font %d scale %.2fx%.2f len %u \"%s\"\n",
+                (double) x, (double) y, base->drawFont, (double) xscale, (double) yscale,
+                (unsigned) strlen(text), text);
+        }
+    }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
         static const char* const kRightEdgePopups[] = {
             // Chinese.
