@@ -710,7 +710,7 @@ bool N3DSAm2r_hudEnabled(void) {
 // behave exactly as the game wrote them; above it the cost has a ceiling, which is the only thing the loop needs
 // broken. `runner->instances` is in creation order - it is appended to, and compaction is a stable in-place filter -
 // so walking it forward finds the oldest first.
-#define N3DS_WATER_DROP_CAP 24   // a splash is a handful; this leaves room for several at once
+#define N3DS_WATER_DROP_CAP 8   // a splash is a handful
 #define N3DS_FX_SPARK_CAP 24
 
 static void N3DSAm2r_capWaterEffects(void) {
@@ -718,23 +718,38 @@ static void N3DSAm2r_capWaterEffects(void) {
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
     int32_t drops = 0, sparks = 0;
+    float dropMinY = 0.0f, dropMaxY = 0.0f;
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
         Instance* inst = runner->instances[i];
         if (inst == NULL || inst->destroyed) continue;
-        if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) drops++;
-        else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) sparks++;
+        if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) {
+            if (drops == 0 || inst->y < dropMinY) dropMinY = inst->y;
+            if (drops == 0 || inst->y > dropMaxY) dropMaxY = inst->y;
+            drops++;
+        } else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) {
+            sparks++;
+        }
+    }
+    // TEMPORARY diagnostic: the game retires a drop when it reaches global.waterlevel (oWaterDrop's Alarm 2), so see
+    // what that global holds on hardware and where the drops actually are. If waterlevel is 0 the game's own landing
+    // test can never pass and the drops live forever - which is what the growing count looks like.
+    {
+        static int32_t probes;
+        static int32_t nextProbe;
+        int32_t frame = (int32_t) runner->frameCount;
+        if (drops > 0 && frame >= nextProbe && probes < 12) {
+            probes++;
+            nextProbe = frame + 300;
+            double waterlevel = -1.0;
+            bool hasWater = N3DSGml_getGlobal("waterlevel", -1, &waterlevel);
+            logInfo("Effects: drops %d y %.0f..%.0f, waterlevel %s%.0f\n", drops, (double) dropMinY, (double) dropMaxY,
+                hasWater ? "" : "(absent) ", waterlevel);
+        }
     }
     int32_t excessDrops = drops - N3DS_WATER_DROP_CAP;
     int32_t excessSparks = sparks - N3DS_FX_SPARK_CAP;
     if (excessDrops <= 0 && excessSparks <= 0) return;
-    // TEMPORARY: log the first few trims, so one run shows the cap working and at what count.
-    static int32_t trims;
-    if (trims < 6) {
-        trims++;
-        logInfo("Effects: trimming drops %d -> %d, sparks %d -> %d\n", drops, N3DS_WATER_DROP_CAP, sparks,
-            N3DS_FX_SPARK_CAP);
-    }
     // Oldest first, and only as many as are over the cap. arrlen is re-read every step because destroying an instance
     // runs its Destroy event, which may create or remove instances and reallocate the array.
     for (ptrdiff_t i = 0; i < arrlen(runner->instances) && (excessDrops > 0 || excessSparks > 0); i++) {
