@@ -83,13 +83,6 @@ typedef struct {
     int32_t script; // the game's own script, called by the hook
 } N3DSAm2rHook;
 
-// One entry of the water-effects ageing map (see N3DSAm2r_retireStaleEffects): the instance and the frame it was first
-// seen on. A stb_ds map is an array of these, keyed by value.
-typedef struct {
-    int32_t key;
-    int32_t value;
-} N3DSAm2rFxAge;
-
 typedef struct {
     Runner* runner;
     bool active;
@@ -101,9 +94,6 @@ typedef struct {
     // drops it further. Once that loop started it took the water areas from 59 fps down to 7. The port ages these
     // itself instead (see N3DSAm2r_retireStaleEffects), by frames rather than by how fast they fall.
     int32_t objWaterDrop, objFXAnimSpark;
-    // Which instances have been seen and when, for that ageing. Keyed by instanceId and kept across frames; a stb_ds
-    // map is an array of {key, value}, so the element is a struct rather than a bare counter.
-    N3DSAm2rFxAge* fxAges;
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
     int32_t objCharacter;
@@ -340,10 +330,6 @@ static RValue hookGetXJoyBtnSprite(MAYBE_UNUSED VMContext* ctx, RValue* args, in
 // room_change(room, transition): at boot the game shows rm_controller (a "use a gamepad" notice) before the title;
 // on the 3DS that's skipped, straight to the title screen (the notice's room only waits and goes there).
 static RValue hookRoomChange(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
-    // The effects tracked for retirement (see N3DSAm2r_retireStaleEffects) belong to the room being left: their
-    // instance ids are never seen again, so their rows would only grow the map.
-    hmfree(gAm2r.fxAges);
-    gAm2r.fxAges = NULL;
     if (argCount > 0 && gAm2r.roomController >= 0 && gAm2r.roomTitle >= 0 && RValue_toInt32(args[0]) == gAm2r.roomController) {
         RValue_free(&args[0]);
         args[0] = RValue_makeReal((GMLReal) gAm2r.roomTitle);
@@ -730,10 +716,9 @@ static void N3DSAm2r_retireStaleEffects(void) {
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
     int32_t frame = (int32_t) runner->frameCount;
-    // The map is emptied whenever the room changes (see hookRoomChange): the effects belong to a room, and the ids of a
-    // room that has been left are never seen again, so keeping their rows would grow the map for the life of the
-    // program. Within a room, a row is removed as soon as its effect is retired, so the map holds only the effects
-    // currently alive.
+    // The age lives on the instance itself, in a variable of the port's own naming. That way there is no side table to
+    // keep in step with the instance list, and nothing to clear when a room is left: an effect the game destroys takes
+    // its record with it.
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
         Instance* inst = runner->instances[i];
@@ -741,15 +726,14 @@ static void N3DSAm2r_retireStaleEffects(void) {
         bool isDrop = gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop;
         bool isSpark = gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark;
         if (!isDrop && !isSpark) continue;
-        int32_t key = (int32_t) inst->instanceId;
-        ptrdiff_t slot = hmgeti(gAm2r.fxAges, key);
-        if (slot < 0) {
-            hmput(gAm2r.fxAges, key, frame);
+        double born = 0.0;
+        if (!N3DSGml_getVar(inst, "n3ds_fx_born", &born)) {
+            // First frame this effect has been seen: stamp it and leave it alone.
+            N3DSGml_setVar(inst, "n3ds_fx_born", (double) frame);
             continue;
         }
         int32_t limit = isDrop ? N3DS_WATER_DROP_MAX_FRAMES : N3DS_FX_SPARK_MAX_FRAMES;
-        if (frame - gAm2r.fxAges[slot].value < limit) continue;
-        hmdel(gAm2r.fxAges, key);
+        if ((double) frame - born < (double) limit) continue;
         N3DSGml_destroy(inst);
     }
 }
@@ -766,7 +750,6 @@ static void N3DSAm2r_applyHud(void) {
 static void N3DSAm2r_loadAuthors(void);
 
 void N3DSAm2r_init(Runner* runner) {
-    hmfree(gAm2r.fxAges); // a re-init must not leak the previous effects map
     memset(&gAm2r, 0, sizeof(gAm2r));
     gAm2r.runner = runner;
     gAm2r.fontsEnabled = true; // cheats.ini's "fonts=0" turns the font swapping off (a diagnostic)
