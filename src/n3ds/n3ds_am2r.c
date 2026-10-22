@@ -721,7 +721,14 @@ static void N3DSAm2r_capWaterEffects(void) {
     if (gAm2r.objWaterDrop < 0 && gAm2r.objFXAnimSpark < 0) return;
     Runner* runner = gAm2r.runner;
     if (runner == NULL) return;
-    int32_t drops = 0, sparks = 0;
+    // The water's surface: what a drop lands on. oWaterDrop's Alarm 2 destroys it at y >= waterlevel - 8, but that
+    // alarm does not run for these instances on the port - drops were measured reaching y 888 with waterlevel at 896,
+    // i.e. already past that threshold, and surviving to pile up. The same rule is therefore applied here, where it
+    // cannot be skipped. A room with no water leaves the global at 0, and then there is nothing to land on.
+    double waterlevel = 0.0;
+    if (!N3DSGml_getGlobal("waterlevel", -1, &waterlevel)) waterlevel = 0.0;
+    float landY = (float) waterlevel - 8.0f;
+    int32_t drops = 0, sparks = 0, landed = 0;
     float dropMinY = 0.0f, dropMaxY = 0.0f;
     ptrdiff_t count = arrlen(runner->instances);
     for (ptrdiff_t i = 0; i < count; i++) {
@@ -730,29 +737,31 @@ static void N3DSAm2r_capWaterEffects(void) {
         if (gAm2r.objWaterDrop >= 0 && inst->objectIndex == gAm2r.objWaterDrop) {
             if (drops == 0 || inst->y < dropMinY) dropMinY = inst->y;
             if (drops == 0 || inst->y > dropMaxY) dropMaxY = inst->y;
-            // The drop is meant to fall: oWaterDrop has no Step event, it destroys itself in Alarm 2 once
-            // y >= global.waterlevel - 8, and that is the only way it ever goes away. On hardware the drops sat in a
-            // 32-pixel band and never reached the water, so that test never passed and they piled up instead. Give a
-            // drop that has no motion of its own a gentle fall, and the game's own rule finishes the job. A drop the
-            // game did give motion to is left exactly as it is.
+            // A drop the game gave motion to is left exactly as it is; one with none gets a gentle fall, because it is
+            // meant to travel down to the water and that is the only way it goes away.
             if (inst->vspeed == 0.0f && inst->gravity == 0.0f) inst->vspeed = N3DS_WATER_DROP_FALL_SPEED;
+            // Landed - the game's own rule, applied here because its alarm never fires.
+            if (waterlevel > 0.0 && inst->y >= landY) {
+                N3DSGml_destroy(inst);
+                landed++;
+                continue;
+            }
             drops++;
         } else if (gAm2r.objFXAnimSpark >= 0 && inst->objectIndex == gAm2r.objFXAnimSpark) {
             sparks++;
         }
     }
-    // TEMPORARY diagnostic: what the global holds and where the drops are, to confirm they now travel down to it.
+    // TEMPORARY diagnostic: the count, the band the drops occupy and how many landed this frame, so one run shows them
+    // reaching the water and being retired there rather than piling up.
     {
         static int32_t probes;
         static int32_t nextProbe;
         int32_t frame = (int32_t) runner->frameCount;
-        if (drops > 0 && frame >= nextProbe && probes < 12) {
+        if ((drops > 0 || landed > 0) && frame >= nextProbe && probes < 12) {
             probes++;
             nextProbe = frame + 300;
-            double waterlevel = -1.0;
-            bool hasWater = N3DSGml_getGlobal("waterlevel", -1, &waterlevel);
-            logInfo("Effects: drops %d y %.0f..%.0f, waterlevel %s%.0f\n", drops, (double) dropMinY, (double) dropMaxY,
-                hasWater ? "" : "(absent) ", waterlevel);
+            logInfo("Effects: drops %d y %.0f..%.0f, landed %d, waterlevel %.0f\n", drops, (double) dropMinY,
+                (double) dropMaxY, landed, waterlevel);
         }
     }
     int32_t excessDrops = drops - N3DS_WATER_DROP_CAP;
