@@ -3840,11 +3840,50 @@ static int sortInstancesByObjectIndexThenInstanceIdAscending(const void* element
     return 0;
 }
 
+// Snapshot only target instances whose indexed AABBs share a grid cell with self. This is used for water-drop collision
+// events, whose target classes are large static buckets. It is safe to defer the full native-order snapshot until the
+// first actual collision callback: all earlier checks are read-only, so target membership/order is unchanged. At that
+// boundary the caller can restore the complete snapshot and continue with native semantics for any callback side effect.
+static int32_t Runner_pushCollisionCandidatesInGrid(Runner* runner, Instance* self, int32_t targetObjIndex,
+    InstanceBBox bbox, uint32_t* outCandidateCount) {
+    if (runner == NULL || runner->spatialGrid == NULL || self == NULL || !bbox.valid || targetObjIndex < 0 ||
+        (uint32_t) targetObjIndex >= runner->dataWin->objt.count) return -1;
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+    SpatialGridQuery query = SpatialGrid_prepareQuery(runner, bbox.left, bbox.top, bbox.right, bbox.bottom, targetObjIndex);
+    int32_t base = (int32_t) arrlen(runner->instanceSnapshots);
+    SpatialGrid* grid = runner->spatialGrid;
+    for (int32_t gx = query.range.minGridX; query.range.maxGridX >= gx; gx++) {
+        for (int32_t gy = query.range.minGridY; query.range.maxGridY >= gy; gy++) {
+            Instance** cell = grid->grid[SpatialGrid_cellIndex(grid, gx, gy)];
+            repeat(arrlen(cell), ci) {
+                Instance* candidate = cell[ci];
+                if (candidate == NULL || candidate == self || !candidate->active) continue;
+                if (candidate->lastCollisionQueryId == query.queryId) continue;
+                candidate->lastCollisionQueryId = query.queryId;
+                if (query.filterByObject && !VM_isObjectOrDescendant(runner->dataWin, candidate->objectIndex, targetObjIndex)) continue;
+                arrput(runner->instanceSnapshots, candidate);
+            }
+        }
+    }
+    int32_t end = (int32_t) arrlen(runner->instanceSnapshots);
+    if (outCandidateCount != NULL) *outCandidateCount += (uint32_t) (end - base);
+    if (end - base > 1) qsort(runner->instanceSnapshots + base, (size_t) (end - base), sizeof(Instance*),
+        sortInstancesByObjectIndexThenInstanceIdAscending);
+    return base;
+}
+
 static void dispatchCollisionEvents(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     // Iterate only the objects that have any collision event in their parent chain.
     int32_t* selfObjects = (runner->objectsWithAnyEventOfType != nullptr) ? runner->objectsWithAnyEventOfType[EVENT_COLLISION] : nullptr;
     if (selfObjects == nullptr) return;
+    // Water drops target oCharacter, oSolid and oEnemy; oSolid has 109 descendant object types and oEnemy 45. Their
+    // full instance buckets are only needed if a collision handler actually runs. The grid builds the small nearby
+    // candidate set first; on the first real hit, the full ordered snapshot is captured before any handler side effect.
+    static uint64_t waterDropFullCandidates = 0;
+    static uint64_t waterDropGridCandidates = 0;
+    static uint64_t waterDropFullFallbacks = 0;
+    static int32_t lastWaterDropCollisionReportFrame = 0;
     int32_t selfObjCount = (int32_t) arrlen(selfObjects);
 
     repeat(selfObjCount, soIdx) {
@@ -3867,6 +3906,9 @@ static void dispatchCollisionEvents(Runner* runner) {
             bool selfDirty = true;
 
             FlattenedCollisionEventList* eventList = &runner->flattenedCollisionEvents[self->objectIndex];
+            bool isWaterDrop = self->objectIndex >= 0 && (uint32_t) self->objectIndex < dataWin->objt.count &&
+                dataWin->objt.objects[self->objectIndex].name != NULL &&
+                strcmp(dataWin->objt.objects[self->objectIndex].name, "oWaterDrop") == 0;
             repeat(eventList->eventCount, evtIdx) {
                 FlattenedCollisionEvent* evt = &eventList->events[evtIdx];
                 int32_t targetObjIndex = (int32_t) evt->targetObjectIndex;
@@ -3874,12 +3916,34 @@ static void dispatchCollisionEvents(Runner* runner) {
                 if (0 > evt->codeId)
                     continue;
 
-                // Iterate only the descendant-inclusive list for the target object via a snapshot, so nested user code (collision handlers calling instance_exists, with (...), etc.) can push/pop their own snapshots above ours without corrupting this iteration.
-                int32_t snapBase = Runner_pushInstancesOfObject(runner, targetObjIndex);
-                int32_t snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
-
-                // The YoYo Runner sorts it by the object index THEN by the instanceId
-                qsort(runner->instanceSnapshots + snapBase, snapEnd - snapBase, sizeof(Instance*), sortInstancesByObjectIndexThenInstanceIdAscending);
+                bool spatialSnapshot = false;
+                int32_t snapBase = -1;
+                int32_t snapEnd = -1;
+                if (isWaterDrop && targetObjIndex >= 0 && (uint32_t) targetObjIndex < dataWin->objt.count) {
+                    waterDropFullCandidates += (uint64_t) arrlen(runner->instancesByObject[targetObjIndex]);
+                    if (runner->spatialGrid != NULL) {
+                        if (selfDirty) {
+                            bboxSelf = Collision_computeBBox(runner, self);
+                            sprSelf = Collision_getSprite(dataWin, self);
+                            selfDirty = false;
+                        }
+                        if (!bboxSelf.valid) continue;
+                        uint32_t gridCount = 0;
+                        snapBase = Runner_pushCollisionCandidatesInGrid(runner, self, targetObjIndex, bboxSelf, &gridCount);
+                        if (snapBase >= 0) {
+                            spatialSnapshot = true;
+                            waterDropGridCandidates += gridCount;
+                        }
+                    }
+                }
+                if (snapBase < 0) {
+                    snapBase = Runner_pushInstancesOfObject(runner, targetObjIndex);
+                    snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+                    if (snapEnd - snapBase > 1) qsort(runner->instanceSnapshots + snapBase,
+                        (size_t) (snapEnd - snapBase), sizeof(Instance*), sortInstancesByObjectIndexThenInstanceIdAscending);
+                } else {
+                    snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+                }
 
                 for (int32_t snapIdx = snapBase; snapEnd > snapIdx; snapIdx++) {
                     Instance* other = runner->instanceSnapshots[snapIdx];
@@ -3942,6 +4006,38 @@ static void dispatchCollisionEvents(Runner* runner) {
                         if (traceThisPair) logInfo("  precise=%s (selfSepMasks=%d otherSepMasks=%d)\n", preciseHit ? "hit" : "miss", sprSelf ? (int32_t)sprSelf->sepMasks : -1, sprOther ? (int32_t)sprOther->sepMasks : -1);
 #endif
                         if (!preciseHit) continue;
+                    }
+
+                    // This is the first handler invocation for this water-drop target event. Before its side effects can
+                    // create/destroy/change any instances, replace the small grid candidate list with the complete
+                    // descendant snapshot in native order; continue after this exact pair. If no collision is found,
+                    // the full bucket is never copied or sorted.
+                    if (spatialSnapshot) {
+                        int32_t fullBase = Runner_pushInstancesOfObject(runner, targetObjIndex);
+                        int32_t fullEnd = (int32_t) arrlen(runner->instanceSnapshots);
+                        if (fullEnd - fullBase > 1) qsort(runner->instanceSnapshots + fullBase,
+                            (size_t) (fullEnd - fullBase), sizeof(Instance*), sortInstancesByObjectIndexThenInstanceIdAscending);
+                        int32_t fullHitIndex = -1;
+                        for (int32_t fullIdx = fullBase; fullEnd > fullIdx; fullIdx++) {
+                            if (runner->instanceSnapshots[fullIdx] == other) {
+                                fullHitIndex = fullIdx;
+                                break;
+                            }
+                        }
+                        if (fullHitIndex < 0) {
+                            // The grid candidate must also be in the event's descendant bucket. If not, preserve the
+                            // original event semantics: that pointer would not have been visited by the full scan.
+                            arrsetlen(runner->instanceSnapshots, fullBase);
+                            continue;
+                        }
+                        int32_t fullCount = fullEnd - fullBase;
+                        memmove(runner->instanceSnapshots + snapBase, runner->instanceSnapshots + fullBase,
+                            (size_t) fullCount * sizeof(Instance*));
+                        arrsetlen(runner->instanceSnapshots, fullBase);
+                        snapEnd = snapBase + fullCount;
+                        snapIdx = fullHitIndex - fullBase + snapBase;
+                        spatialSnapshot = false;
+                        waterDropFullFallbacks++;
                     }
 
                     // Collision detected! If either instance is solid, restore both to xprevious/yprevious.
@@ -4041,6 +4137,16 @@ static void dispatchCollisionEvents(Runner* runner) {
         }
 
         arrsetlen(runner->instanceSnapshots, selfSnapBase);
+    }
+    if (runner->frameCount - lastWaterDropCollisionReportFrame >= 300 && waterDropFullCandidates > 0) {
+        logInfo("Collision broadphase: oWaterDrop fullBucket=%llu gridCandidates=%llu fullFallbacks=%llu over 300 frames\n",
+            (unsigned long long) waterDropFullCandidates,
+            (unsigned long long) waterDropGridCandidates,
+            (unsigned long long) waterDropFullFallbacks);
+        waterDropFullCandidates = 0;
+        waterDropGridCandidates = 0;
+        waterDropFullFallbacks = 0;
+        lastWaterDropCollisionReportFrame = runner->frameCount;
     }
 }
 
