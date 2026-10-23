@@ -99,7 +99,7 @@ jobs:
           else
             # A re-run keeps its run number, so it updates the same release.
             tag="am2r-3ds-$LINE-b$GITHUB_RUN_NUMBER"
-            title="AM2R for 3DS Chinese build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
+            title="build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
             built="Built from $hash on \`$GITHUB_REF_NAME\`."
             create_args+=(--target "$GITHUB_SHA")
             create_args+=(--prerelease)
