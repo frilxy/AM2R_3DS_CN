@@ -5210,7 +5210,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // y swept during its slide-in animation (and kept logging every frame the y changed). The diagnostic has served its
     // purpose; do not log here.
     if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        y -= 6.0f;
+        y -= 1.0f;
     }
     // Two nudges on the items page, both found by logging what it actually draws:
     //
