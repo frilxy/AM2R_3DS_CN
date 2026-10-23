@@ -192,11 +192,17 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
     }
     // The credit rows are plain option rows, so they take the settings pages' font - the large one the menu is drawn
     // with. Draw them with the small font instead, restoring the game's afterwards.
+    //
+    // oPauseOption paints its label twice: once in black at (+1,-3) for an outline, once in its own colour at (0,-4).
+    // At the 12px menu size the outline reads as a subtle edge, but these rows are drawn at 10px, where a pixel of
+    // black under every glyph makes the small Chinese face look muddy, so the black pass is dropped here. That leaves
+    // the coloured pass alone, which is what a plain 10px render looks like.
     if (argCount == 3 && args[2].type == RVALUE_STRING && args[2].string != NULL && gAm2r.creditFont >= 0) {
         for (int32_t i = 0; i < 3; i++) {
             if (gAm2r.creditText[i][0] == '\0' || strcmp(args[2].string, gAm2r.creditText[i]) != 0) continue;
             Renderer* renderer = ctx->runner != NULL ? ctx->runner->renderer : NULL;
             if (renderer == NULL) break;
+            if (renderer->drawColor == 0x000000u) return RValue_makeUndefined(); // the outline pass: skip it
             int32_t font = renderer->drawFont;
             renderer->drawFont = gAm2r.creditFont;
             RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
