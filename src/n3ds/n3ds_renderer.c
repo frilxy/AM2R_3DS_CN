@@ -5268,6 +5268,14 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
         y += 2.0f;
     }
+    // The options page's one-line description sits on the black bar at the very bottom (oOptionsFG draws global.tiptext
+    // centred at (160, 228) with fontMenuSmall, white). The Chinese strike is 12px tall, so the line's lower half ran
+    // off the 240-tall picture; lift it two pixels. Matched by font (4) and that exact y, white, centred - the pause
+    // screen's "[Select] -> 日志" hint shares the font and nearly the y but is right-aligned, so it stays put.
+    if ((int32_t) base->drawFont == 4 && y >= 226.0f && y <= 230.0f &&
+        base->drawHalign == 1 && base->drawColor == 0x00FFFFFFu) {
+        y -= 2.0f;
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
