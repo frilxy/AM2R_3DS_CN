@@ -3406,6 +3406,15 @@ static int32_t mostSpecificCollisionTarget(Runner* runner, Instance* self, Insta
 }
 
 static void executeCollisionEvent(Runner* runner, Instance* self, Instance* other, int32_t targetObjectIndex, int32_t codeId, int32_t ownerObjectIndex) {
+    // A destroyed instance must not run another collision event this frame. oWaterDrop's collision handlers each call
+    // event_user(0); its Other_10 creates one new drop and destroys this one, so when several collisions fire in one
+    // frame the first handler destroys the drop and the remaining handlers must not dispatch Other_10 again - that used
+    // to compound the water room's drop count 7 -> 876. The guard belongs here, at the collision dispatch site, and NOT
+    // inside builtin_event_user: options pages (oOptionsMain/oOptionsDisplay/oOptionsSound/...) destroy their menu rows
+    // from their Destroy event via event_user(1), and blocking event_user on a destroyed instance stopped that cleanup
+    // from running, which left every previous page on screen (the overlapping settings pages bug).
+    if (self->destroyed)
+        return;
     if (isEventBlockedByPendingRoom(runner, self, EVENT_COLLISION))
         return;
 
