@@ -211,8 +211,20 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
             if (renderer == NULL) break;
             if (renderer->drawColor == 0x000000u) return RValue_makeUndefined(); // the outline pass: skip it
             int32_t font = renderer->drawFont;
+            int32_t halign = renderer->drawHalign;
+            // Centre through the renderer instead of a width measured out here. N3DSAm2r_textWidth sums the glyph
+            // advances and disagrees with what draw_text actually advances by a few pixels (kerning, the trailing
+            // space after the prefix), which left each of the three lines off-centre by a different amount. With
+            // halign 1 the renderer puts the line's own centre on x, so one x centres all three exactly.
+            //
+            // x is the room's centre, which is where the game draws its own centred text (oOptionsFG puts the
+            // description at 160): widescreen widens the view around that point rather than moving it, so 160 is the
+            // middle of the picture in every screen mode.
+            args[0] = RValue_makeReal((GMLReal) 160.0f);
             renderer->drawFont = gAm2r.creditFont;
+            renderer->drawHalign = 1;
             RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
+            renderer->drawHalign = halign;
             renderer->drawFont = font;
             return result;
         }
@@ -1433,13 +1445,10 @@ static void N3DSAm2r_updateCredits(void) {
         if (lines[i][0] == '\0') continue;
         char text[200];
         snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "    ", lines[i]);
-        float width = N3DSAm2r_textWidth(font, text);
-        // Centre on the picture the game actually draws into, not the 320 default: in widescreen that picture is 400
-        // wide, and the longest credit line ran off the left edge when it was centred on 320.
-        float pictureWidth = (float) N3DSAm2r_gameWidth();
-        if (pictureWidth < 320.0f) pictureWidth = 320.0f;
-        float x = (pictureWidth - width) * 0.5f;
-        if (x < 0.0f) x = 0.0f;
+        // The x here is only where the instance sits; the actual centring happens in hookDrawText, which draws these
+        // lines with halign 1 at the room's centre. A width measured here would be a few pixels off from the width
+        // draw_text actually advances, and each line came out centred on a slightly different point.
+        float x = 0.0f;
         float rowSep = gAm2r.creditFontReady ? N3DS_AM2R_CREDIT_ROW_SEP : 12.0f;
         Instance* line = N3DSGml_create(x, N3DS_AM2R_CREDIT_Y + rowSep * (float) i, gAm2r.objPauseOption);
         if (line == NULL) continue;
