@@ -5203,15 +5203,13 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // Matching on the font and the hh:mm:ss shape alone, with no y bound: the slot texts slide into place when the page
     // opens, so their y sweeps through the top of the screen before settling, and keying on a small y only ever caught
     // the animation. The map bar's play time is drawn with a different font, so it is not caught here.
+    //
+    // NOTE: this branch also runs on the file-select screen, where every saved slot draws its play time via
+    // draw_cool_text (nine outline passes). A logInfo here therefore fires dozens of times a frame while slots exist,
+    // and svcOutputDebugString blocks on real hardware - the file-select page's frame rate collapsed as the save time
+    // y swept during its slide-in animation (and kept logging every frame the y changed). The diagnostic has served its
+    // purpose; do not log here.
     if ((int32_t) base->drawFont == 2 && text != NULL && strlen(text) == 8 && text[2] == ':' && text[5] == ':') {
-        // The nine outline passes differ only by a pixel, so logging one per distinct y keeps this to a handful of
-        // lines instead of one per pass per frame.
-        static int32_t loggedY = -1000;
-        int32_t rounded = (int32_t) (y + 0.5f);
-        if (rounded != loggedY) {
-            loggedY = rounded;
-            logInfo("Save time: \"%s\" font 2 at (%.0f,%.0f) -> lifted 3\n", text, (double) x, (double) y);
-        }
         y -= 3.0f;
     }
     // Two nudges on the items page, both found by logging what it actually draws:
