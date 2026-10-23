@@ -1454,7 +1454,11 @@ static void N3DSAm2r_updateCredits(void) {
         if (line == NULL) continue;
         N3DSGml_setVarString(line, "label", text);
         // A row draws at half alpha when it is not enabled - the grey the settings pages use for rows that cannot act.
-        N3DSGml_setVar(line, "enabled", 0.0);
+        // That is what made the credits look soft: a 50% white 8px glyph over the star field blends every edge into
+        // the background. Keep the row enabled so it draws opaque, and give it the same grey through its colour
+        // instead, which keeps the pixel edges hard.
+        N3DSGml_setVar(line, "enabled", 1.0);
+        N3DSGml_setVar(line, "color", (double) 0x00909090);
         snprintf(gAm2r.creditText[i], sizeof(gAm2r.creditText[i]), "%s", text);
         gAm2r.creditLines[i] = (int32_t) line->instanceId;
     }
