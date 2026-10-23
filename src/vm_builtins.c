@@ -333,7 +333,6 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "fps", BUILTIN_VAR_FPS },
     { "fps_real", BUILTIN_VAR_FPS_REAL },
     { "friction", BUILTIN_VAR_FRICTION },
-    { "game_id", BUILTIN_VAR_GAME_ID },
     { "gp_axislh", BUILTIN_VAR_GP_AXIS_LH },
     { "gp_axislv", BUILTIN_VAR_GP_AXIS_LV },
     { "gp_axisrh", BUILTIN_VAR_GP_AXIS_RH },
@@ -1313,11 +1312,6 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
             return RValue_makeReal(runner->health);
         case BUILTIN_VAR_CURSOR_SPRITE:
             return RValue_makeInt32(runner->cursorSprite);
-
-        // Read-only game id baked into data.win's GEN8. AM2R's save crypt reads it for the rc4 key, so it has to
-        // match the real value, not the 0 the missing case used to return (which broke cross-platform saves).
-        case BUILTIN_VAR_GAME_ID:
-            return RValue_makeReal((GMLReal) (runner->dataWin != nullptr ? runner->dataWin->gen8.gameID : 0));
 
         default:
             break;
