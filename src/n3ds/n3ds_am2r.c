@@ -35,6 +35,12 @@
 #define N3DS_AM2R_PAGE_X 50.0f
 #define N3DS_AM2R_PAGE_Y 92.0f
 #define N3DS_AM2R_CREDIT_Y 190.0f
+// The credit rows want the 8px Fusion Pixel strike. Every font the game replaces lands at 10px or larger
+// (n3ds_font_replace.c pins those sizes) and fontMenuTiny - the slot they used to borrow - is pinned to 10px because
+// the items page needed it bigger. AM2R's own GML never assigns font0 (it only sets fontGUI and friends), so font0
+// is free to carry a face of its own.
+#define N3DS_AM2R_CREDIT_FONT 0
+#define N3DS_AM2R_CREDIT_ROW_SEP 10.0f
 #define N3DS_AM2R_ROW_SEP 16.0f
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
@@ -125,7 +131,8 @@ typedef struct {
     char author1[160];
     char author2[160];
     char creditText[3][200];  // exact strings of the three credit rows, so draw_text can spot them
-    int32_t creditFont;       // fontMenuTinyDefault: what the credit rows are drawn with
+    int32_t creditFont;       // what the credit rows are drawn with (N3DS_AM2R_CREDIT_FONT, or the menu font)
+    bool creditFontReady;     // the 8px face installed into font0
     int32_t pageRows[CHEAT_COUNT + 1 > DISPLAY_ROW_COUNT ? CHEAT_COUNT + 1 : DISPLAY_ROW_COUNT];
 } N3DSAm2r;
 
@@ -192,14 +199,32 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
     }
     // The credit rows are plain option rows, so they take the settings pages' font - the large one the menu is drawn
     // with. Draw them with the small font instead, restoring the game's afterwards.
+    //
+    // oPauseOption paints its label twice: once in black at (+1,-3) for an outline, once in its own colour at (0,-4).
+    // At the 12px menu size the outline reads as a subtle edge, but these rows are drawn at 10px, where a pixel of
+    // black under every glyph makes the small Chinese face look muddy, so the black pass is dropped here. That leaves
+    // the coloured pass alone, which is what a plain 10px render looks like.
     if (argCount == 3 && args[2].type == RVALUE_STRING && args[2].string != NULL && gAm2r.creditFont >= 0) {
         for (int32_t i = 0; i < 3; i++) {
             if (gAm2r.creditText[i][0] == '\0' || strcmp(args[2].string, gAm2r.creditText[i]) != 0) continue;
             Renderer* renderer = ctx->runner != NULL ? ctx->runner->renderer : NULL;
             if (renderer == NULL) break;
+            if (renderer->drawColor == 0x000000u) return RValue_makeUndefined(); // the outline pass: skip it
             int32_t font = renderer->drawFont;
+            int32_t halign = renderer->drawHalign;
+            // Centre through the renderer instead of a width measured out here. N3DSAm2r_textWidth sums the glyph
+            // advances and disagrees with what draw_text actually advances by a few pixels (kerning, the trailing
+            // space after the prefix), which left each of the three lines off-centre by a different amount. With
+            // halign 1 the renderer puts the line's own centre on x, so one x centres all three exactly.
+            //
+            // x is the room's centre, which is where the game draws its own centred text (oOptionsFG puts the
+            // description at 160): widescreen widens the view around that point rather than moving it, so 160 is the
+            // middle of the picture in every screen mode.
+            args[0] = RValue_makeReal((GMLReal) 160.0f);
             renderer->drawFont = gAm2r.creditFont;
+            renderer->drawHalign = 1;
             RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
+            renderer->drawHalign = halign;
             renderer->drawFont = font;
             return result;
         }
@@ -699,6 +724,18 @@ static void N3DSAm2r_applyHud(void) {
 
 static void N3DSAm2r_loadAuthors(void);
 
+// The credits are small text under the settings menu. They used to borrow fontMenuTiny, which the port pins to 10px
+// for the items page, so they came out at 10px; the 8px Fusion Pixel strike reads closer to the menu's own type and
+// keeps the longest line (four names) inside the picture. The glyph set is the same one every other font uses.
+static void N3DSAm2r_installCreditFont(Runner* runner) {
+    if (runner == NULL) return;
+    gAm2r.creditFontReady = N3DSFontReplace_apply(
+        runner, N3DS_AM2R_CREDIT_FONT, "lang/fonts/04b24.ttf", 8.0f, false, false);
+    if (!gAm2r.creditFontReady) {
+        logWarn("AM2R: no 8px credit face; the credit rows fall back to the menu font\n");
+    }
+}
+
 void N3DSAm2r_init(Runner* runner) {
     memset(&gAm2r, 0, sizeof(gAm2r));
     gAm2r.runner = runner;
@@ -783,6 +820,7 @@ void N3DSAm2r_init(Runner* runner) {
     // The 3DS front end's own pages are not in any language file, so their characters have to be offered to the font
     // loader before oControl builds the atlas, or they render as blanks.
     N3DSAm2r_registerPortGlyphs();
+    N3DSAm2r_installCreditFont(runner);
     N3DSAm2rNative_init(runner);
 }
 
@@ -1397,7 +1435,7 @@ static void N3DSAm2r_updateCredits(void) {
         return;
     }
     if (gAm2r.creditLines[0] >= 0) return; // already up
-    int32_t font = N3DSGml_fontIndex("fontMenuTinyDefault");
+    int32_t font = gAm2r.creditFontReady ? N3DS_AM2R_CREDIT_FONT : N3DSGml_fontIndex("fontMenuTinyDefault");
     if (font < 0) font = N3DSGml_fontIndex("fontSubScrDefault");
     gAm2r.creditFont = font;
     char portLine[96];
@@ -1406,9 +1444,15 @@ static void N3DSAm2r_updateCredits(void) {
     for (int32_t i = 0; i < 3; i++) {
         if (lines[i][0] == '\0') continue;
         char text[200];
-        snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "    ", lines[i]);
-        float x = (320.0f - N3DSAm2r_textWidth(font, text)) * 0.5f;
-        Instance* line = N3DSGml_create(x, N3DS_AM2R_CREDIT_Y + 12.0f * (float) i, gAm2r.objPauseOption);
+        // No leading spaces on the second and third lines: centring measures the whole line, spaces included, so the
+        // visible text of those two sat off the middle by half the width of the indent.
+        snprintf(text, sizeof(text), "%s%s", i == 0 ? N3DSAm2r_text("Translators: ", "译者：") : "", lines[i]);
+        // The x here is only where the instance sits; the actual centring happens in hookDrawText, which draws these
+        // lines with halign 1 at the room's centre. A width measured here would be a few pixels off from the width
+        // draw_text actually advances, and each line came out centred on a slightly different point.
+        float x = 0.0f;
+        float rowSep = gAm2r.creditFontReady ? N3DS_AM2R_CREDIT_ROW_SEP : 12.0f;
+        Instance* line = N3DSGml_create(x, N3DS_AM2R_CREDIT_Y + rowSep * (float) i, gAm2r.objPauseOption);
         if (line == NULL) continue;
         N3DSGml_setVarString(line, "label", text);
         // A row draws at half alpha when it is not enabled - the grey the settings pages use for rows that cannot act.
