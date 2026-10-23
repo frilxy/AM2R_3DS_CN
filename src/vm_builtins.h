@@ -277,6 +277,11 @@ typedef enum {
 
     // Appended at the end so that no existing built-in variable's numeric id changes.
     BUILTIN_VAR_PROGRAM_DIRECTORY,
+
+    // Read-only game id (GMS 1.x game_id). Appended like PROGRAM_DIRECTORY: no existing id shifts.
+    // AM2R's gml_Script_crypt uses it in the save's rc4 key, so it has to match the value baked into
+    // data.win's GEN8 (g->gameID), or saves made on other platforms won't decrypt here.
+    BUILTIN_VAR_GAME_ID,
 } BuiltinVarId;
 
 void VMBuiltins_registerAll(VMContext* ctx);
