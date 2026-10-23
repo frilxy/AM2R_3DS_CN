@@ -94,7 +94,7 @@ jobs:
           create_args=()
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
-            title="AM2R_3DS_CN $tag"
+            title="$tag"
             built="Built from $hash."
           else
             # A re-run keeps its run number, so it updates the same release.
