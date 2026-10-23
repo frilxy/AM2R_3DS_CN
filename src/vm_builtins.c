@@ -9822,14 +9822,6 @@ static RValue builtin_event_user(VMContext* ctx, RValue* args, int32_t argCount)
     int32_t subevent = RValue_toInt32(args[0]);
     if (0 > subevent || 15 < subevent) return RValue_makeReal(0.0);
 
-    // ===[ Fix: a destroyed instance must not run a user event ]===
-    // oWaterDrop's collision handlers each call event_user(0); its Other_10 creates one new drop and destroys this one.
-    // When several collisions fire in one frame the first handler destroys the drop, yet the remaining handlers still
-    // call event_user(0): the drop is already destroyed, but this kept dispatching Other_10, which created another drop
-    // without another matching destroy. The result was the water room's drop count compounding 7 -> 876. A destroyed
-    // instance has no business running further events, so stop here.
-    if (inst->destroyed) return RValue_makeReal(0.0);
-
     Runner_executeEvent(runner, inst, EVENT_OTHER, OTHER_USER0 + subevent);
     return RValue_makeReal(0.0);
 }

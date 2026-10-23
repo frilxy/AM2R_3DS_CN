@@ -760,6 +760,7 @@ int main(int argc, char** argv) {
     u64 statsStartMs = osGetTime();
     uint32_t statsFrames = 0;
     double statsStepMs = 0.0, statsDrawMs = 0.0, statsWaitMs = 0.0;
+    uint32_t statsSprites = 0, statsParts = 0, statsFrags = 0, statsGlyphs = 0, statsFlushes = 0;
     double pacedSpeed = 0.0;
     uint32_t lastUnimplCount = 0;
     u64 lastSlowLogMs = 0;
@@ -1047,6 +1048,11 @@ int main(int argc, char** argv) {
         statsStepMs += stepMs;
         statsDrawMs += drawMs;
         statsWaitMs += waitMs;
+        statsSprites += N3DSRenderer_getFrameSpriteDrawCalls(renderer);
+        statsParts += N3DSRenderer_getFrameSpritePartDrawCalls(renderer);
+        statsFrags += N3DSRenderer_getFrameFragmentDraws(renderer);
+        statsGlyphs += N3DSRenderer_getFrameTextGlyphDraws(renderer);
+        statsFlushes += gN3DSProfFlushes;
         u64 nowMs = osGetTime();
         if (nowMs - statsStartMs >= 5000u) {
             double seconds = (double) (nowMs - statsStartMs) / 1000.0;
@@ -1056,15 +1062,22 @@ int main(int argc, char** argv) {
 #ifdef N3DS_ENABLE_AUDIO
             effects = N3DSAudio_effectsStarted(runner->audioSystem);
 #endif
-            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, linear free %lu KB, sfx %lu\n",
+            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, linear free %lu KB, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
                 (double) statsFrames / seconds, statsStepMs / statsFrames, statsDrawMs / statsFrames, statsWaitMs / statsFrames, (unsigned) statsFrames, statsMaxFrameMs,
                 runner->currentRoom != NULL ? runner->currentRoom->name : "-",
-                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects);
+                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects,
+                (double) statsSprites / statsFrames, (double) statsParts / statsFrames, (double) statsFrags / statsFrames,
+                (double) statsGlyphs / statsFrames, (double) statsFlushes / statsFrames);
             statsStartMs = nowMs;
             statsFrames = 0;
             statsStepMs = 0.0;
             statsDrawMs = 0.0;
             statsWaitMs = 0.0;
+            statsSprites = 0;
+            statsParts = 0;
+            statsFrags = 0;
+            statsGlyphs = 0;
+            statsFlushes = 0;
             statsMaxFrameMs = 0.0;
             if (N3DS_unimplCount() != lastUnimplCount) {
                 lastUnimplCount = N3DS_unimplCount();
