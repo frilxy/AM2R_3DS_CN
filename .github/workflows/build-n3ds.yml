@@ -124,6 +124,8 @@ jobs:
             echo "* 汉化：\`font_replace\`/\`background_replace\` 已实现，中文以点阵字体渲染"
             echo "* 画面模式：点对点（原生 320x240，默认）/ 宽屏 / 拉伸"
             echo "* 按键：START 打开暂停（地图页），SELECT 打开道具页，再按一次返回游戏"
+            echo "* 下屏底图：标题/存档/设置/暂停界面显示下屏底图；把自制的 320x240 PNG 放到"
+            echo "  \`sdmc:/3ds/am2r/gfx/bottom.png\` 即可替换（不用重装 CIA）"
             echo
             echo "暂停菜单使用游戏自身的按键（十字键、A 确认、B 返回）；触摸屏只用于下屏地图。"
             echo

@@ -42,6 +42,9 @@ bool N3DSRenderer_uploadFontAtlasRegion(Renderer* renderer, const uint8_t* rgba,
 uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* renderer);
 void N3DSRenderer_setSharedFontAtlasNextY(Renderer* renderer, uint32_t y);
 int32_t N3DSRenderer_allocRuntimeImage(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
+// Optional 320x240 art drawn on the bottom screen wherever the port would leave it black (title, file select,
+// options, pause). Stretched to the screen, so any size works; 320x240 is what it is designed for.
+bool N3DSRenderer_setBottomBackground(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
 bool N3DSRenderer_setRuntimeTPAGContent(Renderer* renderer, int32_t tpagIndex, uint32_t contentW, uint32_t contentH);
 // A swapped font has a whole new glyph array; a text layout cached before the swap still holds the old rectangles.
 void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);

@@ -89,6 +89,13 @@ set(N3DS_ROMFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/romfs")
 file(MAKE_DIRECTORY "${N3DS_ROMFS_DIR}")
 file(WRITE "${N3DS_ROMFS_DIR}/build.txt" "${N3DS_APP_NAME} on Butterscotch ${BUTTERSCOTCH_COMMIT_HASH}\n")
 
+# The bottom screen's artwork ships inside the title, so a fresh install is not a black screen. A file at
+# sdmc:/3ds/am2r/gfx/bottom.png wins over this one (see main.c).
+if(EXISTS "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png")
+    file(MAKE_DIRECTORY "${N3DS_ROMFS_DIR}/gfx")
+    configure_file("${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png" "${N3DS_ROMFS_DIR}/gfx/bottom.png" COPYONLY)
+endif()
+
 set(N3DS_SMDH_FILE "${CMAKE_CURRENT_BINARY_DIR}/${N3DS_OUTPUT_NAME}.smdh")
 set(_n3ds_icon_args "")
 if(EXISTS "${N3DS_ASSET_DIR}/icon.png")

@@ -386,6 +386,15 @@ typedef struct {
     // The bottom screen, kept only so that it can be cleared to black every frame. Nothing is ever drawn to it: a
     // screen the GPU is never told to present keeps whatever was in its framebuffer, which is not reliably black.
     C3D_RenderTarget* bottomTarget;
+    // Optional 320x240 art for the bottom screen, loaded from sdmc:/3ds/am2r/gfx/bottom.png. Drawn over the black
+    // clear, before the live map, so it shows wherever the port would otherwise leave the screen black (title, file
+    // select, options, pause) and is covered by the map while a save is being played.
+    C3D_Tex bottomBackgroundTex;
+    Tex3DS_SubTexture bottomBackgroundSubtex;
+    C2D_Image bottomBackgroundImage;
+    uint32_t bottomBackgroundWidth;
+    uint32_t bottomBackgroundHeight;
+    bool bottomBackgroundReady;
     N3DSLoadedAtlasPage* atlasPages;
     N3DSAtlasItem* atlasItems;
     N3DSAtlasItemV3* atlasItemsV3;
@@ -2641,6 +2650,42 @@ void N3DSRenderer_setSharedFontAtlasNextY(Renderer* base, uint32_t y) {
 
 // Allocates a texture for a whole image (a language pack's title or header PNG) and hands back its TPAG. Unlike the
 // glyph strips this writes every pixel, transparent ones included.
+// Uploads the bottom screen's artwork. The image is stretched to 320x240, so a PNG that is not exactly that size
+// still fills the screen instead of leaving a black band; the caller logs the mismatch.
+bool N3DSRenderer_setBottomBackground(Renderer* base, const uint8_t* rgba, uint32_t w, uint32_t h) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL || rgba == NULL || w == 0u || h == 0u || w > 1024u || h > 1024u) return false;
+
+    if (renderer->bottomBackgroundReady) {
+        C3D_TexDelete(&renderer->bottomBackgroundTex);
+        memset(&renderer->bottomBackgroundTex, 0, sizeof(renderer->bottomBackgroundTex));
+        renderer->bottomBackgroundReady = false;
+    }
+
+    uint32_t texW = 8u;
+    while (texW < w && texW < 1024u) texW <<= 1;
+    uint32_t texH = 8u;
+    while (texH < h && texH < 1024u) texH <<= 1;
+    if (texW < w || texH < h) return false;
+
+    if (!C3D_TexInit(&renderer->bottomBackgroundTex, (u16) texW, (u16) texH, GPU_RGBA8)) return false;
+    C3D_TexSetFilter(&renderer->bottomBackgroundTex, GPU_NEAREST, GPU_NEAREST);
+    C3D_TexSetWrap(&renderer->bottomBackgroundTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    renderer->bottomBackgroundTex.border = 0x00000000u;
+
+    N3DSRenderer_setRuntimeSubtex(&renderer->bottomBackgroundSubtex, texW, texH, w, h);
+    N3DSRenderer_writeTileRGBAPixels((uint32_t*) renderer->bottomBackgroundTex.data, rgba, texW, texH, 0u, 0u, w, h,
+        false);
+    GSPGPU_FlushDataCache(renderer->bottomBackgroundTex.data, renderer->bottomBackgroundTex.size);
+
+    renderer->bottomBackgroundImage.tex = &renderer->bottomBackgroundTex;
+    renderer->bottomBackgroundImage.subtex = &renderer->bottomBackgroundSubtex;
+    renderer->bottomBackgroundWidth = w;
+    renderer->bottomBackgroundHeight = h;
+    renderer->bottomBackgroundReady = true;
+    return true;
+}
+
 int32_t N3DSRenderer_allocRuntimeImage(Renderer* base, const uint8_t* rgba, uint32_t w, uint32_t h) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     if (renderer == NULL || rgba == NULL || w == 0u || h == 0u) return -1;
@@ -3911,6 +3956,10 @@ static void N3DSRenderer_destroy(Renderer* base) {
         }
         arrfree(renderer->tileLayerChunkCaches);
         renderer->tileLayerChunkCaches = NULL;
+    }
+    if (renderer->bottomBackgroundReady) {
+        C3D_TexDelete(&renderer->bottomBackgroundTex);
+        renderer->bottomBackgroundReady = false;
     }
     if (renderer->bottomTarget != NULL) {
         C3D_RenderTargetDelete(renderer->bottomTarget);
@@ -6175,6 +6224,19 @@ static void N3DSRenderer_beginFrame(Renderer* base, int32_t gameW, int32_t gameH
     if (renderer->bottomTarget != NULL) {
         C2D_TargetClear(renderer->bottomTarget, C2D_Color32(0, 0, 0, 255));
         C2D_SceneBegin(renderer->bottomTarget);
+        // The bottom screen's artwork sits on the black clear. The map, when one is drawn, is a full-screen page
+        // drawn later on this same target, so it covers this.
+        if (renderer->bottomBackgroundReady) {
+            C2D_DrawImageAt(
+                renderer->bottomBackgroundImage,
+                0.0f,
+                0.0f,
+                0.5f,
+                NULL,
+                320.0f / (float) renderer->bottomBackgroundWidth,
+                240.0f / (float) renderer->bottomBackgroundHeight
+            );
+        }
         renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
     }
     C2D_TargetClear(renderer->topTarget, C2D_Color32(0, 0, 0, 255));
