@@ -27,6 +27,8 @@
 #include <3ds.h>
 #include <citro2d.h>
 
+#include "stb_image.h"
+
 #include <ctype.h>
 #include <malloc.h>
 #include <math.h>
@@ -737,6 +739,28 @@ int main(int argc, char** argv) {
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
+    // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
+    // that will not decode) the screen keeps the plain black it always had.
+    {
+        int bottomW = 0, bottomH = 0, bottomChannels = 0;
+        // The SD card copy wins, so the art can be replaced without rebuilding; otherwise the one packaged into
+        // the title is used, and a build without either keeps the plain black.
+        const char* bottomPath = N3DS_SD_DIR "gfx/bottom.png";
+        stbi_uc* bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
+        if (bottomPixels == NULL) {
+            bottomPath = "romfs:/gfx/bottom.png";
+            bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
+        }
+        if (bottomPixels != NULL) {
+            if (!N3DSRenderer_setBottomBackground(renderer, bottomPixels, (uint32_t) bottomW, (uint32_t) bottomH)) {
+                logWarn("N3DS: %s (%dx%d) could not be uploaded; the bottom screen stays black\n", bottomPath,
+                    bottomW, bottomH);
+            } else {
+                logInfo("N3DS: bottom screen art %dx%d from %s\n", bottomW, bottomH, bottomPath);
+            }
+            stbi_image_free(bottomPixels);
+        }
+    }
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
 #ifdef ENABLE_VM_GML_PROFILER
