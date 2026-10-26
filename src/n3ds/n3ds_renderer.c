@@ -84,7 +84,7 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 // Sprite read-ahead: when a sprite frame is drawn, the pages of its next frames are read in the background.
 #define N3DS_READAHEAD_FRAMES 4
 #define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_OLD3DS (4u * 1024u * 1024u)
-#define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_NEW3DS (6u * 1024u * 1024u)
+#define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_NEW3DS (8u * 1024u * 1024u)
 #define N3DS_DIRECT_ASSET_VRAM_BUDGET_OLD3DS (1024u * 1024u)
 #define N3DS_DIRECT_ASSET_VRAM_BUDGET_NEW3DS (3072u * 1024u)
 // The one texture every runtime font size shares (see the note on N3DSRuntimeFontAtlas). citro3d only accepts
@@ -1378,8 +1378,22 @@ static bool N3DSRenderer_tryLoadPackedDirectTextureBlob(N3DSRenderer* renderer, 
         if (!N3DSRenderer_evictLRUDirectAssetBlob(renderer, asset)) break;
     }
 
-    uint8_t* blobData = safeMalloc((size_t) entry.dataSize);
-    if (blobData == NULL) return false;
+    // Same rule as the page blobs: a sheet that will not fit is skipped, not fatal. Without the cache it is read
+    // from the card every time it is drawn, which is slow but keeps the session alive.
+    uint8_t* blobData = malloc((size_t) entry.dataSize);
+    if (blobData == NULL) {
+        while (N3DSRenderer_evictLRUDirectAssetBlob(renderer, asset)) {}
+        blobData = malloc((size_t) entry.dataSize);
+    }
+    if (blobData == NULL) {
+        static int32_t packedDirectWarnings;
+        if (packedDirectWarnings < 4) {
+            packedDirectWarnings++;
+            logWarn("N3DS: no memory for packed sheet %s (%lu KB); skipping it\n", relativePath,
+                (unsigned long) (entry.dataSize / 1024u));
+        }
+        return false;
+    }
 
     if (fseek(renderer->packedDirectAssetFile, (long) entry.dataOffset, SEEK_SET) != 0) {
         free(blobData);
