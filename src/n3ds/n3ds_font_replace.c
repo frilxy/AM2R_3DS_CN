@@ -843,6 +843,9 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
 }
 
 
+// Defined below, next to the entry point: the cache has to hash the same character set the normal path builds from.
+static const N3DSGlyphSet* N3DSFontReplace_glyphSet(void);
+
 // ===[ On-card cache of the built font atlas ]===
 //
 // Building the strips costs about 1.3 s of every boot: three bitmap strikes are decoded and packed out of ~3.9 MB of
