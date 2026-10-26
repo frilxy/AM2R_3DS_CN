@@ -77,11 +77,14 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_ATLAS_LINEAR_RESERVE_BYTES (3u * 1024u * 1024u)
 #define N3DS_ATLAS_IDLE_FRAMES 60u
 #define N3DS_MAX_CACHED_T3X_BYTES_OLD3DS (16u * 1024u * 1024u)
-#define N3DS_MAX_CACHED_T3X_BYTES_NEW3DS (32u * 1024u * 1024u)
+// The blob cache is the biggest single heap consumer and it sits on top of a ~30 MB baseline. 32 MB of pages
+// plus 8 MB of direct sheets put a run at 71 MB, where a 512 KB page blob could no longer be allocated; 20 MB
+// keeps the same working set for a room while leaving room to breathe.
+#define N3DS_MAX_CACHED_T3X_BYTES_NEW3DS (20u * 1024u * 1024u)
 // Sprite read-ahead: when a sprite frame is drawn, the pages of its next frames are read in the background.
 #define N3DS_READAHEAD_FRAMES 4
 #define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_OLD3DS (4u * 1024u * 1024u)
-#define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_NEW3DS (8u * 1024u * 1024u)
+#define N3DS_MAX_CACHED_DIRECT_T3X_BYTES_NEW3DS (6u * 1024u * 1024u)
 #define N3DS_DIRECT_ASSET_VRAM_BUDGET_OLD3DS (1024u * 1024u)
 #define N3DS_DIRECT_ASSET_VRAM_BUDGET_NEW3DS (3072u * 1024u)
 // The one texture every runtime font size shares (see the note on N3DSRuntimeFontAtlas). citro3d only accepts
@@ -1573,10 +1576,6 @@ static size_t N3DSRenderer_heapFreeBytes(void) {
     return (size_t) info.fordblks;
 }
 
-// How much of the arena to leave alone before a page blob is allowed to take more. A page that cannot be cached is
-// read straight from the card each time it is imported, which is slower but survivable.
-#define N3DS_BLOB_HEAP_RESERVE_BYTES (6u * 1024u * 1024u)
-
 // Asks the loader for a page's blob; false when there is no loader (the caller reads it itself).
 static bool N3DSRenderer_queuePageBlob(N3DSRenderer* renderer, uint32_t pageIndex) {
     if (!renderer->blobLoaderRunning || pageIndex >= renderer->atlasPageCount) return false;
@@ -1606,8 +1605,7 @@ static bool N3DSRenderer_adoptPageBlob(N3DSRenderer* renderer, uint32_t pageInde
         free(data);
         return true;
     }
-    while (renderer->cachedT3xBytes + page->dataSize > renderer->cachedT3xByteLimit ||
-        N3DSRenderer_heapFreeBytes() < N3DS_BLOB_HEAP_RESERVE_BYTES) {
+    while (renderer->cachedT3xBytes + page->dataSize > renderer->cachedT3xByteLimit) {
         if (!N3DSRenderer_evictLRUPageBlob(renderer, pageIndex)) break;
     }
     page->t3xData = data;
@@ -1691,8 +1689,7 @@ static bool N3DSRenderer_ensurePageBlobLoaded(N3DSRenderer* renderer, uint32_t p
 
         size = (uint32_t) t3xSize;
     }
-    while (renderer->cachedT3xBytes + size > renderer->cachedT3xByteLimit ||
-        N3DSRenderer_heapFreeBytes() < size + N3DS_BLOB_HEAP_RESERVE_BYTES) {
+    while (renderer->cachedT3xBytes + size > renderer->cachedT3xByteLimit) {
         if (!N3DSRenderer_evictLRUPageBlob(renderer, pageIndex)) break;
     }
 
@@ -2054,8 +2051,7 @@ static bool N3DSRenderer_ensureDirectTextureBlobLoaded(N3DSRenderer* renderer, N
     }
 
     uint32_t size = (uint32_t) sizeLong;
-    while (renderer->cachedDirectT3xBytes + size > renderer->cachedDirectT3xByteLimit ||
-        N3DSRenderer_heapFreeBytes() < size + N3DS_BLOB_HEAP_RESERVE_BYTES) {
+    while (renderer->cachedDirectT3xBytes + size > renderer->cachedDirectT3xByteLimit) {
         if (!N3DSRenderer_evictLRUDirectAssetBlob(renderer, asset)) break;
     }
 
