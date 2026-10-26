@@ -13,6 +13,12 @@
 // it was) when the file cannot be read or holds no usable bitmap strike.
 bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPath, float emSize, bool bold, bool italic);
 
+// The built strips and the shared atlas are written to the card once (`sdmc:/3ds/am2r/fontcache.bin`) so later boots
+// skip the ~1.3 s of decoding and packing. loadCache is called before the game's first font_replace, saveCache once the
+// fonts are in place; both are best-effort and a miss just means the normal path runs.
+bool N3DSFontReplace_loadCache(Runner* runner);
+bool N3DSFontReplace_saveCache(Runner* runner);
+
 // Characters the 3DS front end draws itself (its Display and Cheats pages). They are in no language file, so they
 // would otherwise be missing from the atlas the loader builds out of the language files. Call before the game's
 // oControl runs its first font_replace.

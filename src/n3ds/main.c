@@ -16,6 +16,7 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
+#include "n3ds_font_replace.h"
 #include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
@@ -60,7 +61,23 @@ typedef struct {
     char statusLine[128];
     int chunkIndex;
     int totalChunks;
+    // The bottom screen shows the same art the game uses after boot (gfx/bottom.png), so the two halves of the console
+    // do not disagree about what is being loaded.
+    C3D_RenderTarget* bottomTarget;
+    C3D_Tex artTexture;
+    Tex3DS_SubTexture artSubtex;
+    C2D_Image artImage;
+    bool artReady;
 } N3DSLoadingScreen;
+
+// The port's palette, taken from the bottom screen's own drawing (see n3ds_livemap.c) plus the black it sits on.
+#define N3DS_LOAD_BG C2D_Color32(0, 0, 0, 255)
+#define N3DS_LOAD_FRAME C2D_Color32(0, 77, 0, 255)      // #004D00, the frame on the bottom art
+#define N3DS_LOAD_TITLE C2D_Color32(123, 230, 99, 255)  // RGB 0x7be663, the light green of the energy plate
+#define N3DS_LOAD_TEXT C2D_Color32(99, 230, 123, 255)   // RGB 0x63e67b
+#define N3DS_LOAD_BAR C2D_Color32(41, 214, 0, 255)      // RGB 0x29d600, the mid green
+#define N3DS_LOAD_DIM C2D_Color32(90, 90, 90, 255)      // the grey the menus use for inactive text
+#define N3DS_LOAD_LOG C2D_Color32(74, 110, 74, 255)     // dim green, so the boot log stays background
 
 static char gN3DSBootLogLines[N3DS_BOOT_LOG_MAX_LINES][N3DS_BOOT_LOG_LINE_CHARS];
 static int gN3DSBootLogLineCount = 0;
@@ -340,6 +357,68 @@ static void N3DSLoadingScreen_free(N3DSLoadingScreen* screen) {
         C3D_RenderTargetDelete(screen->target);
         screen->target = NULL;
     }
+    if (screen->artReady) {
+        C3D_TexDelete(&screen->artTexture);
+        screen->artReady = false;
+    }
+    // Same rule as the top target: a screen target has to go before the renderer makes its own for that screen.
+    if (screen->bottomTarget != NULL) {
+        C3D_RenderTargetDelete(screen->bottomTarget);
+        screen->bottomTarget = NULL;
+    }
+}
+
+// 8x8 Morton order, the layout citro3d's textures use (same helper the renderer uploads with).
+static inline uint32_t N3DSLoadingMorton(uint32_t x, uint32_t y) {
+    return (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) | ((y & 4u) << 3);
+}
+
+// Loads gfx/bottom.png (SD first, then the copy in romfs) into a texture of its own, so the boot screen can show the
+// bottom art before the renderer exists. Failure is silent: the bottom screen then stays black, as it used to.
+static void N3DSLoadingScreen_loadArt(N3DSLoadingScreen* screen) {
+    if (screen == NULL || !screen->useCitro2D) return;
+
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* pixels = stbi_load(N3DS_SD_DIR "gfx/bottom.png", &width, &height, &channels, 4);
+    if (pixels == NULL) pixels = stbi_load("romfs:/gfx/bottom.png", &width, &height, &channels, 4);
+    if (pixels == NULL || width <= 0 || height <= 0 || width > 1024 || height > 1024) {
+        if (pixels != NULL) stbi_image_free(pixels);
+        return;
+    }
+
+    uint32_t texW = 8u, texH = 8u;
+    while (texW < (uint32_t) width) texW <<= 1;
+    while (texH < (uint32_t) height) texH <<= 1;
+    if (!C3D_TexInit(&screen->artTexture, (u16) texW, (u16) texH, GPU_RGBA8)) {
+        stbi_image_free(pixels);
+        return;
+    }
+    C3D_TexSetFilter(&screen->artTexture, GPU_NEAREST, GPU_NEAREST);
+    C3D_TexSetWrap(&screen->artTexture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    screen->artTexture.border = 0x00000000u;
+
+    uint32_t* destination = (uint32_t*) screen->artTexture.data;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            const stbi_uc* pixel = pixels + ((size_t) y * (size_t) width + (size_t) x) * 4u;
+            uint32_t rgba = ((uint32_t) pixel[0] << 24) | ((uint32_t) pixel[1] << 16) |
+                ((uint32_t) pixel[2] << 8) | (uint32_t) pixel[3];
+            destination[((size_t) ((uint32_t) y >> 3) * (size_t) (texW >> 3) + (size_t) ((uint32_t) x >> 3)) * 64u +
+                (size_t) N3DSLoadingMorton((uint32_t) x & 7u, (uint32_t) y & 7u)] = rgba;
+        }
+    }
+    GSPGPU_FlushDataCache(screen->artTexture.data, screen->artTexture.size);
+    stbi_image_free(pixels);
+
+    screen->artSubtex.width = (u16) width;
+    screen->artSubtex.height = (u16) height;
+    screen->artSubtex.left = 0.0f;
+    screen->artSubtex.top = 1.0f;
+    screen->artSubtex.right = (float) width / (float) texW;
+    screen->artSubtex.bottom = 1.0f - (float) height / (float) texH;
+    screen->artImage.tex = &screen->artTexture;
+    screen->artImage.subtex = &screen->artSubtex;
+    screen->artReady = true;
 }
 
 static void N3DS_appendBootLog(const char* message) {
@@ -383,25 +462,41 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
     }
 
     if (screen->useCitro2D && screen->target != NULL && screen->textBuf != NULL) {
-        const float barX = 36.0f;
+        const float barX = 28.0f;
         const float barY = 146.0f;
-        const float barW = 328.0f;
-        const float barH = 18.0f;
+        const float barW = 344.0f;
+        const float barH = 14.0f;
         const float fillW = (barW - 4.0f) * progress;
 
         C2D_Text title;
         C2D_Text status;
         C2D_Text detail;
         char detailLine[64];
-        snprintf(detailLine, sizeof(detailLine), "%d / %d chunks", screen->chunkIndex, screen->totalChunks);
+        snprintf(detailLine, sizeof(detailLine), "%d / %d", screen->chunkIndex, screen->totalChunks);
 
         N3DSRenderer_frameGate();
-        C2D_TargetClear(screen->target, C2D_Color32(8, 10, 14, 255));
+        C2D_TargetClear(screen->target, N3DS_LOAD_BG);
         C2D_SceneBegin(screen->target);
 
-        C2D_DrawRectSolid(0.0f, 0.0f, 0.5f, 400.0f, 240.0f, C2D_Color32(8, 10, 14, 255));
-        C2D_DrawRectSolid(barX, barY, 0.5f, barW, barH, C2D_Color32(42, 48, 60, 255));
-        C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, barH - 4.0f, C2D_Color32(110, 224, 160, 255));
+        // A one-pixel frame six pixels in, the same shape as the bottom screen's art, so the two screens read as one
+        // console rather than as a port with its own idea of style.
+        const float frameX = 6.0f;
+        const float frameY = 6.0f;
+        const float frameW = 400.0f - 12.0f;
+        const float frameH = 240.0f - 12.0f;
+        C2D_DrawRectSolid(frameX, frameY, 0.5f, frameW, 1.0f, N3DS_LOAD_FRAME);
+        C2D_DrawRectSolid(frameX, frameY + frameH - 1.0f, 0.5f, frameW, 1.0f, N3DS_LOAD_FRAME);
+        C2D_DrawRectSolid(frameX, frameY, 0.5f, 1.0f, frameH, N3DS_LOAD_FRAME);
+        C2D_DrawRectSolid(frameX + frameW - 1.0f, frameY, 0.5f, 1.0f, frameH, N3DS_LOAD_FRAME);
+
+        // The bar itself: dark green frame, black track, mid green fill - the colours of the bottom screen's energy
+        // plate, which is the one place the game shows a bar of its own.
+        C2D_DrawRectSolid(barX, barY, 0.5f, barW, barH, N3DS_LOAD_FRAME);
+        C2D_DrawRectSolid(barX + 1.0f, barY + 1.0f, 0.5f, barW - 2.0f, barH - 2.0f, N3DS_LOAD_BG);
+        if (fillW > 0.0f) {
+            C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, barH - 4.0f, N3DS_LOAD_BAR);
+            C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, 1.0f, N3DS_LOAD_TITLE);
+        }
 
         C2D_TextBufClear(screen->textBuf);
         C2D_TextParse(&title, screen->textBuf, "Loading Game Data");
@@ -411,9 +506,9 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
         C2D_TextOptimize(&status);
         C2D_TextOptimize(&detail);
 
-        C2D_DrawText(&title, C2D_WithColor, 36.0f, 74.0f, 0.5f, 0.60f, 0.60f, C2D_Color32(255, 255, 255, 255));
-        C2D_DrawText(&status, C2D_WithColor, 36.0f, 104.0f, 0.5f, N3DS_LOADING_TEXT_SCALE, N3DS_LOADING_TEXT_SCALE, C2D_Color32(210, 214, 224, 255));
-        C2D_DrawText(&detail, C2D_WithColor, 36.0f, 172.0f, 0.5f, 0.34f, 0.34f, C2D_Color32(146, 153, 168, 255));
+        C2D_DrawText(&title, C2D_WithColor, 28.0f, 62.0f, 0.5f, 0.70f, 0.70f, N3DS_LOAD_TITLE);
+        C2D_DrawText(&status, C2D_WithColor, 28.0f, 100.0f, 0.5f, N3DS_LOADING_TEXT_SCALE, N3DS_LOADING_TEXT_SCALE, N3DS_LOAD_TEXT);
+        C2D_DrawText(&detail, C2D_WithColor, 28.0f, 166.0f, 0.5f, 0.32f, 0.32f, N3DS_LOAD_DIM);
 
         int firstLogLine = gN3DSBootLogLineCount > 3 ? gN3DSBootLogLineCount - 3 : 0;
         float logY = 188.0f;
@@ -421,8 +516,19 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
             C2D_Text logLine;
             C2D_TextParse(&logLine, screen->textBuf, gN3DSBootLogLines[i]);
             C2D_TextOptimize(&logLine);
-            C2D_DrawText(&logLine, C2D_WithColor, 36.0f, logY, 0.5f, 0.25f, 0.25f, C2D_Color32(164, 176, 192, 255));
+            C2D_DrawText(&logLine, C2D_WithColor, 28.0f, logY, 0.5f, 0.25f, 0.25f, N3DS_LOAD_LOG);
             logY += 12.0f;
+        }
+
+        // The bottom screen: the same art the game shows once it is running, so the console does not go black for the
+        // nine seconds the data takes to load.
+        if (screen->bottomTarget != NULL) {
+            C2D_TargetClear(screen->bottomTarget, N3DS_LOAD_BG);
+            C2D_SceneBegin(screen->bottomTarget);
+            if (screen->artReady) {
+                C2D_DrawImageAt(screen->artImage, 0.0f, 0.0f, 0.5f, NULL,
+                    320.0f / (float) screen->artSubtex.width, 240.0f / (float) screen->artSubtex.height);
+            }
         }
 
         N3DSRenderer_frameEnd();
@@ -621,6 +727,11 @@ int main(int argc, char** argv) {
         if (loadingScreen.target == NULL || loadingScreen.textBuf == NULL) {
             N3DSLoadingScreen_free(&loadingScreen);
             loadingScreen.useCitro2D = false;
+        } else {
+            // The bottom screen gets the same art the game uses, and its own target: the renderer only exists from
+            // about nine seconds in, and until then nothing else would draw there.
+            loadingScreen.bottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+            N3DSLoadingScreen_loadArt(&loadingScreen);
         }
     } else {
         consoleInit(GFX_TOP, &loadingScreen.console);
@@ -745,6 +856,9 @@ int main(int argc, char** argv) {
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
+    // The font atlas the last run built: the game's six font_replace calls below then find their strips already
+    // packed instead of decoding ~3.9 MB of TTF again.
+    N3DSFontReplace_loadCache(runner);
     // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
     // that will not decode) the screen keeps the plain black it always had.
     {
@@ -779,6 +893,9 @@ int main(int argc, char** argv) {
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
+    // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next
+    // boot. A cache written before this point would be missing the sizes built during room start.
+    N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
