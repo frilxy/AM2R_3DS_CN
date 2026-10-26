@@ -539,9 +539,15 @@ static bool N3DS_getWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 static void N3DS_logMemory(const char* when) {
-    logInfo("Memory (%s): app free %lu KB of %lu KB, linear free %lu KB, vram free %lu KB\n", when,
+    // osGetMemRegionFree(APPLICATION) is 0 from the moment libctru takes the region, so it says nothing; the arena and
+    // its free blocks come from mallinfo instead, which is what a failing malloc is really measuring.
+    struct mallinfo mi = mallinfo();
+    logInfo("Memory (%s): app free %lu KB of %lu KB, heap used %lu KB, heap free %lu KB, heap arena %lu KB, "
+        "linear free %lu KB, vram free %lu KB\n", when,
         (unsigned long) (osGetMemRegionFree(MEMREGION_APPLICATION) / 1024u),
         (unsigned long) (osGetMemRegionSize(MEMREGION_APPLICATION) / 1024u),
+        (unsigned long) (mi.uordblks / 1024u), (unsigned long) (mi.fordblks / 1024u),
+        (unsigned long) (mi.arena / 1024u),
         (unsigned long) (linearSpaceFree() / 1024u),
         (unsigned long) (vramSpaceFree() / 1024u));
 }
@@ -1086,10 +1092,11 @@ int main(int argc, char** argv) {
 #ifdef N3DS_ENABLE_AUDIO
             effects = N3DSAudio_effectsStarted(runner->audioSystem);
 #endif
-            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, linear free %lu KB, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
+            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, heap free %lu KB, heap arena %lu KB, linear free %lu KB, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
                 (double) statsFrames / seconds, statsStepMs / statsFrames, statsDrawMs / statsFrames, statsWaitMs / statsFrames, (unsigned) statsFrames, statsMaxFrameMs,
                 runner->currentRoom != NULL ? runner->currentRoom->name : "-",
-                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects,
+                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (mi.fordblks / 1024u),
+                (unsigned long) (mi.arena / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects,
                 (double) statsSprites / statsFrames, (double) statsParts / statsFrames, (double) statsFrags / statsFrames,
                 (double) statsGlyphs / statsFrames, (double) statsFlushes / statsFrames);
             statsStartMs = nowMs;

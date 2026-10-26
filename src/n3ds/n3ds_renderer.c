@@ -14,6 +14,7 @@
 #include <stb/ds/stb_ds.h>
 #include "stb_image_write.h"
 
+#include <malloc.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1564,6 +1565,18 @@ static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
     renderer->blobLoaderRunning = false;
 }
 
+// Free bytes left in the malloc arena. The blob caches are the largest thing the port allocates, so they are what
+// gets evicted when the heap runs low: a page reloaded from the SD card costs a few milliseconds, an abort costs the
+// session (a 512 KB page blob failing to allocate killed a run at the boss room).
+static size_t N3DSRenderer_heapFreeBytes(void) {
+    struct mallinfo info = mallinfo();
+    return (size_t) info.fordblks;
+}
+
+// How much of the arena to leave alone before a page blob is allowed to take more. A page that cannot be cached is
+// read straight from the card each time it is imported, which is slower but survivable.
+#define N3DS_BLOB_HEAP_RESERVE_BYTES (6u * 1024u * 1024u)
+
 // Asks the loader for a page's blob; false when there is no loader (the caller reads it itself).
 static bool N3DSRenderer_queuePageBlob(N3DSRenderer* renderer, uint32_t pageIndex) {
     if (!renderer->blobLoaderRunning || pageIndex >= renderer->atlasPageCount) return false;
@@ -1593,7 +1606,8 @@ static bool N3DSRenderer_adoptPageBlob(N3DSRenderer* renderer, uint32_t pageInde
         free(data);
         return true;
     }
-    while (renderer->cachedT3xBytes + page->dataSize > renderer->cachedT3xByteLimit) {
+    while (renderer->cachedT3xBytes + page->dataSize > renderer->cachedT3xByteLimit ||
+        N3DSRenderer_heapFreeBytes() < N3DS_BLOB_HEAP_RESERVE_BYTES) {
         if (!N3DSRenderer_evictLRUPageBlob(renderer, pageIndex)) break;
     }
     page->t3xData = data;
@@ -1677,11 +1691,31 @@ static bool N3DSRenderer_ensurePageBlobLoaded(N3DSRenderer* renderer, uint32_t p
 
         size = (uint32_t) t3xSize;
     }
-    while (renderer->cachedT3xBytes + size > renderer->cachedT3xByteLimit) {
+    while (renderer->cachedT3xBytes + size > renderer->cachedT3xByteLimit ||
+        N3DSRenderer_heapFreeBytes() < size + N3DS_BLOB_HEAP_RESERVE_BYTES) {
         if (!N3DSRenderer_evictLRUPageBlob(renderer, pageIndex)) break;
     }
 
-    page->t3xData = safeMalloc((size_t) size);
+    page->t3xData = malloc((size_t) size);
+    if (page->t3xData == NULL) {
+        // The heap is too fragmented (or too full) for the whole page. Drop every cached blob and try once more: the
+        // blobs are only a cache, and giving one up is cheaper than losing the run. A page that still will not fit is
+        // skipped - one sprite comes out invisible for a frame instead of the process aborting.
+        while (N3DSRenderer_evictLRUPageBlob(renderer, pageIndex)) {}
+        page->t3xData = malloc((size_t) size);
+    }
+    if (page->t3xData == NULL) {
+        static int32_t allocationWarnings;
+        if (allocationWarnings < 4) {
+            allocationWarnings++;
+            logWarn("N3DS: no memory for atlas page %lu (%lu KB, free %lu KB); skipping it\n",
+                (unsigned long) pageIndex, (unsigned long) (size / 1024u),
+                (unsigned long) (N3DSRenderer_heapFreeBytes() / 1024u));
+        }
+        page->t3xSize = 0;
+        if (!usingPackedAtlas) fclose(pageFile);
+        return false;
+    }
     page->t3xSize = size;
     if (usingPackedAtlas) {
         fseek(pageFile, (long) dataOffset, SEEK_SET);
@@ -2020,12 +2054,24 @@ static bool N3DSRenderer_ensureDirectTextureBlobLoaded(N3DSRenderer* renderer, N
     }
 
     uint32_t size = (uint32_t) sizeLong;
-    while (renderer->cachedDirectT3xBytes + size > renderer->cachedDirectT3xByteLimit) {
+    while (renderer->cachedDirectT3xBytes + size > renderer->cachedDirectT3xByteLimit ||
+        N3DSRenderer_heapFreeBytes() < size + N3DS_BLOB_HEAP_RESERVE_BYTES) {
         if (!N3DSRenderer_evictLRUDirectAssetBlob(renderer, asset)) break;
     }
 
-    uint8_t* blobData = safeMalloc((size_t) size);
+    // Same rule as the atlas page blobs: losing a cached sheet only costs a re-read, running out of heap aborts.
+    uint8_t* blobData = malloc((size_t) size);
     if (blobData == NULL) {
+        while (N3DSRenderer_evictLRUDirectAssetBlob(renderer, asset)) {}
+        blobData = malloc((size_t) size);
+    }
+    if (blobData == NULL) {
+        static int32_t directWarnings;
+        if (directWarnings < 4) {
+            directWarnings++;
+            logWarn("N3DS: no memory for direct sheet %s (%lu KB); skipping it\n", relativePath,
+                (unsigned long) (size / 1024u));
+        }
         fclose(file);
         return false;
     }
