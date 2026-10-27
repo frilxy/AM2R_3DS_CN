@@ -68,6 +68,9 @@ typedef struct {
     Tex3DS_SubTexture artSubtex;
     C2D_Image artImage;
     bool artReady;
+    bool bottomPainted;      // the art is static: painting it once is enough, and twice costs a second scene a frame
+    u64 drawMicros;          // total time spent drawing this screen, logged once the data is in
+    int32_t drawCount;
 } N3DSLoadingScreen;
 
 // The port's palette, taken from the bottom screen's own drawing (see n3ds_livemap.c) plus the black it sits on.
@@ -462,6 +465,7 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
     }
 
     if (screen->useCitro2D && screen->target != NULL && screen->textBuf != NULL) {
+        u64 drawStart = svcGetSystemTick();
         const float barX = 28.0f;
         const float barY = 146.0f;
         const float barW = 344.0f;
@@ -522,7 +526,8 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
 
         // The bottom screen: the same art the game shows once it is running, so the console does not go black for the
         // nine seconds the data takes to load.
-        if (screen->bottomTarget != NULL) {
+        if (screen->bottomTarget != NULL && !screen->bottomPainted) {
+            screen->bottomPainted = true;
             C2D_TargetClear(screen->bottomTarget, N3DS_LOAD_BG);
             C2D_SceneBegin(screen->bottomTarget);
             if (screen->artReady) {
@@ -533,6 +538,8 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
 
         N3DSRenderer_frameEnd();
         gspWaitForVBlank();
+        screen->drawMicros += (svcGetSystemTick() - drawStart) * 1000000ull / SYSCLOCK_ARM11;
+        screen->drawCount++;
         return;
     }
 
@@ -583,6 +590,14 @@ static void N3DS_waitForStartExitScreen(N3DSLoadingScreen* screen, const char* s
 static void N3DSDataWinProgressCallback(const char* chunkName, int chunkIndex, int totalChunks, MAYBE_UNUSED DataWin* dataWin, void* userData) {
     N3DSLoadingScreen* screen = (N3DSLoadingScreen*) userData;
     if (screen == NULL) return;
+
+    // A repaint costs a frame plus the bottom screen's first paint, while some chunks parse in a millisecond: without
+    // this the progress display can cost more than the parsing it is reporting. The final state is always drawn by
+    // the explicit N3DSLoadingScreen_set calls that follow.
+    static u64 lastRepaintMs;
+    u64 nowMs = osGetTime();
+    if (lastRepaintMs != 0 && nowMs - lastRepaintMs < 80) return;
+    lastRepaintMs = nowMs;
 
     char status[128];
     snprintf(status, sizeof(status), "Parsing chunk %.4s", chunkName != NULL ? chunkName : "----");
@@ -802,6 +817,8 @@ int main(int argc, char** argv) {
         dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build,
         (int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight);
     N3DS_logMemory("data.win parsed");
+    logInfo("Loading screen: %d draws, %.0f ms total\n", (int) loadingScreen.drawCount,
+        (double) loadingScreen.drawMicros / 1000.0);
 
     // Game files next to data.win (romfs or the SD folder), saves in the SD folder: upstream's overlay file system.
     char* dataWinDir = safeStrdup(dataWinPath);
