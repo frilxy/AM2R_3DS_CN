@@ -1017,6 +1017,25 @@ bool N3DSFontReplace_loadCache(Runner* runner) {
         loadedCount++;
     }
 
+    // Nothing in the file is trusted: a strip whose glyphs came back without their codepoints leaves every string
+    // unable to resolve a character, which shows up as all of the shared-atlas text disappearing. Require a sane ASCII
+    // set before the cache is allowed to replace the atlas.
+    if (ok) {
+        uint32_t withCharacter = 0;
+        bool hasUpperA = false;
+        for (uint32_t i = 0; i < loadedCount; i++) {
+            for (uint32_t g = 0; g < loaded[i].glyphCount; g++) {
+                uint16_t c = loaded[i].glyphs[g].character;
+                if (c != 0u) withCharacter++;
+                if (c == (uint16_t) 'A') hasUpperA = true;
+            }
+        }
+        if (withCharacter < 64u || !hasUpperA) {
+            logWarn("AM2R: font cache has no usable codepoints (%u glyphs); ignoring it\n", (unsigned) withCharacter);
+            ok = false;
+        }
+    }
+
     uint8_t* pixels = NULL;
     if (ok) {
         pixels = (uint8_t*) safeMalloc(header.pixelBytes);
