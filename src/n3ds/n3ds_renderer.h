@@ -40,6 +40,10 @@ bool N3DSRenderer_uploadFontAtlasRegion(Renderer* renderer, const uint8_t* rgba,
 // The shared texture's first free row. Each font size stacks below the previous one, and reallocating the atlas
 // resets it, so the two are kept together.
 uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* renderer);
+// The shared font atlas is VRAM, so the on-card cache copies it out and back through the CPU mapping: `pixels` is
+// tiled RGBA8, `usedRows` the rows filled so far (what restore writes back and makes the new write pointer).
+const uint8_t* N3DSRenderer_sharedFontAtlasPixels(Renderer* renderer, uint32_t* usedRows);
+bool N3DSRenderer_restoreSharedFontAtlasPixels(Renderer* renderer, const uint8_t* pixels, uint32_t usedRows);
 void N3DSRenderer_setSharedFontAtlasNextY(Renderer* renderer, uint32_t y);
 int32_t N3DSRenderer_allocRuntimeImage(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
 // Optional 320x240 art drawn on the bottom screen wherever the port would leave it black (title, file select,

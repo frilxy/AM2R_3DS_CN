@@ -842,7 +842,203 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     return true;
 }
 
+
+// Defined below, next to the entry point: the cache has to hash the same character set the normal path builds from.
+static const N3DSGlyphSet* N3DSFontReplace_glyphSet(void);
+
+// ===[ On-card cache of the built font atlas ]===
+//
+// Building the strips costs about 1.3 s of every boot: three bitmap strikes are decoded and packed out of ~3.9 MB of
+// TTF, 1288 glyphs each. The result is deterministic for a given font file and size, and the game asks for the same six
+// slots every time, so it is written to the card once and read back (about 1.5 MB, 0.15 s) on later boots.
+//
+// The cache is keyed per strip by the font file's hash, its size and the requested pixel size, the same key
+// findStrip uses, so a font that changed on the card simply misses and is rasterized as before - it is appended after
+// the cached shelves and nothing already in the texture moves. A cache whose header or length does not match is
+// ignored wholesale, which leaves the normal path untouched.
+#define N3DS_FONT_CACHE_PATH N3DS_SD_DIR "fontcache.bin"
+#define N3DS_FONT_CACHE_MAGIC 0x31434641u // "AFC1"
+#define N3DS_FONT_CACHE_VERSION 1u
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t usedRows;
+    uint32_t paddedRows;
+    uint32_t stripCount;
+    uint32_t pixelBytes;
+    // Which characters the strips were rasterized for. The set comes from the language files on the card, so adding or
+    // changing one changes it; a cache built for another set would be missing glyphs.
+    uint32_t glyphSetHash;
+} N3DSFontCacheHeader;
+
+static uint32_t N3DSFontReplace_glyphSetHash(const N3DSGlyphSet* set) {
+    uint32_t hash = 2166136261u;
+    for (uint32_t i = 0; i < set->count; i++) {
+        hash = (hash ^ (uint32_t) set->items[i]) * 16777619u;
+    }
+    return hash;
+}
+
+typedef struct {
+    uint32_t fileHash;
+    uint32_t fileSize;
+    int32_t emSize;
+    int32_t shelfY;
+    uint32_t stripHeight;
+    uint32_t maxGlyphHeight;
+    uint32_t glyphCount;
+} N3DSFontCacheStrip;
+
+// Set by loadCache: a boot that hit the cache only needs to write it again when a font it did not cover was built.
+static bool gCacheLoaded = false;
+static uint32_t gCacheLoadedStripCount = 0;
+
+static bool writeBytes(FILE* f, const void* data, size_t size) {
+    return size == 0u || fwrite(data, 1, size, f) == size;
+}
+
+bool N3DSFontReplace_saveCache(Runner* runner) {
+    if (runner == NULL || runner->renderer == NULL || gStripCount == 0u) return false;
+    if (gCacheLoaded && gStripCount == gCacheLoadedStripCount) return true; // the card already holds exactly this
+
+    uint32_t usedRows = 0;
+    const uint8_t* pixels = N3DSRenderer_sharedFontAtlasPixels(runner->renderer, &usedRows);
+    if (pixels == NULL || usedRows == 0u) return false;
+    uint32_t paddedRows = (usedRows + 7u) & ~7u;
+    if (paddedRows > N3DS_FONT_SHARED_ATLAS_H) paddedRows = N3DS_FONT_SHARED_ATLAS_H;
+    uint32_t pixelBytes = paddedRows * N3DS_FONT_SHARED_ATLAS_W * 4u;
+
+    char tempPath[128];
+    snprintf(tempPath, sizeof(tempPath), "%s.tmp", N3DS_FONT_CACHE_PATH);
+    FILE* f = fopen(tempPath, "wb");
+    if (f == NULL) return false;
+
+    N3DSFontCacheHeader header = {
+        .magic = N3DS_FONT_CACHE_MAGIC,
+        .version = N3DS_FONT_CACHE_VERSION,
+        .usedRows = usedRows,
+        .paddedRows = paddedRows,
+        .stripCount = gStripCount,
+        .pixelBytes = pixelBytes,
+        .glyphSetHash = N3DSFontReplace_glyphSetHash(N3DSFontReplace_glyphSet()),
+    };
+    bool ok = writeBytes(f, &header, sizeof(header));
+    for (uint32_t i = 0; ok && i < gStripCount; i++) {
+        const N3DSFontStrip* strip = &gStrips[i];
+        N3DSFontCacheStrip record = {
+            .fileHash = strip->fileHash,
+            .fileSize = strip->fileSize,
+            .emSize = strip->emSize,
+            .shelfY = strip->shelfY,
+            .stripHeight = strip->stripHeight,
+            .maxGlyphHeight = strip->maxGlyphHeight,
+            .glyphCount = strip->glyphCount,
+        };
+        ok = writeBytes(f, &record, sizeof(record));
+        // The metrics only: kerning is never built for these fonts, and a pointer would be meaningless on the card.
+        for (uint32_t g = 0; ok && g < strip->glyphCount; g++) {
+            const FontGlyph* glyph = &strip->glyphs[g];
+            uint16_t fields[6] = {
+                glyph->sourceX, glyph->sourceY, glyph->sourceWidth, glyph->sourceHeight,
+                (uint16_t) glyph->shift, (uint16_t) glyph->offset,
+            };
+            ok = writeBytes(f, fields, sizeof(fields));
+        }
+    }
+    if (ok) ok = writeBytes(f, pixels, pixelBytes);
+    if (fclose(f) != 0) ok = false;
+
+    if (!ok) {
+        remove(tempPath);
+        logWarn("AM2R: could not write the font cache\n");
+        return false;
+    }
+    remove(N3DS_FONT_CACHE_PATH);
+    if (rename(tempPath, N3DS_FONT_CACHE_PATH) != 0) {
+        remove(tempPath);
+        return false;
+    }
+    logInfo("AM2R: font cache saved (%u strips, %u of %u rows, %u KB)\n",
+        (unsigned) gStripCount, (unsigned) usedRows, (unsigned) N3DS_FONT_SHARED_ATLAS_H,
+        (unsigned) (pixelBytes / 1024u));
+    return true;
+}
+
+static bool readBytes(FILE* f, void* data, size_t size) {
+    return size == 0u || fread(data, 1, size, f) == size;
+}
+
+bool N3DSFontReplace_loadCache(Runner* runner) {
+    if (runner == NULL || runner->renderer == NULL) return false;
+    FILE* f = fopen(N3DS_FONT_CACHE_PATH, "rb");
+    if (f == NULL) return false;
+
+    N3DSFontCacheHeader header;
+    bool ok = readBytes(f, &header, sizeof(header)) &&
+        header.magic == N3DS_FONT_CACHE_MAGIC && header.version == N3DS_FONT_CACHE_VERSION &&
+        header.stripCount > 0u && header.stripCount <= N3DS_FONT_MAX_STRIPS &&
+        header.usedRows > 0u && header.usedRows <= N3DS_FONT_SHARED_ATLAS_H &&
+        header.paddedRows >= header.usedRows && header.paddedRows <= N3DS_FONT_SHARED_ATLAS_H &&
+        header.pixelBytes == header.paddedRows * N3DS_FONT_SHARED_ATLAS_W * 4u &&
+        header.glyphSetHash == N3DSFontReplace_glyphSetHash(N3DSFontReplace_glyphSet());
+
+    N3DSFontStrip loaded[N3DS_FONT_MAX_STRIPS];
+    memset(loaded, 0, sizeof(loaded));
+    uint32_t loadedCount = 0;
+    for (uint32_t i = 0; ok && i < header.stripCount; i++) {
+        N3DSFontCacheStrip record;
+        if (!readBytes(f, &record, sizeof(record))) { ok = false; break; }
+        if (record.glyphCount == 0u || record.glyphCount > 0x4000u) { ok = false; break; }
+        FontGlyph* glyphs = (FontGlyph*) safeCalloc(record.glyphCount, sizeof(FontGlyph));
+        for (uint32_t g = 0; ok && g < record.glyphCount; g++) {
+            uint16_t fields[6];
+            if (!readBytes(f, fields, sizeof(fields))) { ok = false; break; }
+            glyphs[g].sourceX = fields[0];
+            glyphs[g].sourceY = fields[1];
+            glyphs[g].sourceWidth = fields[2];
+            glyphs[g].sourceHeight = fields[3];
+            glyphs[g].shift = (int16_t) fields[4];
+            glyphs[g].offset = (int16_t) fields[5];
+        }
+        if (!ok) { free(glyphs); break; }
+        loaded[loadedCount].fileHash = record.fileHash;
+        loaded[loadedCount].fileSize = record.fileSize;
+        loaded[loadedCount].emSize = record.emSize;
+        loaded[loadedCount].shelfY = record.shelfY;
+        loaded[loadedCount].stripHeight = record.stripHeight;
+        loaded[loadedCount].maxGlyphHeight = record.maxGlyphHeight;
+        loaded[loadedCount].glyphCount = record.glyphCount;
+        loaded[loadedCount].glyphs = glyphs;
+        loadedCount++;
+    }
+
+    uint8_t* pixels = NULL;
+    if (ok) {
+        pixels = (uint8_t*) safeMalloc(header.pixelBytes);
+        ok = readBytes(f, pixels, header.pixelBytes);
+    }
+    fclose(f);
+
+    if (!ok || !N3DSRenderer_restoreSharedFontAtlasPixels(runner->renderer, pixels, header.usedRows)) {
+        for (uint32_t i = 0; i < loadedCount; i++) free(loaded[i].glyphs);
+        free(pixels);
+        return false;
+    }
+    free(pixels);
+
+    for (uint32_t i = 0; i < loadedCount; i++) gStrips[i] = loaded[i];
+    gStripCount = loadedCount;
+    gCacheLoaded = true;
+    gCacheLoadedStripCount = loadedCount;
+    logInfo("AM2R: font cache hit (%u strips, %u of %u rows, saved %u KB of rasterizing)\n",
+        (unsigned) loadedCount, (unsigned) header.usedRows, (unsigned) N3DS_FONT_SHARED_ATLAS_H,
+        (unsigned) (header.pixelBytes / 1024u));
+    return true;
+}
+
 // ===[ Entry point ]===
+
 
 // The character set is the same for every call, and reading the language files costs a few hundred KB of I/O each
 // time (the game calls this six times in a row), so it is built once and kept.

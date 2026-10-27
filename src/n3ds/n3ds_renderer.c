@@ -2673,6 +2673,37 @@ int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* base) {
 }
 
 // Uploads one size's strip into the shared texture at y0. Every size stacks below the one before it.
+const uint8_t* N3DSRenderer_sharedFontAtlasPixels(Renderer* base, uint32_t* usedRows) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL || usedRows == NULL) return NULL;
+    if (N3DSRenderer_sharedFontAtlasIndex(base) < 0 && N3DSRenderer_allocSharedFontAtlas(base) < 0) return NULL;
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, renderer->sharedFontAtlas.tpagIndex);
+    if (capture == NULL || capture->texture.data == NULL) return NULL;
+    *usedRows = N3DSRenderer_sharedFontAtlasNextY(base);
+    return (const uint8_t*) capture->texture.data;
+}
+
+bool N3DSRenderer_restoreSharedFontAtlasPixels(Renderer* base, const uint8_t* pixels, uint32_t usedRows) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL || pixels == NULL || usedRows == 0u || usedRows > N3DS_FONT_ATLAS_TEXTURE_SIZE) return false;
+    if (N3DSRenderer_sharedFontAtlasIndex(base) < 0 && N3DSRenderer_allocSharedFontAtlas(base) < 0) return false;
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_poolTPAG(renderer, renderer->sharedFontAtlas.tpagIndex);
+    if (capture == NULL || capture->texture.data == NULL) return false;
+
+    // Whole 8-row tiles: the cache stores exactly the rows the strips used, rounded up so the tiled layout lines up.
+    uint32_t rows = (usedRows + 7u) & ~7u;
+    if (rows > N3DS_FONT_ATLAS_TEXTURE_SIZE) rows = N3DS_FONT_ATLAS_TEXTURE_SIZE;
+    size_t bytes = (size_t) rows * (size_t) N3DS_FONT_ATLAS_TEXTURE_SIZE * 4u;
+    if (bytes > capture->texture.size) return false;
+
+    N3DSRenderer_frameGate(); // whatever the GPU sampled from the atlas last frame is no longer valid
+    memcpy(capture->texture.data, pixels, bytes);
+    GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
+    N3DSRenderer_setSharedFontAtlasNextY(base, usedRows);
+    N3DSRenderer_invalidateTextLayoutCache(base);
+    return true;
+}
+
 bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     if (renderer == NULL || rgba == NULL || w == 0u || h == 0u) return false;
