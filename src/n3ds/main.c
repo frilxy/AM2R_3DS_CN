@@ -872,11 +872,11 @@ int main(int argc, char** argv) {
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
+    // The font atlas the last run built has to come back before anything asks font_replace for a face: the 8px credit
+    // font is installed inside N3DSAm2r_init, and loading the cache after that would overwrite the atlas under a font
+    // that had already taken its glyph rectangles from it.
+    N3DSFontReplace_loadCache(runner);
     N3DSAm2r_init(runner);
-    // The on-card font cache is off for now: restoring the atlas made every string that uses it vanish (the glyph
-    // rectangles survive but come back pointing at a blank texture). The pieces stay in the tree so it can be
-    // finished with a dump-and-compare pass; until then the fonts are rasterized as before.
-    // N3DSFontReplace_loadCache(runner);
     // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
     // that will not decode) the screen keeps the plain black it always had.
     {
@@ -911,8 +911,8 @@ int main(int argc, char** argv) {
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
-    // Disabled with the load above.
-    // N3DSFontReplace_saveCache(runner);
+    // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next boot.
+    N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);

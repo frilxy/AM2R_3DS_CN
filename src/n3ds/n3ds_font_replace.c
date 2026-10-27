@@ -852,13 +852,16 @@ static const N3DSGlyphSet* N3DSFontReplace_glyphSet(void);
 // TTF, 1288 glyphs each. The result is deterministic for a given font file and size, and the game asks for the same six
 // slots every time, so it is written to the card once and read back (about 1.5 MB, 0.15 s) on later boots.
 //
+// Version 2 adds the glyph's codepoint (FontGlyph.character): without it the rebuilt font cannot resolve any character,
+// which is what made every shared-atlas string vanish in the first build that had this cache.
+//
 // The cache is keyed per strip by the font file's hash, its size and the requested pixel size, the same key
 // findStrip uses, so a font that changed on the card simply misses and is rasterized as before - it is appended after
 // the cached shelves and nothing already in the texture moves. A cache whose header or length does not match is
 // ignored wholesale, which leaves the normal path untouched.
 #define N3DS_FONT_CACHE_PATH N3DS_SD_DIR "fontcache.bin"
 #define N3DS_FONT_CACHE_MAGIC 0x31434641u // "AFC1"
-#define N3DS_FONT_CACHE_VERSION 1u
+#define N3DS_FONT_CACHE_VERSION 2u
 
 typedef struct {
     uint32_t magic;
@@ -939,8 +942,8 @@ bool N3DSFontReplace_saveCache(Runner* runner) {
         // The metrics only: kerning is never built for these fonts, and a pointer would be meaningless on the card.
         for (uint32_t g = 0; ok && g < strip->glyphCount; g++) {
             const FontGlyph* glyph = &strip->glyphs[g];
-            uint16_t fields[6] = {
-                glyph->sourceX, glyph->sourceY, glyph->sourceWidth, glyph->sourceHeight,
+            uint16_t fields[7] = {
+                glyph->character, glyph->sourceX, glyph->sourceY, glyph->sourceWidth, glyph->sourceHeight,
                 (uint16_t) glyph->shift, (uint16_t) glyph->offset,
             };
             ok = writeBytes(f, fields, sizeof(fields));
@@ -992,14 +995,15 @@ bool N3DSFontReplace_loadCache(Runner* runner) {
         if (record.glyphCount == 0u || record.glyphCount > 0x4000u) { ok = false; break; }
         FontGlyph* glyphs = (FontGlyph*) safeCalloc(record.glyphCount, sizeof(FontGlyph));
         for (uint32_t g = 0; ok && g < record.glyphCount; g++) {
-            uint16_t fields[6];
+            uint16_t fields[7];
             if (!readBytes(f, fields, sizeof(fields))) { ok = false; break; }
-            glyphs[g].sourceX = fields[0];
-            glyphs[g].sourceY = fields[1];
-            glyphs[g].sourceWidth = fields[2];
-            glyphs[g].sourceHeight = fields[3];
-            glyphs[g].shift = (int16_t) fields[4];
-            glyphs[g].offset = (int16_t) fields[5];
+            glyphs[g].character = fields[0];
+            glyphs[g].sourceX = fields[1];
+            glyphs[g].sourceY = fields[2];
+            glyphs[g].sourceWidth = fields[3];
+            glyphs[g].sourceHeight = fields[4];
+            glyphs[g].shift = (int16_t) fields[5];
+            glyphs[g].offset = (int16_t) fields[6];
         }
         if (!ok) { free(glyphs); break; }
         loaded[loadedCount].fileHash = record.fileHash;
