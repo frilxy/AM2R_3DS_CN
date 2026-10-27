@@ -820,6 +820,10 @@ void N3DSAm2r_init(Runner* runner) {
     // The 3DS front end's own pages are not in any language file, so their characters have to be offered to the font
     // loader before oControl builds the atlas, or they render as blanks.
     N3DSAm2r_registerPortGlyphs();
+    // The on-card font cache has to come back here: after the port's own characters have been offered to the glyph set
+    // (the cache key includes it, and a set built earlier is missing them) and before the credit font below installs a
+    // face, which would otherwise take its glyph rectangles from an atlas the cache then overwrites.
+    N3DSFontReplace_loadCache(runner);
     N3DSAm2r_installCreditFont(runner);
     N3DSAm2rNative_init(runner);
 }
