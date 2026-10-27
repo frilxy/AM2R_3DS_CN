@@ -872,11 +872,7 @@ int main(int argc, char** argv) {
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
-    // The font atlas the last run built has to come back before anything asks font_replace for a face: the 8px credit
-    // font is installed inside N3DSAm2r_init, and loading the cache after that would overwrite the atlas under a font
-    // that had already taken its glyph rectangles from it.
-    N3DSFontReplace_loadCache(runner);
-    N3DSAm2r_init(runner);
+    N3DSAm2r_init(runner); // loads the font cache itself, once the port's characters are in the glyph set
     // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
     // that will not decode) the screen keeps the plain black it always had.
     {
