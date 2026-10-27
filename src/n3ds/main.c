@@ -873,9 +873,10 @@ int main(int argc, char** argv) {
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
     N3DSAm2r_init(runner);
-    // The font atlas the last run built: the game's six font_replace calls below then find their strips already
-    // packed instead of decoding ~3.9 MB of TTF again.
-    N3DSFontReplace_loadCache(runner);
+    // The on-card font cache is off for now: restoring the atlas made every string that uses it vanish (the glyph
+    // rectangles survive but come back pointing at a blank texture). The pieces stay in the tree so it can be
+    // finished with a dump-and-compare pass; until then the fonts are rasterized as before.
+    // N3DSFontReplace_loadCache(runner);
     // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
     // that will not decode) the screen keeps the plain black it always had.
     {
@@ -910,9 +911,8 @@ int main(int argc, char** argv) {
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
-    // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next
-    // boot. A cache written before this point would be missing the sizes built during room start.
-    N3DSFontReplace_saveCache(runner);
+    // Disabled with the load above.
+    // N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
