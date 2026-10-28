@@ -3902,6 +3902,11 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     frame.parent = ctx->callStack;
     ctx->callStack = &frame;
     ctx->callDepth++;
+    // Every GML call is also a C call, so a deep script chain eats the thread stack. Name the depth in the log when it
+    // crosses a threshold: a crash right after such a line says the stack size (or the recursion) is the problem.
+    if (ctx->callDepth == 128 || ctx->callDepth == 256 || ctx->callDepth == 512 || ctx->callDepth == 1024) {
+        logInfo("VM: call depth %d in %s\n", ctx->callDepth, ctx->currentCodeName != NULL ? ctx->currentCodeName : "?");
+    }
 
     int32_t storedStackTop = ctx->stack.top;
 
