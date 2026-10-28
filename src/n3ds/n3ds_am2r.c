@@ -32,7 +32,9 @@
 #define N3DS_AM2R_SUPER_DAMAGE 5000.0
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
 
-enum { CHEAT_MASTER, CHEAT_HEALTH, CHEAT_AMMO, CHEAT_BEAM, CHEAT_BOMBS, CHEAT_MISSILES, CHEAT_COUNT };
+enum { CHEAT_MASTER, CHEAT_HEALTH, CHEAT_AMMO, CHEAT_BEAM, CHEAT_BOMBS, CHEAT_MISSILES, CHEAT_POWERUPS, CHEAT_COUNT };
+// global.item[0..N3DS_AM2R_ITEMS - 1]: the suits, balls, boots and beams (0 = not collected, 1 = have it on).
+#define N3DS_AM2R_ITEMS 15
 // The Cheats page's row after the switches opens the Teleport page: an area, a room in it, go (each page ends with Exit).
 enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
 enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
@@ -46,9 +48,9 @@ enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
 
 typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_EXTRAS, PAGE_CHEATS, PAGE_TELEPORT } N3DSAm2rPage;
 
-static const char* const kCheatNames[CHEAT_COUNT] = { "master", "health", "ammo", "beam", "bombs", "missiles" };
+static const char* const kCheatNames[CHEAT_COUNT] = { "master", "health", "ammo", "beam", "bombs", "missiles", "powerups" };
 static const char* const kCheatLabels[CHEAT_COUNT] = {
-    "Cheats", "Unlimited Health", "Unlimited Ammo", "Super Beam", "Super Bombs", "Super Missiles",
+    "Cheats", "Unlimited Health", "Unlimited Ammo", "Super Beam", "Super Bombs", "Super Missiles", "All Power-ups",
 };
 static const char* const kCheatTips[CHEAT_COUNT] = {
     "Turn all cheats on or off",
@@ -57,6 +59,7 @@ static const char* const kCheatTips[CHEAT_COUNT] = {
     "Beam shots destroy anything they hit",
     "Bombs and Power Bombs destroy anything they hit",
     "Missiles destroy anything they hit, Metroids too",
+    "Every suit, ball, boot and beam upgrade; back as it was when switched off",
 };
 
 typedef struct {
@@ -97,6 +100,10 @@ typedef struct {
     int32_t objGotoRoom;
     int32_t objSpots[8];
     int32_t objSpotCount;
+    // All Power-ups: the item states as they were, and which ones the cheat turned on.
+    bool itemsForced;
+    double itemBackup[N3DS_AM2R_ITEMS];
+    bool itemChanged[N3DS_AM2R_ITEMS];
     bool gameRunning; // a game has been played since the title screen (global.ingame is 0 while paused)
 } N3DSAm2r;
 
@@ -785,7 +792,38 @@ static void N3DSAm2r_fillGlobal(const char* var, const char* maxVar) {
     if (N3DSGml_getGlobal(maxVar, -1, &max)) N3DSGml_setGlobal(var, max);
 }
 
+// All Power-ups: every item that isn't collected is switched on while the cheat is; switching it off (or the master
+// switch) puts those back as they were, so a save made without the cheat keeps its own items.
+static void N3DSAm2r_applyPowerups(void) {
+    bool playing = gAm2r.gameRunning; // also while paused (global.ingame is 0 then)
+    if (N3DSAm2r_cheat(CHEAT_POWERUPS)) {
+        if (!playing && !gAm2r.itemsForced) return;
+        if (!gAm2r.itemsForced) {
+            gAm2r.itemsForced = true;
+            memset(gAm2r.itemChanged, 0, sizeof(gAm2r.itemChanged));
+            logInfo("AM2R: All Power-ups on\n");
+        }
+        for (int i = 0; i < N3DS_AM2R_ITEMS; i++) {
+            double v = 0.0;
+            if (!N3DSGml_getGlobal("item", i, &v)) continue;
+            if (v == 0.0 && !gAm2r.itemChanged[i]) {
+                gAm2r.itemBackup[i] = v;
+                gAm2r.itemChanged[i] = true;
+            }
+            if (v == 0.0) N3DSGml_setGlobalElement("item", i, 1.0);
+        }
+    } else if (gAm2r.itemsForced) {
+        gAm2r.itemsForced = false;
+        // Back at the title screen the items are another game's: leave them.
+        if (!gAm2r.gameRunning) return;
+        for (int i = 0; i < N3DS_AM2R_ITEMS; i++) {
+            if (gAm2r.itemChanged[i]) N3DSGml_setGlobalElement("item", i, gAm2r.itemBackup[i]);
+        }
+    }
+}
+
 static void N3DSAm2r_applyCheats(void) {
+    N3DSAm2r_applyPowerups();
     if (!gAm2r.cheats[CHEAT_MASTER]) return;
     double inGame = 0.0;
     if (!N3DSGml_getGlobal("ingame", -1, &inGame) || inGame == 0.0) return;
