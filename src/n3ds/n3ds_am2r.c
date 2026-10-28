@@ -38,9 +38,13 @@ enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
 enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
 #define N3DS_AM2R_AREAS 10
 #define N3DS_AM2R_MAX_AREA_ROOMS 64
-enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_CHEATS, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+// The Extras page wraps the game's own Extras page (EXTRAS_ROW_GAME) and holds Cheats.
+enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
+// Rows a page shows at once (the tip bar covers the rest of the screen); longer pages scroll.
+#define N3DS_AM2R_PAGE_VISIBLE_ROWS 6
 
-typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_CHEATS, PAGE_TELEPORT } N3DSAm2rPage;
+typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_EXTRAS, PAGE_CHEATS, PAGE_TELEPORT } N3DSAm2rPage;
 
 static const char* const kCheatNames[CHEAT_COUNT] = { "master", "health", "ammo", "beam", "bombs", "missiles" };
 static const char* const kCheatLabels[CHEAT_COUNT] = {
@@ -64,7 +68,7 @@ typedef struct {
 typedef struct {
     Runner* runner;
     bool active;
-    int32_t objOptionsMain, objOptionsDisplay, objOptionsControl, objControl;
+    int32_t objOptionsMain, objOptionsDisplay, objOptionsExtras, objOptionsControl, objControl;
     int32_t objMenuLabel, objOptionLR, objPauseOption, objWaterFX;
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
@@ -86,6 +90,13 @@ typedef struct {
     int32_t teleRooms[N3DS_AM2R_AREAS][N3DS_AM2R_MAX_AREA_ROOMS];
     int32_t teleRoomCount[N3DS_AM2R_AREAS];
     int32_t teleArea, teleRoom;
+    int32_t pageFirst; // the first row shown on a page that scrolls
+    bool gameExtras;   // the game's own Extras page is up (not replaced by ours)
+    // After a teleport: the room we are going to, and where Samus can stand there (checked in this order).
+    int32_t teleTarget, teleFrames;
+    int32_t objGotoRoom;
+    int32_t objSpots[8];
+    int32_t objSpotCount;
     bool gameRunning; // a game has been played since the title screen (global.ingame is 0 while paused)
 } N3DSAm2r;
 
@@ -345,6 +356,16 @@ void N3DSAm2r_init(Runner* runner) {
     gAm2r.lastControlPage = -1;
     gAm2r.objOptionsMain = N3DSGml_objectIndex("oOptionsMain");
     gAm2r.objOptionsDisplay = N3DSGml_objectIndex("oOptionsDisplay");
+    gAm2r.objOptionsExtras = N3DSGml_objectIndex("oOptionsExtras");
+    gAm2r.teleTarget = -1;
+    gAm2r.objGotoRoom = N3DSGml_objectIndex("oGotoRoom");
+    {
+        static const char* const kSpots[] = { "oSaveStation", "oDoor", "oDoorA4", "oDoorA5", "oDoorA8", "oA3LabDoor", "oElevator" };
+        for (size_t i = 0; i < sizeof(kSpots) / sizeof(kSpots[0]); i++) {
+            int32_t o = N3DSGml_objectIndex(kSpots[i]);
+            if (o >= 0) gAm2r.objSpots[gAm2r.objSpotCount++] = o;
+        }
+    }
     gAm2r.objOptionsControl = N3DSGml_objectIndex("oOptionsControl");
     gAm2r.objControl = N3DSGml_objectIndex("oControl");
     gAm2r.objMenuLabel = N3DSGml_objectIndex("oMenuLabel");
@@ -443,13 +464,36 @@ static Instance* N3DSAm2r_pageRow(int i) {
 
 // Rows of each page (the last one is Exit).
 static int N3DSAm2r_pageRowCount(N3DSAm2rPage page) {
-    return page == PAGE_DISPLAY ? DISPLAY_ROW_COUNT : page == PAGE_TELEPORT ? TELE_PAGE_ROWS + 1 : CHEATS_PAGE_ROWS + 1;
+    return page == PAGE_DISPLAY ? DISPLAY_ROW_COUNT : page == PAGE_EXTRAS ? EXTRAS_PAGE_ROWS + 1
+        : page == PAGE_TELEPORT ? TELE_PAGE_ROWS + 1 : CHEATS_PAGE_ROWS + 1;
+}
+
+// Places the page's rows: the window of rows around the selection, the others hidden.
+static void N3DSAm2r_layoutRows(int32_t selected) {
+    int count = N3DSAm2r_pageRowCount(gAm2r.page);
+    if (selected >= 0 && selected < count) {
+        if (selected < gAm2r.pageFirst) gAm2r.pageFirst = selected;
+        if (selected >= gAm2r.pageFirst + N3DS_AM2R_PAGE_VISIBLE_ROWS) gAm2r.pageFirst = selected - N3DS_AM2R_PAGE_VISIBLE_ROWS + 1;
+    }
+    if (count <= N3DS_AM2R_PAGE_VISIBLE_ROWS) gAm2r.pageFirst = 0;
+    for (int i = 0; i < count; i++) {
+        Instance* row = N3DSAm2r_pageRow(i);
+        if (row == NULL) continue;
+        row->y = N3DS_AM2R_PAGE_Y - 8.0f + N3DS_AM2R_ROW_SEP * (float) (i + 1 - gAm2r.pageFirst);
+        row->visible = i >= gAm2r.pageFirst && i < gAm2r.pageFirst + N3DS_AM2R_PAGE_VISIBLE_ROWS;
+    }
 }
 
 static void N3DSAm2r_refreshPage(void) {
     double curropt = 0.0;
     N3DSGml_getGlobal("curropt", -1, &curropt);
     int32_t selected = (int32_t) curropt;
+    N3DSAm2r_layoutRows(selected);
+    if (gAm2r.page == PAGE_EXTRAS) {
+        N3DSGml_setGlobalString("tiptext", selected == EXTRAS_ROW_GAME ? "The game's own extras"
+            : selected == EXTRAS_ROW_CHEATS ? "Unlimited health and ammo, stronger weapons, teleport" : "Back to the options");
+        return;
+    }
     if (gAm2r.page == PAGE_DISPLAY) {
         Instance* screen = N3DSAm2r_pageRow(DISPLAY_ROW_SCREEN);
         if (screen != NULL) N3DSGml_setVarString(screen, "optext", kScreenModeNames[N3DSAm2r_screenModeSlot()]);
@@ -466,7 +510,6 @@ static void N3DSAm2r_refreshPage(void) {
             : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
                 : "Busy game scripts run as built-in code: faster, same behaviour")
             : selected == DISPLAY_ROW_FPS ? "A small frame rate counter in the bottom-left corner"
-            : selected == DISPLAY_ROW_CHEATS ? "Unlimited health and ammo, stronger weapons"
             : "Back to the options";
         N3DSGml_setGlobalString("tiptext", tip);
         return;
@@ -490,23 +533,24 @@ static void N3DSAm2r_refreshPage(void) {
         N3DSGml_setVar(row, "enabled", (i == CHEAT_MASTER || gAm2r.cheats[CHEAT_MASTER]) ? 1.0 : 0.0);
     }
     N3DSGml_setGlobalString("tiptext", selected >= 0 && selected < CHEAT_COUNT ? kCheatTips[selected]
-        : selected == CHEATS_PAGE_TELEPORT ? "Go to any room (while playing)" : "Back to the options");
+        : selected == CHEATS_PAGE_TELEPORT ? "Go to any room (while playing)" : "Back to the extras");
 }
 
 // Pages built from the game's own row objects, where the game's pages go (oOptionsMain creates them at (50, 92)):
-// Display in place of the game's Display page (Screen, Cheats, Exit), and Cheats from it.
+// Display in place of the game's Display page, Extras in front of the game's Extras page, and Cheats and Teleport from it.
 static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     float x = N3DS_AM2R_PAGE_X, y = N3DS_AM2R_PAGE_Y - 8.0f;
     Instance* title = N3DSGml_create(x, y, gAm2r.objMenuLabel);
-    if (title != NULL) N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? "Display" : page == PAGE_TELEPORT ? "Teleport" : "Cheats");
+    if (title != NULL) N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? "Display" : page == PAGE_EXTRAS ? "Extras" : page == PAGE_TELEPORT ? "Teleport" : "Cheats");
     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
         bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
-            i == DISPLAY_ROW_FPS) : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
+            i == DISPLAY_ROW_FPS) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
         const char* label = i == count - 1 ? "Exit"
             : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
-                : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Cheats")
+                : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : "FPS counter")
+            : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? "Game extras" : "Cheats")
             : page == PAGE_TELEPORT ? (i == TELE_AREA ? "Area" : i == TELE_ROOM ? "Room" : "Go")
             : i == CHEATS_PAGE_TELEPORT ? "Teleport" : kCheatLabels[i];
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
@@ -518,6 +562,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     N3DSGml_setGlobal("curropt", (double) selected);
     gAm2r.page = page;
     gAm2r.pageFrames = 0;
+    gAm2r.pageFirst = 0;
     N3DSAm2r_refreshPage();
 }
 
@@ -533,6 +578,46 @@ static bool N3DSAm2r_pressed(Instance* control, const char* key) {
     snprintf(steps, sizeof(steps), "%sPushedSteps", key);
     double down = 0.0, pushed = 1.0;
     return N3DSGml_getVar(control, key, &down) && down > 0.0 && N3DSGml_getVar(control, steps, &pushed) && pushed == 0.0;
+}
+
+// After a teleport: once the new room has started, Samus goes next to a save station or a door (the game puts her at
+// the last save's spot, which belongs to another room), and is made if the pause screen left none.
+static void N3DSAm2r_placeSamus(void) {
+    if (gAm2r.teleTarget < 0 || gAm2r.runner->currentRoomIndex != gAm2r.teleTarget) return;
+    if (++gAm2r.teleFrames < 4) return;
+    gAm2r.teleTarget = -1;
+    Instance* spot = NULL;
+    for (int i = 0; i < gAm2r.objSpotCount && spot == NULL; i++) spot = N3DSGml_anyInstance(gAm2r.objSpots[i]);
+    float roomWidth = (float) gAm2r.runner->currentRoom->width;
+    float x = roomWidth / 2, y = (float) gAm2r.runner->currentRoom->height / 2;
+    float roomHeight = (float) gAm2r.runner->currentRoom->height;
+    if (spot != NULL) {
+        x = spot->x + (spot->x < roomWidth / 2 ? 32.0f : -32.0f);
+        y = spot->y;
+    } else if (gAm2r.objGotoRoom >= 0) {
+        // The room's exits are oGotoRoom triggers on its edges: a side exit if there is one, else any; Samus is put well
+        // inside, clear of the trigger, and falls to the floor.
+        Instance* exits[16];
+        int32_t n = N3DSGml_instances(gAm2r.objGotoRoom, exits, 16);
+        Instance* pick = NULL;
+        for (int32_t k = 0; k < n; k++) {
+            bool side = exits[k]->x <= 64.0f || exits[k]->x >= roomWidth - 64.0f;
+            if (pick == NULL || (side && !(pick->x <= 64.0f || pick->x >= roomWidth - 64.0f))) pick = exits[k];
+        }
+        if (pick != NULL) {
+            spot = pick;
+            x = pick->x <= 64.0f ? pick->x + 64.0f : pick->x >= roomWidth - 64.0f ? pick->x - 64.0f : pick->x;
+            y = pick->y <= 64.0f ? pick->y + 64.0f : pick->y >= roomHeight - 64.0f ? pick->y - 64.0f : pick->y;
+        }
+    }
+    Instance* samus = N3DSGml_anyInstance(gAm2r.objCharacter);
+    if (samus == NULL) samus = N3DSGml_create(x, y, gAm2r.objCharacter);
+    if (samus == NULL) return;
+    samus->x = x;
+    samus->y = y;
+    N3DSGml_setVar(samus, "hspeed", 0.0);
+    N3DSGml_setVar(samus, "vspeed", 0.0);
+    logInfo("AM2R: Samus placed at %.0f, %.0f in %s (%s)\n", x, y, gAm2r.runner->currentRoom->name, spot != NULL ? "next to an exit or save station" : "room centre");
 }
 
 static void N3DSAm2r_updatePage(void) {
@@ -561,18 +646,25 @@ static void N3DSAm2r_updatePage(void) {
         selected = selected <= 0 ? exitRow : selected - 1;
         N3DSAm2r_sfx(gAm2r.sndMenuMove);
     } else if (N3DSAm2r_pressed(control, "kMenu2") || (selected == exitRow && menu1)) {
-        // Back: from Teleport to Cheats, from Cheats to Display, from Display to the options.
+        // Back: from Teleport to Cheats, from Cheats to Extras, from Extras and Display to the options.
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
         N3DSAm2rPage page = gAm2r.page;
         N3DSAm2r_closePage();
         if (page == PAGE_TELEPORT) N3DSAm2r_openPage(PAGE_CHEATS, CHEATS_PAGE_TELEPORT);
-        else if (page == PAGE_CHEATS) N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_CHEATS);
+        else if (page == PAGE_CHEATS) N3DSAm2r_openPage(PAGE_EXTRAS, EXTRAS_ROW_CHEATS);
         else N3DSGml_create(N3DS_AM2R_PAGE_X, N3DS_AM2R_PAGE_Y, gAm2r.objOptionsMain);
         return;
-    } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_CHEATS && menu1) {
+    } else if (gAm2r.page == PAGE_EXTRAS && selected == EXTRAS_ROW_CHEATS && menu1) {
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
         N3DSAm2r_closePage();
         N3DSAm2r_openPage(PAGE_CHEATS, 0);
+        return;
+    } else if (gAm2r.page == PAGE_EXTRAS && selected == EXTRAS_ROW_GAME && menu1) {
+        // The game's own Extras page, on top of ours (its Exit goes to the options).
+        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+        N3DSAm2r_closePage();
+        gAm2r.gameExtras = true;
+        N3DSGml_create(N3DS_AM2R_PAGE_X, N3DS_AM2R_PAGE_Y, gAm2r.objOptionsExtras);
         return;
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_SCREEN && (menu1 || left || right)) {
         int slot = N3DSAm2r_screenModeSlot() + (left ? N3DS_AM2R_SCREEN_MODES - 1 : 1);
@@ -601,7 +693,11 @@ static void N3DSAm2r_updatePage(void) {
         int32_t n = gAm2r.teleRoomCount[gAm2r.teleArea];
         if (n > 0 && gAm2r.gameRunning) {
             N3DSAm2r_sfx(gAm2r.sndMenuSel);
-            gAm2r.runner->pendingRoom = gAm2r.teleRooms[gAm2r.teleArea][gAm2r.teleRoom % n];
+            // The game is paused (global.ingame 0): it plays again in the new room, where Samus is put on a spot.
+            N3DSGml_setGlobal("ingame", 1.0);
+            gAm2r.teleTarget = gAm2r.teleRooms[gAm2r.teleArea][gAm2r.teleRoom % n];
+            gAm2r.teleFrames = 0;
+            gAm2r.runner->pendingRoom = gAm2r.teleTarget;
             logInfo("AM2R: teleport to %s\n", N3DSAm2r_teleRoomName());
             return;
         }
@@ -795,12 +891,18 @@ void N3DSAm2r_update(void) {
     else if (gAm2r.runner->currentRoomIndex == gAm2r.roomTitle) gAm2r.gameRunning = false;
     if (gAm2r.page != PAGE_NONE) {
         N3DSAm2r_updatePage();
-    } else if (gAm2r.objOptionsDisplay >= 0) {
-        Instance* display = N3DSGml_anyInstance(gAm2r.objOptionsDisplay);
+    } else {
+        Instance* display = gAm2r.objOptionsDisplay >= 0 ? N3DSGml_anyInstance(gAm2r.objOptionsDisplay) : NULL;
+        Instance* extras = gAm2r.objOptionsExtras >= 0 ? N3DSGml_anyInstance(gAm2r.objOptionsExtras) : NULL;
+        if (extras == NULL) gAm2r.gameExtras = false;
         if (display != NULL) {
             N3DSGml_destroy(display);
             N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_SCREEN);
+        } else if (extras != NULL && !gAm2r.gameExtras) {
+            N3DSGml_destroy(extras);
+            N3DSAm2r_openPage(PAGE_EXTRAS, EXTRAS_ROW_GAME);
         }
     }
+    N3DSAm2r_placeSamus();
     N3DSAm2r_applyCheats();
 }
