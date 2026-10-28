@@ -919,6 +919,7 @@ int main(int argc, char** argv) {
     uint64_t lastFrameStartTime = nowNanos();
     u64 statsStartMs = osGetTime();
     uint32_t statsFrames = 0;
+    uint32_t gStackLowest = 0;
     double statsStepMs = 0.0, statsDrawMs = 0.0, statsWaitMs = 0.0;
     uint32_t statsSprites = 0, statsParts = 0, statsFrags = 0, statsGlyphs = 0, statsFlushes = 0;
     double pacedSpeed = 0.0;
@@ -1204,6 +1205,15 @@ int main(int argc, char** argv) {
 
         N3DSLog_tick();
 
+        // Deepest stack pointer seen this session. A crash dump caught the main thread storing to the stack with SP at
+        // 0x080070d0 and the faulting address nowhere near it; if the stack really is the problem, this number walks
+        // towards that value first, and the Perf line shows it before the crash.
+        {
+            uint32_t frameSp;
+            __asm__ volatile("mov %0, sp" : "=r"(frameSp));
+            if (gStackLowest == 0u || frameSp < gStackLowest) gStackLowest = frameSp;
+        }
+
         statsFrames++;
         statsStepMs += stepMs;
         statsDrawMs += drawMs;
@@ -1222,11 +1232,11 @@ int main(int argc, char** argv) {
 #ifdef N3DS_ENABLE_AUDIO
             effects = N3DSAudio_effectsStarted(runner->audioSystem);
 #endif
-            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, heap free %lu KB, heap arena %lu KB, linear free %lu KB, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
+            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, heap free %lu KB, heap arena %lu KB, linear free %lu KB, stack low 0x%08lx, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
                 (double) statsFrames / seconds, statsStepMs / statsFrames, statsDrawMs / statsFrames, statsWaitMs / statsFrames, (unsigned) statsFrames, statsMaxFrameMs,
                 runner->currentRoom != NULL ? runner->currentRoom->name : "-",
                 (unsigned long) (mi.uordblks / 1024u), (unsigned long) (mi.fordblks / 1024u),
-                (unsigned long) (mi.arena / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects,
+                (unsigned long) (mi.arena / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) gStackLowest, (unsigned long) effects,
                 (double) statsSprites / statsFrames, (double) statsParts / statsFrames, (double) statsFrags / statsFrames,
                 (double) statsGlyphs / statsFrames, (double) statsFlushes / statsFrames);
             statsStartMs = nowMs;
