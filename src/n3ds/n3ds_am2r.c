@@ -33,9 +33,14 @@
 #define N3DS_AM2R_CHEATS_FILE N3DS_SD_DIR "cheats.ini"
 
 enum { CHEAT_MASTER, CHEAT_HEALTH, CHEAT_AMMO, CHEAT_BEAM, CHEAT_BOMBS, CHEAT_MISSILES, CHEAT_COUNT };
+// The Cheats page's row after the switches opens the Teleport page: an area, a room in it, go (each page ends with Exit).
+enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
+enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
+#define N3DS_AM2R_AREAS 10
+#define N3DS_AM2R_MAX_AREA_ROOMS 64
 enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_CHEATS, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
 
-typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_CHEATS } N3DSAm2rPage;
+typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_CHEATS, PAGE_TELEPORT } N3DSAm2rPage;
 
 static const char* const kCheatNames[CHEAT_COUNT] = { "master", "health", "ammo", "beam", "bombs", "missiles" };
 static const char* const kCheatLabels[CHEAT_COUNT] = {
@@ -76,7 +81,12 @@ typedef struct {
     N3DSAm2rPage page;
     int32_t pageFrames;
     int32_t pageTitle;
-    int32_t pageRows[CHEAT_COUNT + 1 > DISPLAY_ROW_COUNT ? CHEAT_COUNT + 1 : DISPLAY_ROW_COUNT];
+    int32_t pageRows[CHEATS_PAGE_ROWS + 1 > DISPLAY_ROW_COUNT ? CHEATS_PAGE_ROWS + 1 : DISPLAY_ROW_COUNT];
+    // Teleport: the game's rooms named rm_a<area digit>..., by area, in room order.
+    int32_t teleRooms[N3DS_AM2R_AREAS][N3DS_AM2R_MAX_AREA_ROOMS];
+    int32_t teleRoomCount[N3DS_AM2R_AREAS];
+    int32_t teleArea, teleRoom;
+    bool gameRunning; // a game has been played since the title screen (global.ingame is 0 while paused)
 } N3DSAm2r;
 
 static N3DSAm2r gAm2r;
@@ -293,6 +303,40 @@ static bool N3DSAm2r_cheat(int which) {
     return gAm2r.cheats[CHEAT_MASTER] && gAm2r.cheats[which];
 }
 
+// ===[ Teleport ]===
+
+static void N3DSAm2r_collectRooms(void) {
+    DataWin* dataWin = gAm2r.runner->dataWin;
+    for (uint32_t i = 0; i < dataWin->room.count; i++) {
+        const char* name = dataWin->room.rooms[i].name;
+        if (name == NULL || strncmp(name, "rm_a", 4) != 0 || name[4] < '0' || name[4] > '9') continue;
+        int area = name[4] - '0';
+        if (gAm2r.teleRoomCount[area] < N3DS_AM2R_MAX_AREA_ROOMS) gAm2r.teleRooms[area][gAm2r.teleRoomCount[area]++] = (int32_t) i;
+    }
+    while (gAm2r.teleArea < N3DS_AM2R_AREAS - 1 && gAm2r.teleRoomCount[gAm2r.teleArea] == 0) gAm2r.teleArea++;
+}
+
+static const char* N3DSAm2r_teleRoomName(void) {
+    int32_t n = gAm2r.teleRoomCount[gAm2r.teleArea];
+    if (n == 0) return "-";
+    return gAm2r.runner->dataWin->room.rooms[gAm2r.teleRooms[gAm2r.teleArea][gAm2r.teleRoom % n]].name;
+}
+
+static void N3DSAm2r_teleStep(int row, int delta) {
+    if (row == TELE_AREA) {
+        int a = gAm2r.teleArea;
+        for (int k = 0; k < N3DS_AM2R_AREAS; k++) {
+            a = (a + N3DS_AM2R_AREAS + delta) % N3DS_AM2R_AREAS;
+            if (gAm2r.teleRoomCount[a] > 0) break;
+        }
+        gAm2r.teleArea = a;
+        gAm2r.teleRoom = 0;
+    } else {
+        int n = gAm2r.teleRoomCount[gAm2r.teleArea];
+        if (n > 0) gAm2r.teleRoom = (gAm2r.teleRoom + n + delta) % n;
+    }
+}
+
 // ===[ Init ]===
 
 void N3DSAm2r_init(Runner* runner) {
@@ -353,6 +397,7 @@ void N3DSAm2r_init(Runner* runner) {
     // Fast scripts default to on; cheats.ini can turn them off.
     N3DSAm2rNative_setEnabled(true);
     N3DSAm2r_loadCheats();
+    N3DSAm2r_collectRooms();
     N3DSAm2rNative_init(runner);
 }
 
@@ -398,7 +443,7 @@ static Instance* N3DSAm2r_pageRow(int i) {
 
 // Rows of each page (the last one is Exit).
 static int N3DSAm2r_pageRowCount(N3DSAm2rPage page) {
-    return page == PAGE_DISPLAY ? DISPLAY_ROW_COUNT : CHEAT_COUNT + 1;
+    return page == PAGE_DISPLAY ? DISPLAY_ROW_COUNT : page == PAGE_TELEPORT ? TELE_PAGE_ROWS + 1 : CHEATS_PAGE_ROWS + 1;
 }
 
 static void N3DSAm2r_refreshPage(void) {
@@ -426,13 +471,26 @@ static void N3DSAm2r_refreshPage(void) {
         N3DSGml_setGlobalString("tiptext", tip);
         return;
     }
+    if (gAm2r.page == PAGE_TELEPORT) {
+        char areaText[8];
+        snprintf(areaText, sizeof(areaText), "A%d", (int) gAm2r.teleArea);
+        Instance* area = N3DSAm2r_pageRow(TELE_AREA);
+        if (area != NULL) N3DSGml_setVarString(area, "optext", areaText);
+        Instance* room = N3DSAm2r_pageRow(TELE_ROOM);
+        if (room != NULL) N3DSGml_setVarString(room, "optext", N3DSAm2r_teleRoomName());
+        N3DSGml_setGlobalString("tiptext", selected == TELE_AREA ? "The area (A0 to A8) of the room to go to"
+            : selected == TELE_ROOM ? "The room to go to" : selected == TELE_GO ? "Go to the chosen room (while playing)"
+            : "Back to the cheats");
+        return;
+    }
     for (int i = 0; i < CHEAT_COUNT; i++) {
         Instance* row = N3DSAm2r_pageRow(i);
         if (row == NULL) continue;
         N3DSGml_setVarString(row, "optext", gAm2r.cheats[i] ? "ON" : "OFF");
         N3DSGml_setVar(row, "enabled", (i == CHEAT_MASTER || gAm2r.cheats[CHEAT_MASTER]) ? 1.0 : 0.0);
     }
-    N3DSGml_setGlobalString("tiptext", selected >= 0 && selected < CHEAT_COUNT ? kCheatTips[selected] : "Back to the options");
+    N3DSGml_setGlobalString("tiptext", selected >= 0 && selected < CHEAT_COUNT ? kCheatTips[selected]
+        : selected == CHEATS_PAGE_TELEPORT ? "Go to any room (while playing)" : "Back to the options");
 }
 
 // Pages built from the game's own row objects, where the game's pages go (oOptionsMain creates them at (50, 92)):
@@ -440,16 +498,17 @@ static void N3DSAm2r_refreshPage(void) {
 static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     float x = N3DS_AM2R_PAGE_X, y = N3DS_AM2R_PAGE_Y - 8.0f;
     Instance* title = N3DSGml_create(x, y, gAm2r.objMenuLabel);
-    if (title != NULL) N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? "Display" : "Cheats");
+    if (title != NULL) N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? "Display" : page == PAGE_TELEPORT ? "Teleport" : "Cheats");
     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
         bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
-            i == DISPLAY_ROW_FPS) : i < CHEAT_COUNT;
+            i == DISPLAY_ROW_FPS) : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
         const char* label = i == count - 1 ? "Exit"
             : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
                 : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Cheats")
-            : kCheatLabels[i];
+            : page == PAGE_TELEPORT ? (i == TELE_AREA ? "Area" : i == TELE_ROOM ? "Room" : "Go")
+            : i == CHEATS_PAGE_TELEPORT ? "Teleport" : kCheatLabels[i];
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
         gAm2r.pageRows[i] = row != NULL ? (int32_t) row->instanceId : -1;
         if (row == NULL) continue;
@@ -502,11 +561,12 @@ static void N3DSAm2r_updatePage(void) {
         selected = selected <= 0 ? exitRow : selected - 1;
         N3DSAm2r_sfx(gAm2r.sndMenuMove);
     } else if (N3DSAm2r_pressed(control, "kMenu2") || (selected == exitRow && menu1)) {
-        // Back: from Cheats to Display, from Display to the options.
+        // Back: from Teleport to Cheats, from Cheats to Display, from Display to the options.
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
         N3DSAm2rPage page = gAm2r.page;
         N3DSAm2r_closePage();
-        if (page == PAGE_CHEATS) N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_CHEATS);
+        if (page == PAGE_TELEPORT) N3DSAm2r_openPage(PAGE_CHEATS, CHEATS_PAGE_TELEPORT);
+        else if (page == PAGE_CHEATS) N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_CHEATS);
         else N3DSGml_create(N3DS_AM2R_PAGE_X, N3DS_AM2R_PAGE_Y, gAm2r.objOptionsMain);
         return;
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_CHEATS && menu1) {
@@ -528,6 +588,23 @@ static void N3DSAm2r_updatePage(void) {
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_FPS && (menu1 || left || right)) {
         N3DS_setFpsCounter(!N3DS_getFpsCounter());
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
+    } else if (gAm2r.page == PAGE_CHEATS && selected == CHEATS_PAGE_TELEPORT && menu1) {
+        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+        N3DSAm2r_closePage();
+        N3DSAm2r_openPage(PAGE_TELEPORT, TELE_AREA);
+        return;
+    } else if (gAm2r.page == PAGE_TELEPORT && (selected == TELE_AREA || selected == TELE_ROOM) && (menu1 || left || right)) {
+        N3DSAm2r_teleStep(selected, left ? -1 : 1);
+        N3DSAm2r_sfx(gAm2r.sndMenuMove);
+    } else if (gAm2r.page == PAGE_TELEPORT && selected == TELE_GO && menu1) {
+        // Only with a game running: the rooms expect Samus and the game's state.
+        int32_t n = gAm2r.teleRoomCount[gAm2r.teleArea];
+        if (n > 0 && gAm2r.gameRunning) {
+            N3DSAm2r_sfx(gAm2r.sndMenuSel);
+            gAm2r.runner->pendingRoom = gAm2r.teleRooms[gAm2r.teleArea][gAm2r.teleRoom % n];
+            logInfo("AM2R: teleport to %s\n", N3DSAm2r_teleRoomName());
+            return;
+        }
     } else if (gAm2r.page == PAGE_CHEATS && selected < CHEAT_COUNT && (menu1 || left || right)) {
         gAm2r.cheats[selected] = !gAm2r.cheats[selected];
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
@@ -713,6 +790,9 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_checkWidescreenSurface();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();
+    double inGame = 0.0;
+    if (N3DSGml_getGlobal("ingame", -1, &inGame) && inGame != 0.0) gAm2r.gameRunning = true;
+    else if (gAm2r.runner->currentRoomIndex == gAm2r.roomTitle) gAm2r.gameRunning = false;
     if (gAm2r.page != PAGE_NONE) {
         N3DSAm2r_updatePage();
     } else if (gAm2r.objOptionsDisplay >= 0) {
