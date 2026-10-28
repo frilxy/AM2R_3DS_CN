@@ -1,5 +1,4 @@
 #include "n3ds_renderer.h"
-#include "n3ds_fpu.h"
 #include "n3ds_screen.h"
 #include "n3ds_prof.h"
 #include "n3ds_platform_config.h"
@@ -1502,7 +1501,6 @@ static bool N3DSRenderer_evictLRUPageBlob(N3DSRenderer* renderer, uint32_t exclu
 #define N3DS_BLOB_LOADER_PRIORITY 0x2F
 
 static void N3DSBlobLoader_main(void* arg) {
-    N3DS_enableFpuForThisThread();
     // A landmark for crash dumps: the dump only gives SP, and matching it to a thread needs to know where each stack
     // lives. (The Zeta crash dumps all showed SP near 0x080070c8, which is somebody's stack bottom or close to it.)
     logInfo("N3DS: page loader thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
@@ -1548,7 +1546,18 @@ static void N3DSBlobLoader_main(void* arg) {
     }
 }
 
+// Temporary bisect switch: the background page reader is the one piece of the startup work that runs on a second
+// thread, and the Zeta crash looks like memory being written by something other than the running code. Set to 0 to
+// read every page blob on the main thread again and see whether the crash survives.
+#ifndef N3DS_ENABLE_BLOB_LOADER
+#define N3DS_ENABLE_BLOB_LOADER 0
+#endif
+
 static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
+#if !N3DS_ENABLE_BLOB_LOADER
+    (void) renderer;
+    return;
+#else
     if (renderer->packedAtlasFile == NULL || !N3DSRenderer_isPackedAtlasVersion(renderer->atlasVersion)) return;
     N3DSBlobLoader* loader = &renderer->blobLoader;
     char path[256];
@@ -1569,6 +1578,7 @@ static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
         return;
     }
     renderer->blobLoaderRunning = true;
+#endif
 }
 
 static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
