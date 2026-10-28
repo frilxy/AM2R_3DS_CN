@@ -1,4 +1,5 @@
 #include "n3ds_audio_system.h"
+#include "n3ds_fpu.h"
 #include "n3ds_debug_log.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_prof.h"
@@ -2700,6 +2701,7 @@ static bool N3DSAudio_hasPendingAsyncFillLocked(const N3DSAudioSystem* audio) {
 }
 
 static void N3DSAudio_streamWorkerMain(void* arg) {
+    N3DS_enableFpuForThisThread();
     logInfo("N3DS: audio thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
     N3DSAudioSystem* audio = (N3DSAudioSystem*) arg;
     if (audio == NULL) threadExit(0);

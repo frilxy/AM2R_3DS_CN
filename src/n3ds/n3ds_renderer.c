@@ -1,4 +1,5 @@
 #include "n3ds_renderer.h"
+#include "n3ds_fpu.h"
 #include "n3ds_screen.h"
 #include "n3ds_prof.h"
 #include "n3ds_platform_config.h"
@@ -1501,6 +1502,7 @@ static bool N3DSRenderer_evictLRUPageBlob(N3DSRenderer* renderer, uint32_t exclu
 #define N3DS_BLOB_LOADER_PRIORITY 0x2F
 
 static void N3DSBlobLoader_main(void* arg) {
+    N3DS_enableFpuForThisThread();
     // A landmark for crash dumps: the dump only gives SP, and matching it to a thread needs to know where each stack
     // lives. (The Zeta crash dumps all showed SP near 0x080070c8, which is somebody's stack bottom or close to it.)
     logInfo("N3DS: page loader thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
