@@ -59,14 +59,17 @@ void N3DSLog_init(void) {
     // A session that did not exit cleanly is kept as log_crash.txt: rotating it into log_prev.txt means the next launch
     // overwrites it, and the player relaunches the game before copying anything - which is exactly how the first crash
     // logs were lost.
+    bool keptCrashLog = false;
     if (!N3DSLog_previousRunExitedCleanly()) {
         remove(N3DS_SD_DIR "log_crash.txt");
-        rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_crash.txt");
+        keptCrashLog = rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_crash.txt") == 0;
     }
     // The last run's log survives one relaunch.
     remove(N3DS_SD_DIR "log_prev.txt");
     rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_prev.txt");
     gLogFile = fopen(N3DS_SD_DIR "log.txt", "w");
+    // Say so in the new log: it is the only way to tell from the outside whether the crashed session was preserved.
+    if (keptCrashLog) logInfo("Previous session did not exit cleanly; its log is log_crash.txt\n");
 }
 
 void N3DSLog_close(void) {

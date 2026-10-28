@@ -185,6 +185,7 @@ static void writeBack(N3DSCachedFileSystem* c, N3DSFileEntry* e) {
 #define N3DS_FS_WRITER_PRIORITY 0x2F
 
 static void writerMain(void* arg) {
+    logInfo("N3DS: file writer thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
     N3DSCachedFileSystem* c = arg;
     while (true) {
         LightEvent_Wait(&c->wake);

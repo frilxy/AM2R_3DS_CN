@@ -2700,6 +2700,7 @@ static bool N3DSAudio_hasPendingAsyncFillLocked(const N3DSAudioSystem* audio) {
 }
 
 static void N3DSAudio_streamWorkerMain(void* arg) {
+    logInfo("N3DS: audio thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
     N3DSAudioSystem* audio = (N3DSAudioSystem*) arg;
     if (audio == NULL) threadExit(0);
 
