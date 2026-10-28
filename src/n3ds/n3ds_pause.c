@@ -583,14 +583,11 @@ bool N3DSPause_update(void) {
         gPause.captureFrame = 0;
         N3DSPause_clearSteps();
         gPause.touchDown = false;
-        // Start opens the pause menu itself (Resume, Options, ...): the cross to its page, as Menu2 and Down do. A tap
+        // Start opens the menu (the cross that picks the map, the log, the items or the pause menu), as Menu2 does. A tap
         // on the bottom screen opens the map instead.
         if (!gPause.touchOpened) {
             N3DSPause_push(STEP_DELAY, 20, 0);
             N3DSPause_press(BTN_MENU2);
-            N3DSPause_push(STEP_DELAY, 20, 0);
-            N3DSPause_push(STEP_WAIT_CROSS, 0, 0);
-            N3DSPause_press(BTN_DOWN);
         }
         gPause.touchOpened = false;
         logInfo("Pause: on the bottom screen\n");
