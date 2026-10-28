@@ -277,7 +277,25 @@ static int32_t withInstances(int32_t obj) {
 
 static GMLReal gViewX, gViewY;
 
+// Light-map statistics for the log (one line every LIGHT_STATS_FRAMES maps): quads drawn and skipped.
+#define LIGHT_STATS_FRAMES 300
+#define LIGHT_SURFACE_W 512 // oLightEngine user event 0: surface_create(512, 256)
+#define LIGHT_SURFACE_H 256
+#define LIGHT_SPRITE 1127   // the 64 x 64 soft light
+static uint32_t gLightQuads, gLightSkipped, gLightMaps;
+static double gLightMs;
+
 static void lightQuad(GMLReal sprite, GMLReal x, GMLReal y, GMLReal sx, GMLReal sy, GMLReal rot, GMLReal colour, GMLReal alpha) {
+    // A light whose sprite lies wholly outside the light surface draws nothing: skip its four calls. The 64 x 64
+    // sprite's origin is inside it, so 64 x scale around the position bounds it.
+    if (sprite == LIGHT_SPRITE) {
+        GMLReal r = 64 * (fabs(sx) > fabs(sy) ? fabs(sx) : fabs(sy));
+        if (x + r < 0 || x - r > LIGHT_SURFACE_W || y + r < 0 || y - r > LIGHT_SURFACE_H) {
+            gLightSkipped++;
+            return;
+        }
+    }
+    gLightQuads++;
     drawSpriteExt(sprite, -1, x, y, sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, -sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, sx, -sy, rot, colour, alpha);
@@ -368,6 +386,7 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* 
     RValue_free(&vx);
     RValue_free(&vy);
 
+    u64 lightStart = svcGetSystemTick();
     RValue target[1] = { *surfSlot };
     target[0].ownsReference = false;
     callVoid(N.surfaceSetTarget, target, 1);
@@ -525,5 +544,12 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* 
 
     blendMode(0);
     callVoid(N.surfaceResetTarget, NULL, 0);
+    gLightMs += (double) (svcGetSystemTick() - lightStart) * 1000.0 / (double) SYSCLOCK_ARM11;
+    if (++gLightMaps == LIGHT_STATS_FRAMES) {
+        logInfo("Light map: %.2f ms, %.1f quads (+%.1f skipped outside the surface) per map, last %u maps\n",
+            gLightMs / gLightMaps, (double) gLightQuads / gLightMaps, (double) gLightSkipped / gLightMaps, (unsigned) gLightMaps);
+        gLightQuads = gLightSkipped = gLightMaps = 0;
+        gLightMs = 0;
+    }
     return true;
 }

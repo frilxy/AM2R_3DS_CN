@@ -552,14 +552,17 @@ static void N3DS_logMemory(const char* when) {
 }
 
 // 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest
-// and keeps denormals. GameMaker games' movement and collision code leans on exact double arithmetic (fractional
+// (flush-to-zero stays on, see below). GameMaker games' movement and collision code leans on exact double arithmetic (fractional
 // speeds, floor() of positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game
 // expects her (47.9999 instead of 48) and she can slip into or through blocks while moving vertically. The game
 // runs on this thread only. Returns the FPSCR found, for the log.
 static uint32_t N3DS_useIeeeRounding(void) {
     uint32_t fpscr;
     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
-    uint32_t ieee = fpscr & ~((3u << 22) | (1u << 24)); // round to nearest, no flush-to-zero
+    // Round to nearest. Flush-to-zero stays on: the VFP11 can't compute with denormals in hardware (it needs support
+    // code the 3DS doesn't have), so a denormal in Instance_computeSpeedFromComponents ended in an undefined
+    // instruction exception (Omega and Zeta Metroid fights).
+    uint32_t ieee = fpscr & ~(3u << 22);
     __asm__ volatile("vmsr fpscr, %0" : : "r"(ieee));
     return fpscr;
 }

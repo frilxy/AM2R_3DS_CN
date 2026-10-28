@@ -13,6 +13,7 @@
 #include <stb/ds/stb_ds.h>
 #include <math.h>
 #include <string.h>
+#include <3ds.h>
 
 // Each native below follows the game's bytecode instruction for instruction (the disassembly it was written from is
 // quoted in its comment where the order matters): the same values read, the same variables written (with the same
