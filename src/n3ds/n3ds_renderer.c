@@ -334,6 +334,7 @@ typedef struct {
     bool exists;
     bool inVRAM;
     bool needsClear;
+    uint32_t lastUsedFrame; // for reclaiming VRAM from surfaces nothing has touched in a long time
     int32_t width;   // as created by GML
     int32_t height;
     int32_t backedW; // stored part (<= 1024)
@@ -5679,6 +5680,37 @@ static void N3DSRenderer_deleteSurfaceTexture(N3DSDeferredSurfaceFree* entry) {
     if (entry->texture.data != NULL) C3D_TexDelete(&entry->texture);
 }
 
+// VRAM is 6 MB and the game leaks render targets: AM2R's widescreen surface (618x256) is created again whenever
+// set_widescreen cannot find the previous one, and the old one is never freed - nine of them had accumulated by the
+// time a dark room asked for its lighting surface and got nothing, which cost both the darkness and the frame rate.
+//
+// The reclaim happens here, between frames, and only *queues* the texture: deleting a render target while citro2d
+// still has draws referencing it hangs the GPU (that is what made the first attempt at this crash on the next room).
+// Returning the VRAM two frames later is fine - by the time the next room asks for a surface, it is there.
+#define N3DS_SURFACE_RECLAIM_IDLE_FRAMES 180u
+#define N3DS_SURFACE_VRAM_LOW_WATER (1024u * 1024u)
+
+static void N3DSRenderer_reclaimIdleSurfaceVRAM(N3DSRenderer* renderer) {
+    if (renderer == NULL || vramSpaceFree() >= N3DS_SURFACE_VRAM_LOW_WATER) return;
+
+    N3DSSurface* victim = NULL;
+    for (ptrdiff_t i = 0; i < arrlen(renderer->surfaces); i++) {
+        N3DSSurface* candidate = &renderer->surfaces[i];
+        if (!candidate->exists || !candidate->inVRAM || candidate->texture.data == NULL) continue;
+        if ((int32_t) i == renderer->currentTargetSurface) continue;
+        if (renderer->base.runner != NULL && (int32_t) i == renderer->base.runner->applicationSurfaceId) continue;
+        if (renderer->frameSequence - candidate->lastUsedFrame < N3DS_SURFACE_RECLAIM_IDLE_FRAMES) continue;
+        if (victim == NULL || candidate->lastUsedFrame < victim->lastUsedFrame) victim = candidate;
+    }
+    if (victim == NULL) return;
+
+    logWarn("N3DS: VRAM low (%lu KB): releasing surface %dx%d unused for %lu frames\n",
+        (unsigned long) (vramSpaceFree() / 1024u), (int) victim->width, (int) victim->height,
+        (unsigned long) (renderer->frameSequence - victim->lastUsedFrame));
+    N3DSRenderer_releaseSurfaceTexture(renderer, victim);
+    victim->exists = false;
+}
+
 void N3DSRenderer_collectGarbage(Renderer* base, bool all) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     N3DSRenderer_adoptFinishedPageBlobs(renderer);
@@ -5702,6 +5734,7 @@ void N3DSRenderer_collectGarbage(Renderer* base, bool all) {
     }
     for (ptrdiff_t i = 0; i < arrlen(renderer->orphanTargets); i++) C3D_RenderTargetDelete(renderer->orphanTargets[i]);
     arrsetlen(renderer->orphanTargets, 0);
+    if (!all) N3DSRenderer_reclaimIdleSurfaceVRAM(renderer);
     if (all) {
         for (ptrdiff_t i = 0; i < arrlen(renderer->surfacePool); i++) N3DSRenderer_deleteSurfaceTexture(&renderer->surfacePool[i]);
         arrsetlen(renderer->surfacePool, 0);
@@ -5800,7 +5833,9 @@ static bool N3DSRenderer_allocSurfaceTexture(N3DSRenderer* renderer, N3DSSurface
             liveCount++;
             liveBytes += renderer->surfaces[i].texture.size;
         }
-        logError("N3DS: surface %dx%d: out of VRAM for a %dx%d render target (VRAM free %lu KB; %lu surfaces %lu KB, tile chunks %lu KB, pool %d)\n",
+        // logWarn, not logError: a repeated error flushes the SD card on every call, and a broken effect retries once
+        // per frame - 17k flushes took the frame rate from 60 to 18 in one session.
+        logWarn("N3DS: surface %dx%d: out of VRAM for a %dx%d render target (VRAM free %lu KB; %lu surfaces %lu KB, tile chunks %lu KB, pool %d)\n",
             (int) width, (int) height, (int) texW, (int) texH, (unsigned long) (vramSpaceFree() / 1024u), (unsigned long) liveCount,
             (unsigned long) (liveBytes / 1024u), (unsigned long) (renderer->tileLayerChunkVRAMBytes / 1024u), (int) arrlen(renderer->surfacePool));
         return false;
@@ -5821,6 +5856,7 @@ static bool N3DSRenderer_allocSurfaceTexture(N3DSRenderer* renderer, N3DSSurface
     surface->subtex.bottom = 1.0f - (float) backedH / (float) texH;
     // New surfaces start transparent black (GameMaker leaves them undefined); cleared on first bind, on the GPU.
     surface->needsClear = true;
+    surface->lastUsedFrame = renderer->frameSequence; // not reclaimable until it has been idle for a while
     return true;
 }
 
@@ -5921,6 +5957,7 @@ static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, b
         renderer->targetH = N3DS_TOP_HEIGHT;
         N3DSRenderer_sceneBeginTarget(renderer, N3DS_SCENE_TARGET_TOP, true);
     } else {
+        surface->lastUsedFrame = renderer->frameSequence;
         renderer->currentTargetSurface = surfaceID;
         renderer->targetW = (float) surface->width;
         renderer->targetH = (float) surface->height;
@@ -6483,6 +6520,7 @@ static bool N3DSRenderer_setRenderTarget(Renderer* base, int32_t surfaceID, bool
 }
 
 static void N3DSRenderer_drawSurfaceRegion(Renderer* base, N3DSSurface* surface, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
+    surface->lastUsedFrame = ((N3DSRenderer*) base)->frameSequence;
     // Negative width = the whole surface (draw_surface / draw_surface_ext), as in the GL renderer.
     if (0 > srcWidth) {
         srcLeft = 0;
