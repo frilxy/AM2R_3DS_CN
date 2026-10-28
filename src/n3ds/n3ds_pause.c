@@ -53,6 +53,7 @@ typedef enum {
     STEP_NAVIGATE,    // a = target global.curropt: up/down presses until it gets there
     STEP_WAIT_CROSS,  // wait for the page cross to finish sliding in
     STEP_SET_MARKER,  // a, b = map cell
+    STEP_DELAY,       // a = frames to wait
 } N3DSPauseStepKind;
 
 typedef struct {
@@ -67,6 +68,7 @@ static struct {
     Runner* runner;
     Renderer* renderer;
     bool paused;
+    bool touchOpened; // the pause screen was opened by a tap on the bottom screen (it opens on the map)
     int32_t roomSubscreen, roomTransition;
     int32_t objSubScrChange, objMapCursor, objMapCamera, objMapMarker, objSubscreenMenu, objLogScreenControl, objLogEntry;
     int32_t rowObjects[6];
@@ -190,6 +192,10 @@ static void N3DSPause_runSteps(void) {
             }
             case STEP_SET_MARKER:
                 N3DSPause_setMarker(step->a, step->b);
+                gPause.stepHead++;
+                continue;
+            case STEP_DELAY:
+                if (step->tries++ < step->a) return;
                 gPause.stepHead++;
                 continue;
         }
@@ -497,6 +503,7 @@ static void N3DSPause_handlePlayTouch(void) {
     if (!N3DSGml_getGlobal("opxjoybtn_str", -1, &binding)) return;
     // The top screen still shows play: keep it for the paused top screen.
     if (N3DSRenderer_captureFrozenTop(gPause.renderer)) gPause.captureFrame = gPause.frame;
+    gPause.touchOpened = true;
     N3DSInput_injectButton(gPause.runner, (int32_t) binding - 32769);
 }
 
@@ -576,6 +583,16 @@ bool N3DSPause_update(void) {
         gPause.captureFrame = 0;
         N3DSPause_clearSteps();
         gPause.touchDown = false;
+        // Start opens the pause menu itself (Resume, Options, ...): the cross to its page, as Menu2 and Down do. A tap
+        // on the bottom screen opens the map instead.
+        if (!gPause.touchOpened) {
+            N3DSPause_push(STEP_DELAY, 20, 0);
+            N3DSPause_press(BTN_MENU2);
+            N3DSPause_push(STEP_DELAY, 20, 0);
+            N3DSPause_push(STEP_WAIT_CROSS, 0, 0);
+            N3DSPause_press(BTN_DOWN);
+        }
+        gPause.touchOpened = false;
         logInfo("Pause: on the bottom screen\n");
     } else if (!paused && gPause.paused) {
         N3DSRenderer_dropFrozenTop(gPause.renderer);
