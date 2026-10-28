@@ -366,6 +366,7 @@ static void lightDeclined(const char* why) {
 }
 
 static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* self) {
+    if (!N3DSAm2rNative_lighting()) return true; // Lighting off: no light map (the engine isn't drawn either)
     Instance* control = VM_findInstanceByTarget(N.vm, N.objControl);
     RValue* widescreenSlot = control != NULL ? varSlot(control, &v_widescreen) : NULL;
     RValue* surfSlot = varSlot(self, &v_surf);

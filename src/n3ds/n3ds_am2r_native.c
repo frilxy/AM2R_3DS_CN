@@ -686,6 +686,16 @@ void N3DSAm2rNative_init(Runner* runner) {
     install(N.enabled);
 }
 
+static bool gLightingOn = true;
+
+void N3DSAm2rNative_setLighting(bool on) {
+    gLightingOn = on;
+}
+
+bool N3DSAm2rNative_lighting(void) {
+    return gLightingOn;
+}
+
 void N3DSAm2rNative_setEnabled(bool enabled) {
     N.enabled = enabled;
     if (N.initialised) install(enabled);

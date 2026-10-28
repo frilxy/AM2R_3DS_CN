@@ -40,7 +40,7 @@ enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
 enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
 #define N3DS_AM2R_AREAS 10
 #define N3DS_AM2R_MAX_AREA_ROOMS 64
-enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
 // The Extras page wraps the game's own Extras page (EXTRAS_ROW_GAME) and holds Cheats.
 enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
 // Rows a page shows at once (the tip bar covers the rest of the screen); longer pages scroll.
@@ -299,6 +299,7 @@ static void N3DSAm2r_loadCheats(void) {
         if (strcmp(name, "frameskip") == 0) N3DS_setFrameskip(value != 0);
         if (strcmp(name, "native") == 0) N3DSAm2rNative_setEnabled(value != 0);
         if (strcmp(name, "fps") == 0) N3DS_setFpsCounter(value != 0);
+        if (strcmp(name, "lighting") == 0) N3DSAm2rNative_setLighting(value != 0);
         for (int i = 0; i < CHEAT_COUNT; i++) {
             if (strcmp(name, kCheatNames[i]) == 0) gAm2r.cheats[i] = value != 0;
         }
@@ -314,6 +315,7 @@ static void N3DSAm2r_saveCheats(void) {
     fprintf(f, "frameskip=%d\n", N3DS_getFrameskip() ? 1 : 0);
     fprintf(f, "native=%d\n", N3DSAm2rNative_enabled() ? 1 : 0);
     fprintf(f, "fps=%d\n", N3DS_getFpsCounter() ? 1 : 0);
+    fprintf(f, "lighting=%d\n", N3DSAm2rNative_lighting() ? 1 : 0);
     fclose(f);
 }
 
@@ -512,11 +514,14 @@ static void N3DSAm2r_refreshPage(void) {
         }
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? "ON" : "OFF");
+        Instance* lighting = N3DSAm2r_pageRow(DISPLAY_ROW_LIGHTING);
+        if (lighting != NULL) N3DSGml_setVarString(lighting, "optext", N3DSAm2rNative_lighting() ? "ON" : "OFF");
         const char* tip = selected == DISPLAY_ROW_SCREEN ? "Stretch fills the screen; 1x and 2x keep square pixels; Wide shows more of the room"
             : selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
             : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
                 : "Busy game scripts run as built-in code: faster, same behaviour")
             : selected == DISPLAY_ROW_FPS ? "A small frame rate counter in the bottom-left corner"
+            : selected == DISPLAY_ROW_LIGHTING ? "The dark rooms' light effect. OFF draws them fully lit, which is also faster"
             : "Back to the options";
         N3DSGml_setGlobalString("tiptext", tip);
         return;
@@ -553,10 +558,10 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
         bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
-            i == DISPLAY_ROW_FPS) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
+            i == DISPLAY_ROW_FPS || i == DISPLAY_ROW_LIGHTING) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
         const char* label = i == count - 1 ? "Exit"
             : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
-                : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : "FPS counter")
+                : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Lighting")
             : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? "Game extras" : "Cheats")
             : page == PAGE_TELEPORT ? (i == TELE_AREA ? "Area" : i == TELE_ROOM ? "Room" : "Go")
             : i == CHEATS_PAGE_TELEPORT ? "Teleport" : kCheatLabels[i];
@@ -689,6 +694,20 @@ static void N3DSAm2r_placeSamus(void) {
     logInfo("AM2R: Samus placed at %.0f, %.0f in %s (%s)\n", x, y, gAm2r.runner->currentRoom->name, where);
 }
 
+// Lighting off: the light engine isn't drawn (its map isn't built either, see the native); on again: it is.
+static void N3DSAm2r_applyLighting(void) {
+    static int32_t engine = -2;
+    static int lastApplied = -1;
+    if (engine == -2) engine = N3DSGml_objectIndex("oLightEngine");
+    if (engine < 0) return;
+    bool on = N3DSAm2rNative_lighting();
+    Instance* list[4];
+    int32_t n = N3DSGml_instances(engine, list, 4);
+    if (n == 0 && lastApplied == (on ? 1 : 0)) return;
+    for (int32_t i = 0; i < n; i++) list[i]->visible = on;
+    lastApplied = on ? 1 : 0;
+}
+
 static void N3DSAm2r_updatePage(void) {
     int count = N3DSAm2r_pageRowCount(gAm2r.page);
     // The page's instances go with the room (leaving the pause screen): nothing to go back to then.
@@ -745,6 +764,9 @@ static void N3DSAm2r_updatePage(void) {
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_NATIVE && (menu1 || left || right) &&
                N3DSAm2rNative_available() > 0) {
         N3DSAm2rNative_setEnabled(!N3DSAm2rNative_enabled());
+        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+    } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_LIGHTING && (menu1 || left || right)) {
+        N3DSAm2rNative_setLighting(!N3DSAm2rNative_lighting());
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_FPS && (menu1 || left || right)) {
         N3DS_setFpsCounter(!N3DS_getFpsCounter());
@@ -1003,6 +1025,7 @@ void N3DSAm2r_update(void) {
             N3DSAm2r_openPage(PAGE_EXTRAS, EXTRAS_ROW_GAME);
         }
     }
+    N3DSAm2r_applyLighting();
     N3DSAm2r_placeSamus();
     N3DSAm2r_applyCheats();
 }
