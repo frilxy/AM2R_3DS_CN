@@ -713,6 +713,7 @@ int main(int argc, char** argv) {
     logInfo("Console: %s, speedup %s\n", isNew3DS ? "New 3DS" : "Old 3DS", isNew3DS ? "on" : "n/a");
     // Landmark for crash dumps: dumps only carry SP, so each thread says where its stack lives.
     logInfo("N3DS: main thread stack near 0x%08x\n", (unsigned) (uintptr_t) &argc);
+    uint32_t startFpscr = N3DS_useIeeeRounding();
     {
         uint32_t fpscr;
         __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
