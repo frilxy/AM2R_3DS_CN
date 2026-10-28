@@ -38,7 +38,7 @@
 #define N3DS_STREAM_BUFFER_COUNT 3
 #define N3DS_STREAM_CHUNK_SAMPLES (14u * 256u)
 #define N3DS_STREAM_ADPCM_CACHE_FRAMES 256u
-#define N3DS_STREAM_WORKER_STACK_SIZE (32u * 1024u)
+#define N3DS_STREAM_WORKER_STACK_SIZE (48u * 1024u)
 // Above the main thread (0x30) and the background page loader (0x2F): it only reads a few KB at a time, and below the
 // page loader (same core, same SD card) its reads waited behind 512 KB page reads, so a music change could block the
 // main thread for up to 0.7 s waiting for the previous track's fill to finish.

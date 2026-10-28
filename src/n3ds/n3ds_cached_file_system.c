@@ -180,7 +180,7 @@ static void writeBack(N3DSCachedFileSystem* c, N3DSFileEntry* e) {
 
 // ===[ Writer thread ]===
 
-#define N3DS_FS_WRITER_STACK_SIZE (16u * 1024u)
+#define N3DS_FS_WRITER_STACK_SIZE (32u * 1024u)
 // Above the main thread (0x30), like the page loader: it is blocked on the card nearly all the time.
 #define N3DS_FS_WRITER_PRIORITY 0x2F
 

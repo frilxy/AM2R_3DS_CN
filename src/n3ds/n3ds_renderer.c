@@ -1493,7 +1493,9 @@ static bool N3DSRenderer_evictLRUPageBlob(N3DSRenderer* renderer, uint32_t exclu
 
 // ===[ Background page blob loader ]===
 
-#define N3DS_BLOB_LOADER_STACK_SIZE (16u * 1024u)
+// 16 KB was tight: the loader runs newlib's stdio (fread buffering) and the crash in the Zeta room showed a fault
+// inside a function prologue, i.e. a push that ran off the end of a stack. 64 KB costs nothing.
+#define N3DS_BLOB_LOADER_STACK_SIZE (64u * 1024u)
 // Above the main thread (0x30): it spends its time blocked on the SD card, and below it a busy main thread starved
 // it (reads queued at a room change only ran when the main thread next blocked).
 #define N3DS_BLOB_LOADER_PRIORITY 0x2F
