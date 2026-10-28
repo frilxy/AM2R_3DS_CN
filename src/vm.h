@@ -159,7 +159,10 @@ typedef struct {
 } ExceptionHandlerFrame;
 
 // ===[ VMStack - Upward-growing array of RValue slots ]===
-#define VM_STACK_SIZE 1024
+// 1024 slots were enough for AM2R's scripts until the heavier fights, where a crash showed up as a wild pointer in
+// unrelated code: with NDEBUG the bounds assert in stackPush is compiled out, so an overrun corrupts the VM's own
+// state instead of failing. 4096 gives the same scripts four times the room (128 KB of RValue slots).
+#define VM_STACK_SIZE 4096
 #define VM_EXCEPTION_HANDLER_FRAME_STACK_SIZE 16
 
 typedef struct {

@@ -72,7 +72,14 @@ static int gmlTypeNativeSize(uint8_t gmlType) {
 }
 
 static void stackPush(VMContext* ctx, RValue val) {
-    assert(VM_STACK_SIZE > ctx->stack.top);
+    // A real check, not an assert: release builds define NDEBUG, so an overrun used to write past slots[] and corrupt
+    // whatever followed it (the crash that prompted this showed a return address outside the code and a wild fault
+    // address). Failing here names the script instead.
+    if (ctx->stack.top >= VM_STACK_SIZE) {
+        logError("VM: value stack overflow (%d slots) in %s\n", VM_STACK_SIZE,
+            ctx->currentCodeName != NULL ? ctx->currentCodeName : "?");
+        abort();
+    }
 #ifdef ENABLE_VM_TRACING
     if (shouldTraceStack(ctx)) {
         char* valStr = RValue_toStringTyped(val);

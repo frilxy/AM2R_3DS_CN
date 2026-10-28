@@ -69,6 +69,9 @@ jobs:
             "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
           mkdir -p out
           cp build/am2r.cia build/am2r.3dsx out/
+          # The linked ELF (with symbols) turns a Luma crash dump's PC into a function name; keep it with the build.
+          find build -maxdepth 2 -name '*.elf' -print 2>/dev/null || true
+          (cp build/butterscotch.elf out/am2r.elf 2>/dev/null || cp build/am2r.elf out/am2r.elf 2>/dev/null || true)
           ls -la out
 
       - name: Upload artifact
@@ -157,4 +160,6 @@ jobs:
           else
             gh release create "$tag" --title "$title" --notes-file notes.md "${create_args[@]}"
           fi
-          gh release upload "$tag" --clobber out/am2r.cia out/am2r.3dsx
+          assets=(out/am2r.cia out/am2r.3dsx)
+          if [ -f out/am2r.elf ]; then assets+=(out/am2r.elf); fi
+          gh release upload "$tag" --clobber "${assets[@]}"
