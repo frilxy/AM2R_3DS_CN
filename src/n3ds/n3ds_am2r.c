@@ -580,34 +580,96 @@ static bool N3DSAm2r_pressed(Instance* control, const char* key) {
     return N3DSGml_getVar(control, key, &down) && down > 0.0 && N3DSGml_getVar(control, steps, &pushed) && pushed == 0.0;
 }
 
-// After a teleport: once the new room has started, Samus goes next to a save station or a door (the game puts her at
-// the last save's spot, which belongs to another room), and is made if the pause screen left none.
+// ===[ Teleport: where Samus goes ]===
+
+static RValue N3DSAm2r_builtinCall(const char* name, RValue* args, int32_t argCount) {
+    VMContext* vm = gAm2r.runner->vmContext;
+    ptrdiff_t slot = shgeti(vm->builtinMap, (char*) name);
+    if (slot < 0) return RValue_makeReal(0.0);
+    return vm->builtinMap[slot].value(vm, args, argCount);
+}
+
+// Room for Samus standing at (x, y): no solid in her box, and a floor within reach below. AM2R keeps only the
+// instances near the view active, so the area is activated first (the game puts them back to sleep itself).
+static bool N3DSAm2r_spotFree(float x, float y) {
+    int32_t solid = N3DSGml_objectIndex("oSolid");
+    if (solid < 0) return true;
+    RValue activate[5] = { RValue_makeReal(x - 80), RValue_makeReal(y - 80), RValue_makeReal(x + 80), RValue_makeReal(y + 260), RValue_makeReal(1.0) };
+    RValue r = N3DSAm2r_builtinCall("instance_activate_region", activate, 5);
+    RValue_free(&r);
+    RValue box[7] = { RValue_makeReal(x - 10), RValue_makeReal(y - 30), RValue_makeReal(x + 10), RValue_makeReal(y + 4),
+        RValue_makeReal((double) solid), RValue_makeReal(1.0), RValue_makeReal(1.0) };
+    r = N3DSAm2r_builtinCall("collision_rectangle", box, 7);
+    bool blocked = RValue_toReal(r) > 0.0;
+    RValue_free(&r);
+    if (blocked) return false;
+    RValue down[7] = { RValue_makeReal(x), RValue_makeReal(y + 4), RValue_makeReal(x), RValue_makeReal(y + 240),
+        RValue_makeReal((double) solid), RValue_makeReal(1.0), RValue_makeReal(1.0) };
+    r = N3DSAm2r_builtinCall("collision_line", down, 7);
+    bool floor = RValue_toReal(r) > 0.0;
+    RValue_free(&r);
+    return floor;
+}
+
+// After a teleport: once the new room has started, Samus goes to a free spot next to a save station or a room exit
+// (oGotoRoom triggers on its edges), else the free spot nearest the room's middle; the game put her at the last
+// save's spot, which belongs to another room, or left her out when the pause screen did. Made if there is none.
 static void N3DSAm2r_placeSamus(void) {
     if (gAm2r.teleTarget < 0 || gAm2r.runner->currentRoomIndex != gAm2r.teleTarget) return;
     if (++gAm2r.teleFrames < 4) return;
     gAm2r.teleTarget = -1;
-    Instance* spot = NULL;
-    for (int i = 0; i < gAm2r.objSpotCount && spot == NULL; i++) spot = N3DSGml_anyInstance(gAm2r.objSpots[i]);
-    float roomWidth = (float) gAm2r.runner->currentRoom->width;
-    float x = roomWidth / 2, y = (float) gAm2r.runner->currentRoom->height / 2;
-    float roomHeight = (float) gAm2r.runner->currentRoom->height;
-    if (spot != NULL) {
-        x = spot->x + (spot->x < roomWidth / 2 ? 32.0f : -32.0f);
-        y = spot->y;
-    } else if (gAm2r.objGotoRoom >= 0) {
-        // The room's exits are oGotoRoom triggers on its edges: a side exit if there is one, else any; Samus is put well
-        // inside, clear of the trigger, and falls to the floor.
-        Instance* exits[16];
-        int32_t n = N3DSGml_instances(gAm2r.objGotoRoom, exits, 16);
-        Instance* pick = NULL;
-        for (int32_t k = 0; k < n; k++) {
-            bool side = exits[k]->x <= 64.0f || exits[k]->x >= roomWidth - 64.0f;
-            if (pick == NULL || (side && !(pick->x <= 64.0f || pick->x >= roomWidth - 64.0f))) pick = exits[k];
+    float roomWidth = (float) gAm2r.runner->currentRoom->width, roomHeight = (float) gAm2r.runner->currentRoom->height;
+    float x = roomWidth / 2, y = roomHeight / 2;
+    const char* where = "room centre (no free spot found)";
+    bool found = false;
+    // Anchors: save stations first, then exits, side exits before top and bottom ones.
+    Instance* anchors[24];
+    int na = 0;
+    for (int pass = 0; pass < 3 && !found; pass++) {
+        na = 0;
+        if (pass == 0) {
+            for (int i = 0; i < gAm2r.objSpotCount; i++) na += N3DSGml_instances(gAm2r.objSpots[i], anchors + na, 24 - na > 8 ? 8 : 24 - na);
+        } else if (gAm2r.objGotoRoom >= 0) {
+            Instance* exits[24];
+            int ne = N3DSGml_instances(gAm2r.objGotoRoom, exits, 24);
+            for (int k = 0; k < ne; k++) {
+                bool side = exits[k]->x <= 64.0f || exits[k]->x >= roomWidth - 64.0f;
+                if (side == (pass == 1)) anchors[na++] = exits[k];
+            }
         }
-        if (pick != NULL) {
-            spot = pick;
-            x = pick->x <= 64.0f ? pick->x + 64.0f : pick->x >= roomWidth - 64.0f ? pick->x - 64.0f : pick->x;
-            y = pick->y <= 64.0f ? pick->y + 64.0f : pick->y >= roomHeight - 64.0f ? pick->y - 64.0f : pick->y;
+        for (int a = 0; a < na && !found; a++) {
+            Instance* e = anchors[a];
+            // Inward from the edge it sits on (or beside it), further in until the spot is free.
+            static const float kSteps[] = { 48, 64, 96, 128, 32, 160, 0 };
+            for (size_t d = 0; d < sizeof(kSteps) / sizeof(kSteps[0]) && !found; d++) {
+                float dx = 0.0f, dy = 0.0f;
+                if (e->x <= 64.0f) dx = kSteps[d];
+                else if (e->x >= roomWidth - 64.0f) dx = -kSteps[d];
+                else if (e->y <= 64.0f) dy = kSteps[d];
+                else if (e->y >= roomHeight - 64.0f) dy = -kSteps[d];
+                else dx = (e->x < roomWidth / 2 ? 1.0f : -1.0f) * kSteps[d];
+                if (N3DSAm2r_spotFree(e->x + dx, e->y + dy)) {
+                    x = e->x + dx;
+                    y = e->y + dy;
+                    found = true;
+                    where = pass == 0 ? "next to a save station or door" : "next to an exit";
+                }
+            }
+        }
+    }
+    if (!found) {
+        // A grid over the room, nearest the middle first.
+        float bestDist = 1.0e30f;
+        for (float gy = 32.0f; gy < roomHeight; gy += 32.0f) {
+            for (float gx = 32.0f; gx < roomWidth; gx += 32.0f) {
+                float dist = (gx - roomWidth / 2) * (gx - roomWidth / 2) + (gy - roomHeight / 2) * (gy - roomHeight / 2);
+                if (dist >= bestDist || !N3DSAm2r_spotFree(gx, gy)) continue;
+                bestDist = dist;
+                x = gx;
+                y = gy;
+                found = true;
+                where = "free spot nearest the room's middle";
+            }
         }
     }
     Instance* samus = N3DSGml_anyInstance(gAm2r.objCharacter);
@@ -617,7 +679,7 @@ static void N3DSAm2r_placeSamus(void) {
     samus->y = y;
     N3DSGml_setVar(samus, "hspeed", 0.0);
     N3DSGml_setVar(samus, "vspeed", 0.0);
-    logInfo("AM2R: Samus placed at %.0f, %.0f in %s (%s)\n", x, y, gAm2r.runner->currentRoom->name, spot != NULL ? "next to an exit or save station" : "room centre");
+    logInfo("AM2R: Samus placed at %.0f, %.0f in %s (%s)\n", x, y, gAm2r.runner->currentRoom->name, where);
 }
 
 static void N3DSAm2r_updatePage(void) {
