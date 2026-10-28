@@ -4,13 +4,16 @@
 #include <3ds.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 // platformLog for the 3DS: N3DS_SD_DIR "log.txt", each line stamped with seconds since start.
 // Also sent to svcOutputDebugString (shown by Azahar / GDB).
-// Each flush is an SD write (milliseconds), so lines are flushed at most once a second (N3DSLog_tick, every frame) or
+// Each flush is an SD write (milliseconds), so lines are flushed only every so often (N3DSLog_tick, every frame) or
 // right away for errors; and a warning logged over and over (inside a loop) stops after a few dozen times.
-
-#define N3DS_LOG_FLUSH_INTERVAL_MS 1000u
+//
+// 250 ms rather than a second: a hang or a hardware crash loses whatever was still buffered, and the last second is
+// exactly the interesting part. `fsync` makes the write survive a power cycle, not just the process.
+#define N3DS_LOG_FLUSH_INTERVAL_MS 250u
 #define N3DS_LOG_REPEAT_LIMIT 32u
 #define N3DS_LOG_REPEAT_SLOTS 64
 
@@ -28,12 +31,39 @@ static struct {
     uint32_t count;
 } gRepeats[N3DS_LOG_REPEAT_SLOTS];
 
+// True when the previous session's log ends with the runner's own "Exiting" line, i.e. it shut down cleanly. Anything
+// else (a hang, a GPU fault, the user pulling the power) means that file is the one worth keeping.
+static bool N3DSLog_previousRunExitedCleanly(void) {
+    FILE* previous = fopen(N3DS_SD_DIR "log.txt", "rb");
+    if (previous == NULL) return true; // nothing to keep
+    bool clean = false;
+    if (fseek(previous, 0, SEEK_END) == 0) {
+        long size = ftell(previous);
+        long tail = size > 512 ? 512 : size;
+        if (size > 0 && fseek(previous, size - tail, SEEK_SET) == 0) {
+            char buffer[513];
+            size_t read = fread(buffer, 1, (size_t) tail, previous);
+            buffer[read] = '\0';
+            clean = strstr(buffer, "Exiting") != NULL;
+        }
+    }
+    fclose(previous);
+    return clean;
+}
+
 void N3DSLog_init(void) {
     LightLock_Init(&gLogLock);
     gLogReady = true;
     gLogStartMs = osGetTime();
     gLastFlushMs = gLogStartMs;
-    // The last run's log survives one relaunch (players restart before they think of copying it).
+    // A session that did not exit cleanly is kept as log_crash.txt: rotating it into log_prev.txt means the next launch
+    // overwrites it, and the player relaunches the game before copying anything - which is exactly how the first crash
+    // logs were lost.
+    if (!N3DSLog_previousRunExitedCleanly()) {
+        remove(N3DS_SD_DIR "log_crash.txt");
+        rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_crash.txt");
+    }
+    // The last run's log survives one relaunch.
     remove(N3DS_SD_DIR "log_prev.txt");
     rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_prev.txt");
     gLogFile = fopen(N3DS_SD_DIR "log.txt", "w");
@@ -45,7 +75,12 @@ void N3DSLog_close(void) {
 }
 
 static void N3DSLog_flushLocked(u64 nowMs) {
-    if (gLogFile != NULL && gLogDirty) fflush(gLogFile);
+    if (gLogFile != NULL && gLogDirty) {
+        fflush(gLogFile);
+        // Push it past the FS layer too: a crash (or the user holding POWER) otherwise loses what is still in the card
+        // service's cache, which is how a crashed session ended up with nothing worth reading.
+        fsync(fileno(gLogFile));
+    }
     gLogDirty = false;
     gLastFlushMs = nowMs;
 }
