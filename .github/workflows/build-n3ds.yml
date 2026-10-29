@@ -81,7 +81,9 @@ jobs:
           path: out/
 
       - name: Publish release
-        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/claude/')
+        # Branch builds publish a pre-release for testing; main only publishes through tags, so merged work does not
+        # leave a test build behind on every merge.
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/claude/') && github.ref_name != 'main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
