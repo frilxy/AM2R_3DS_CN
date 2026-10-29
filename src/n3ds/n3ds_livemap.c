@@ -354,13 +354,20 @@ static void N3DSLiveMap_background(int32_t background, float x, float y, float x
 static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour) {
     if (text == NULL || text[0] == '\0' || gLive.font < 0) return;
     Renderer* r = gLive.renderer;
+    int32_t savedValign = r->drawValign;
     r->drawFont = gLive.font;
     r->drawHalign = halign;
+    // The vertical alignment is whatever the game left behind: with valign = bottom the text is shifted down by its own
+    // height, which put the collection percentage two pixels below everything beside it. The strip always draws from
+    // the top edge, and at whole pixels so a glyph never straddles two rows.
+    r->drawValign = 0;
     r->drawAlpha = 1.0f;
+    float px = floorf(x + 0.5f), py = floorf(y + 0.5f);
     r->drawColor = 0x000000;
-    r->vtable->drawText(r, text, x + 1.0f, y + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->vtable->drawText(r, text, px + 1.0f, py + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
     r->drawColor = colour;
-    r->vtable->drawText(r, text, x, y, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->vtable->drawText(r, text, px, py, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->drawValign = savedValign;
 }
 
 // The usual white-on-black-shadow line.
@@ -616,6 +623,11 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
+    // The numbers on these two bars change while the map stands still, and the bars come from the cached layer: the
+    // digits of the previous frame stay underneath unless the bar itself is drawn again. Only the bars are repainted -
+    // the title above the top bar and the zoom steps below the bottom one are untouched.
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
+    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     N3DSLiveMap_drawStatus();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
