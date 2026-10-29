@@ -611,6 +611,13 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
+    // Repaint the two bars before their numbers. They are the only place on the bottom screen whose text changes while
+    // the map stands still, and a value that shrinks or grows leaves the previous digits behind otherwise - the energy
+    // readout came out as two numbers printed a pixel apart.
+    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, (float) N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
+    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     N3DSLiveMap_drawStatus();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
@@ -630,7 +637,11 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     // Items collected, as the percentage the game keeps in global.percent.
     double percent = 0.0;
     N3DSGml_getGlobal("percent", -1, &percent);
-    snprintf(collected, sizeof(collected), "%d%%", (int) percent);
+    // The game keeps this as a 0..1 fraction (0.47 at 47%), so casting straight to int printed 0 all the way to 99%.
+    if (percent > 0.0 && percent <= 1.0) percent *= 100.0;
+    if (!(percent == percent) || percent < 0.0) percent = 0.0;
+    if (percent > 100.0) percent = 100.0;
+    snprintf(collected, sizeof(collected), "%d%%", (int) (percent + 0.5));
     N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
