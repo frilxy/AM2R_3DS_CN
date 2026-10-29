@@ -1,4 +1,6 @@
 #include "n3ds_renderer.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include "n3ds_screen.h"
 #include "n3ds_prof.h"
 #include "n3ds_platform_config.h"
@@ -248,7 +250,7 @@ typedef struct {
     LightLock lock;
     LightEvent wake;
     CondVar done;
-    FILE* file; // its own handle on atlas.bin (the main thread seeks the other)
+    int fd; // its own handle on atlas.bin, read with pread (the main thread uses another one)
     uint32_t* queue; // stb_ds array of page indices
     volatile bool stop;
 } N3DSBlobLoader;
@@ -1532,7 +1534,9 @@ static void N3DSBlobLoader_main(void* arg) {
             LightLock_Unlock(&loader->lock);
 
             uint8_t* data = malloc(size);
-            if (data != NULL && (fseek(loader->file, (long) offset, SEEK_SET) != 0 || fread(data, 1, size, loader->file) != size)) {
+            // pread, not fseek+fread: stdio keeps its state in newlib's shared reentrancy block, and this thread and
+            // the main thread both do I/O. A file descriptor has no such shared state.
+            if (data != NULL && pread(loader->fd, data, size, (off_t) offset) != (ssize_t) size) {
                 free(data);
                 data = NULL;
             }
@@ -1550,7 +1554,7 @@ static void N3DSBlobLoader_main(void* arg) {
 // thread, and the Zeta crash looks like memory being written by something other than the running code. Set to 0 to
 // read every page blob on the main thread again and see whether the crash survives.
 #ifndef N3DS_ENABLE_BLOB_LOADER
-#define N3DS_ENABLE_BLOB_LOADER 0
+#define N3DS_ENABLE_BLOB_LOADER 1
 #endif
 
 static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
@@ -1561,8 +1565,9 @@ static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
     if (renderer->packedAtlasFile == NULL || !N3DSRenderer_isPackedAtlasVersion(renderer->atlasVersion)) return;
     N3DSBlobLoader* loader = &renderer->blobLoader;
     char path[256];
-    loader->file = N3DSRenderer_openAssetFile(renderer, "atlas.bin", path, sizeof(path));
-    if (loader->file == NULL) return;
+    if (!N3DSRenderer_resolveAssetPath(renderer, "atlas.bin", path, sizeof(path))) return;
+    loader->fd = open(path, O_RDONLY);
+    if (loader->fd < 0) return;
     LightLock_Init(&loader->lock);
     LightEvent_Init(&loader->wake, RESET_ONESHOT);
     CondVar_Init(&loader->done);
@@ -1572,8 +1577,8 @@ static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
     loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 2, false);
     if (loader->thread == NULL) loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 1, false);
     if (loader->thread == NULL) {
-        fclose(loader->file);
-        loader->file = NULL;
+        close(loader->fd);
+        loader->fd = -1;
         logWarn("N3DS: no background page loader thread; pages load on the main thread\n");
         return;
     }
@@ -1590,7 +1595,7 @@ static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
     LightEvent_Signal(&loader->wake);
     threadJoin(loader->thread, U64_MAX);
     threadFree(loader->thread);
-    fclose(loader->file);
+    close(loader->fd);
     arrfree(loader->queue);
     repeat(renderer->atlasPageCount, i) {
         free(renderer->atlasPages[i].asyncData);
