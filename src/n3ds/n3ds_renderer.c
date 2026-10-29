@@ -3658,6 +3658,7 @@ static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer
     // the bottom screen's changing numbers came out as two copies a pixel apart. Rebuilding the layout is cheap next
     // to drawing it, so the cache is only used when the whole string matches.
     N3DSRenderer_freeCachedTextLayout(layout);
+    int32_t len = (int32_t) strlen(text);
     layout->fontIndex = fontIndex;
     layout->drawHalign = renderer->base.drawHalign;
     layout->drawValign = renderer->base.drawValign;
