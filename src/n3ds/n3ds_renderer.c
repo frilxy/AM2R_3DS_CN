@@ -5428,6 +5428,13 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
         y += 2.0f;
     }
+    // The item cutscene (oItemCutscene, the "能量源" / Energy Tank pickup) draws its title with fontGUI at y=112 and the
+    // line under it with fontMenuSmall2 (font 6) at y=121 - nine pixels apart. The game's own pixel font has ink
+    // shorter than that gap; this port's Chinese strike is a full 12 pixels, so the two lines overlapped. Push the
+    // second line down three, the same way the notification prompt is handled.
+    if ((int32_t) base->drawFont == 6 && base->drawHalign == 1 && y >= 119.5f && y <= 122.5f) {
+        y += 3.0f;
+    }
     // The options page's one-line description sits on the black bar at the very bottom (oOptionsFG draws global.tiptext
     // centred at (160, 228) with fontMenuSmall, white). The Chinese strike is 12px tall, so the line's lower half ran
     // off the 240-tall picture; lift it two pixels. Matched by font (4) and that exact y, white, centred - the pause
@@ -5450,13 +5457,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     N3DSLoadedAtlasPage* fontPage = NULL;
     C2D_Image directFontImage;
     Tex3DS_SubTexture directFontBaseSubtex;
-    // One pixel of air under every line. The replaced bitmap fonts are exactly as tall as their glyph box, so with a
-    // line stride equal to that height the second line sits on the first - AM2R's scan message ("there are N Metroids
-    // in this area") drew its two lines on top of each other. A separation the game passes explicitly is honoured,
-    // but never below the glyph box.
-    float minimumStride = TextUtils_lineStride(font) + 1.0f;
-    float lineStride = (0.0f > lineSeparation) ? minimumStride : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
-    if (lineStride < minimumStride) lineStride = minimumStride;
+    float lineStride = (0.0f > lineSeparation) ? TextUtils_lineStride(font) : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
     bool useDirectFontAsset =
         0.0f > lineSeparation &&
         !font->isSpriteFont &&
