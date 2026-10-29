@@ -661,7 +661,10 @@ static void N3DSLiveMap_drawLiveFrame(void) {
         logInfo("LiveMap: energy %d/%d percent '%s' left '%s' area '%s'\n",
             N3DSLiveMap_statusValue(healthNow), N3DSLiveMap_statusValue(maxHealthNow), collected, left, area);
     }
-    N3DSLiveMap_text(collected, 214.0f, 197.0f, 0);
+    // Two pixels above the row the other counters use: measured on hardware, the percentage sits two pixels lower than
+    // the "18" beside it even though both are drawn at the same y with the same font. Its glyphs carry a taller box than
+    // the plain digits (the % sign), and the extra height lands at the bottom of the line. Lifting the call lines it up.
+    N3DSLiveMap_text(collected, 214.0f, 195.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
     r->drawFont = font;
