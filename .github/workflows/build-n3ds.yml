@@ -88,7 +88,7 @@ jobs:
           # The line this build belongs to: its own release tags, so the other lines' releases are never touched.
           # Derived from the branch, because two lines now build the same localised top-screen code: `top-screen-zh`
           # is the top-screen-only line and `bottom-screen` adds the map on the bottom screen.
-          LINE: ${{ github.ref_name == 'bottom-screen' && 'zh-both' || 'zh-top' }}
+          LINE: ${{ github.ref_name == 'feat/render-target-atlas' && 'atlas' || (github.ref_name == 'bottom-screen' && 'zh-both' || 'zh-top') }}
         run: |
           apt-get update
           apt-get install -y --no-install-recommends gh
@@ -98,11 +98,25 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
             title="$tag"
+            # Official builds carry the version in the file name so two versions cannot be mixed up in a downloads folder.
+            cp out/am2r.cia "out/am2r-$tag.cia"
+            cp out/am2r.3dsx "out/am2r-$tag.3dsx"
+            cp out/am2r.elf "out/am2r-$tag.elf" 2>/dev/null || true
             built="Built from $hash."
           else
-            # A re-run keeps its run number, so it updates the same release.
-            tag="am2r-3ds-$LINE-b$GITHUB_RUN_NUMBER"
+            if [ "$LINE" = "atlas" ]; then
+              # A separate line numbered from scratch (b1, b2, ...): count what this line already published. Re-running
+              # a build therefore publishes the next number instead of overwriting the previous test build.
+              n=$(gh api "repos/$GH_REPO/releases?per_page=100" --paginate --jq '.[].tag_name' 2>/dev/null \
+                    | grep -c '^am2r-3ds-atlas-b' || true)
+              tag="am2r-3ds-atlas-b$((n + 1))"
+              atlas_number=$((n + 1))
+            else
+              # A re-run keeps its run number, so it updates the same release.
+              tag="am2r-3ds-$LINE-b$GITHUB_RUN_NUMBER"
+            fi
             title="build $GITHUB_RUN_NUMBER ($GITHUB_REF_NAME, $hash)"
+            if [ -n "${atlas_number:-}" ]; then title="b$atlas_number ($hash)"; fi
             built="Built from $hash on \`$GITHUB_REF_NAME\`."
             create_args+=(--target "$GITHUB_SHA")
             create_args+=(--prerelease)
@@ -115,9 +129,25 @@ jobs:
             echo "$marker"
             echo "## Downloads"
             echo
-            echo "* \`am2r.cia\` — install with FBI: $base/am2r.cia"
-            echo "* \`am2r.3dsx\` — for the Homebrew Launcher: $base/am2r.3dsx"
+            cia_name="am2r.cia"; 3dsx_name="am2r.3dsx"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; 3dsx_name="am2r-$tag.3dsx"; fi
+            echo "* \`$cia_name\` — install with FBI: $base/$cia_name"
+            echo "* \`$3dsx_name\` — for the Homebrew Launcher: $base/$3dsx_name"
             echo
+            if [ "$GITHUB_REF_TYPE" = tag ] && [ -f ".ci/notes-$tag.md" ]; then
+              cat ".ci/notes-$tag.md"
+              echo
+              echo "$built"
+              notes_done=1
+            fi
+            if [ "$LINE" = "atlas" ] && [ -f .ci/notes-atlas.md ] && [ -z "${notes_done:-}" ]; then
+              cat .ci/notes-atlas.md
+              echo
+              echo "$built"
+              echo "This build needs SD data revision 3 (\`sd_data_rev.txt\` on the card)."
+              notes_done=1
+            fi
+            if [ -z "${notes_done:-}" ]; then
             echo "## 中文整合版"
             echo
             echo "本版本在原版移植的基础上加入了完整汉化、下屏实时地图与画面模式适配。"
@@ -148,6 +178,7 @@ jobs:
             echo "so switching needs no rebuild."
             echo
             echo "$built"
+            fi
           } > notes.md
 
           if gh release view "$tag" >/dev/null 2>&1; then
@@ -160,6 +191,11 @@ jobs:
           else
             gh release create "$tag" --title "$title" --notes-file notes.md "${create_args[@]}"
           fi
-          assets=(out/am2r.cia out/am2r.3dsx)
-          if [ -f out/am2r.elf ]; then assets+=(out/am2r.elf); fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            assets=("out/am2r-$tag.cia" "out/am2r-$tag.3dsx")
+            [ -f "out/am2r-$tag.elf" ] && assets+=("out/am2r-$tag.elf")
+          else
+            assets=(out/am2r.cia out/am2r.3dsx)
+            [ -f out/am2r.elf ] && assets+=(out/am2r.elf)
+          fi
           gh release upload "$tag" --clobber "${assets[@]}"
