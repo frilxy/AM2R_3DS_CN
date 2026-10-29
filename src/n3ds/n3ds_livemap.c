@@ -26,6 +26,8 @@
 // the language file, so the title is fetched once per language.
 
 #define N3DS_LIVEMAP_CELL 8
+// AM2R has 88 collectible items; its own screens compute the percentage with this divisor.
+#define N3DS_LIVEMAP_ITEM_TOTAL 88.0
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
@@ -635,13 +637,27 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     N3DSLiveMap_twoDigits(left, sizeof(left), "monstersleft");
     N3DSLiveMap_twoDigits(area, sizeof(area), "monstersarea");
     // Items collected, as the percentage the game keeps in global.percent.
-    double percent = 0.0;
-    N3DSGml_getGlobal("percent", -1, &percent);
-    // The game keeps this as a 0..1 fraction (0.47 at 47%), so casting straight to int printed 0 all the way to 99%.
-    if (percent > 0.0 && percent <= 1.0) percent *= 100.0;
-    if (!(percent == percent) || percent < 0.0) percent = 0.0;
-    if (percent > 100.0) percent = 100.0;
-    snprintf(collected, sizeof(collected), "%d%%", (int) (percent + 0.5));
+    // There is no global.percent: the game computes the collection rate where it draws it, as the map page and the
+    // IGT screen both do - round(global.itemstaken / 88 * 100). Reading a global that does not exist left this at 0%
+    // for the whole run.
+    double itemsTaken = 0.0;
+    if (!N3DSGml_getGlobal("itemstaken", -1, &itemsTaken)) itemsTaken = 0.0;
+    if (!(itemsTaken == itemsTaken)) itemsTaken = 0.0; // NaN
+    int percent = (int) (itemsTaken / N3DS_LIVEMAP_ITEM_TOTAL * 100.0 + 0.5);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    snprintf(collected, sizeof(collected), "%d%%", percent);
+    // One line every so often with what the strip holds; the digits on screen looked doubled and this is the cheapest
+    // way to tell a render problem from the values themselves.
+    static uint32_t statusLogs = 0;
+    if (statusLogs < 6u && (gLive.frame % 600u) == 0u) {
+        statusLogs++;
+        double healthNow = 0.0, maxHealthNow = 0.0;
+        N3DSGml_getGlobal("playerhealth", -1, &healthNow);
+        N3DSGml_getGlobal("maxhealth", -1, &maxHealthNow);
+        logInfo("LiveMap: energy %d/%d percent '%s' left '%s' area '%s'\n",
+            N3DSLiveMap_statusValue(healthNow), N3DSLiveMap_statusValue(maxHealthNow), collected, left, area);
+    }
     N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
