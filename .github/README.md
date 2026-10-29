@@ -4,8 +4,8 @@
 
 [English](README.en.md) · [开发文档](开发文档.md) · [Releases](https://github.com/frilxy/AM2R_3DS_CN/releases)
 
-![着陆点](docs/screenshots/landing-site.png)
-![熔岩区](docs/screenshots/lava.png)
+![着陆点](/docs/screenshots/landing-site.png)
+![熔岩区](/docs/screenshots/lava.png)
 
 > [!IMPORTANT]
 > **需要你自己的 AM2R 游戏数据，游戏本体不包含在本项目里。**
