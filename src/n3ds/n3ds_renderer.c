@@ -5450,7 +5450,13 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     N3DSLoadedAtlasPage* fontPage = NULL;
     C2D_Image directFontImage;
     Tex3DS_SubTexture directFontBaseSubtex;
-    float lineStride = (0.0f > lineSeparation) ? TextUtils_lineStride(font) : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
+    // One pixel of air under every line. The replaced bitmap fonts are exactly as tall as their glyph box, so with a
+    // line stride equal to that height the second line sits on the first - AM2R's scan message ("there are N Metroids
+    // in this area") drew its two lines on top of each other. A separation the game passes explicitly is honoured,
+    // but never below the glyph box.
+    float minimumStride = TextUtils_lineStride(font) + 1.0f;
+    float lineStride = (0.0f > lineSeparation) ? minimumStride : (lineSeparation / (font->scaleY != 0.0f ? font->scaleY : 1.0f));
+    if (lineStride < minimumStride) lineStride = minimumStride;
     bool useDirectFontAsset =
         0.0f > lineSeparation &&
         !font->isSpriteFont &&

@@ -451,11 +451,21 @@ static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
 
 // value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
 // strip leaves it out rather than showing "0/0" beside the ones the player does have.
+// Globals are not always numbers: during a room change or a suspend they can be unset, NaN or huge, and casting one of
+// those to int prints INT_MIN/INT_MAX, a 20+ character string that overruns the strip and reads as garbage on the
+// bottom screen. Keep every value inside what the HUD can actually show.
+static int N3DSLiveMap_statusValue(double value) {
+    if (!(value == value)) return 0;      // NaN
+    if (value <= 0.0) return 0;
+    if (value >= 999999.0) return 999999;
+    return (int) value;
+}
+
 static void N3DSLiveMap_statusPair(N3DSStatusEntry* entry, const char* current, const char* maximum) {
     double now = 0.0, cap = 0.0;
     if (!N3DSGml_getGlobal(current, -1, &now)) now = 0.0;
     if (!N3DSGml_getGlobal(maximum, -1, &cap)) cap = 0.0;
-    snprintf(entry->text, sizeof(entry->text), "%d/%d", (int) now, (int) cap);
+    snprintf(entry->text, sizeof(entry->text), "%d/%d", N3DSLiveMap_statusValue(now), N3DSLiveMap_statusValue(cap));
     entry->visible = cap > 0.0;
 }
 
@@ -479,9 +489,9 @@ static void N3DSLiveMap_drawStatus(void) {
     double health = 0.0, maxHealth = 0.0;
     N3DSGml_getGlobal("playerhealth", -1, &health);
     if (N3DSGml_getGlobal("maxhealth", -1, &maxHealth) && maxHealth > 0.0) {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d/%d", (int) health, (int) maxHealth);
+        snprintf(entries[0].text, sizeof(entries[0].text), "%d/%d", N3DSLiveMap_statusValue(health), N3DSLiveMap_statusValue(maxHealth));
     } else {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d", (int) health);
+        snprintf(entries[0].text, sizeof(entries[0].text), "%d", N3DSLiveMap_statusValue(health));
     }
     N3DSLiveMap_statusPair(&entries[1], "missiles", "maxmissiles");
     N3DSLiveMap_statusPair(&entries[2], "smissiles", "maxsmissiles");
