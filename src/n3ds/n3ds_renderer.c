@@ -1534,9 +1534,10 @@ static void N3DSBlobLoader_main(void* arg) {
             LightLock_Unlock(&loader->lock);
 
             uint8_t* data = malloc(size);
-            // pread, not fseek+fread: stdio keeps its state in newlib's shared reentrancy block, and this thread and
-            // the main thread both do I/O. A file descriptor has no such shared state.
-            if (data != NULL && pread(loader->fd, data, size, (off_t) offset) != (ssize_t) size) {
+            // lseek+read on a descriptor, not fseek+fread: stdio keeps its state in newlib's shared reentrancy block,
+            // and this thread and the main thread both do I/O. A descriptor has no such shared state (and this thread
+            // is the only user of this one).
+            if (data != NULL && (lseek(loader->fd, (off_t) offset, SEEK_SET) < 0 || read(loader->fd, data, size) != (ssize_t) size)) {
                 free(data);
                 data = NULL;
             }
