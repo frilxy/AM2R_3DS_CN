@@ -3653,36 +3653,10 @@ static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer
         return layout;
     }
 
-    int32_t len = (int32_t) strlen(text);
-    bool canAppendSuffix =
-        layout->text != NULL &&
-        layout->fontIndex == fontIndex &&
-        layout->drawHalign == 0 &&
-        layout->drawValign == 0 &&
-        renderer->base.drawHalign == 0 &&
-        renderer->base.drawValign == 0 &&
-        len >= 0;
-
-    if (canAppendSuffix) {
-        int32_t cachedLen = (int32_t) strlen(layout->text);
-        canAppendSuffix =
-            len >= cachedLen &&
-            memcmp(text, layout->text, (size_t) cachedLen) == 0;
-
-        if (canAppendSuffix) {
-            if (len + 1 > layout->textCapacity) {
-                int32_t newCapacity = layout->textCapacity > 0 ? layout->textCapacity : 16;
-                while (newCapacity < len + 1) newCapacity *= 2;
-                layout->text = safeRealloc(layout->text, (size_t) newCapacity);
-                layout->textCapacity = newCapacity;
-            }
-
-            memcpy(layout->text + cachedLen, text + cachedLen, (size_t) (len - cachedLen + 1));
-            N3DSRenderer_appendCachedTextLayoutSuffix(layout, font, text + cachedLen, len - cachedLen);
-            return layout;
-        }
-    }
-
+    // The suffix fast path used to extend the previous layout when the new string started with it (a counter going
+    // 48 -> 49, a score gaining a digit). That produced layouts whose appended glyphs were not laid out like the rest:
+    // the bottom screen's changing numbers came out as two copies a pixel apart. Rebuilding the layout is cheap next
+    // to drawing it, so the cache is only used when the whole string matches.
     N3DSRenderer_freeCachedTextLayout(layout);
     layout->fontIndex = fontIndex;
     layout->drawHalign = renderer->base.drawHalign;

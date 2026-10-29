@@ -148,7 +148,10 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.objControl = N3DSGml_objectIndex("oControl");
     gLive.bgGrid = N3DSGml_backgroundIndex("bgMapScreenBG");
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
-    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
+    // bg_MapBottom2 is the variant the game draws when it shows the item percentage: its background carries the
+    // item icon in front of the number. bg_MapBottom (without that icon) is the fallback.
+    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom2");
+    if (gLive.bgBottomBar < 0) gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
     gLive.sprMissile = N3DSGml_spriteIndex("sGUIMissile");
     gLive.sprSMissile = N3DSGml_spriteIndex("sGUISMissile");
     gLive.sprPBomb = N3DSGml_spriteIndex("sGUIPBomb");
@@ -613,13 +616,6 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    // Repaint the two bars before their numbers. They are the only place on the bottom screen whose text changes while
-    // the map stands still, and a value that shrinks or grows leaves the previous digits behind otherwise - the energy
-    // readout came out as two numbers printed a pixel apart.
-    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, (float) N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
-    r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
-    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     N3DSLiveMap_drawStatus();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
@@ -658,7 +654,7 @@ static void N3DSLiveMap_drawLiveFrame(void) {
         logInfo("LiveMap: energy %d/%d percent '%s' left '%s' area '%s'\n",
             N3DSLiveMap_statusValue(healthNow), N3DSLiveMap_statusValue(maxHealthNow), collected, left, area);
     }
-    N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
+    N3DSLiveMap_text(collected, 214.0f, 197.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
     r->drawFont = font;
