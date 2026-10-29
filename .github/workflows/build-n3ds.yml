@@ -129,10 +129,10 @@ jobs:
             echo "$marker"
             echo "## Downloads"
             echo
-            cia_name="am2r.cia"; 3dsx_name="am2r.3dsx"
-            if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; 3dsx_name="am2r-$tag.3dsx"; fi
+            cia_name="am2r.cia"; dsx_name="am2r.3dsx"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; dsx_name="am2r-$tag.3dsx"; fi
             echo "* \`$cia_name\` — install with FBI: $base/$cia_name"
-            echo "* \`$3dsx_name\` — for the Homebrew Launcher: $base/$3dsx_name"
+            echo "* \`$dsx_name\` — for the Homebrew Launcher: $base/$dsx_name"
             echo
             if [ "$GITHUB_REF_TYPE" = tag ] && [ -f ".ci/notes-$tag.md" ]; then
               cat ".ci/notes-$tag.md"
