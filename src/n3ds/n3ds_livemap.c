@@ -623,11 +623,6 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    // The numbers on these two bars change while the map stands still, and the bars come from the cached layer: the
-    // digits of the previous frame stay underneath unless the bar itself is drawn again. Only the bars are repainted -
-    // the title above the top bar and the zoom steps below the bottom one are untouched.
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
-    N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     N3DSLiveMap_drawStatus();
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
@@ -785,8 +780,10 @@ void N3DSLiveMap_draw(void) {
     if (!gLive.cacheReady) {
         // Drawn into the cache with its own 1:1 mapping, then blitted back on the frames that follow.
         if (N3DSRenderer_beginBottomCacheDraw(gLive.renderer)) {
+            // Only the cells go into the cache: they are the thousands of sprite draws worth caching. The bars, the
+            // title and the zoom steps are a handful of draws, and they are repainted every frame further down - which
+            // is also what keeps a changing number from leaving the previous one underneath it.
             N3DSLiveMap_drawCells(px, py);
-            N3DSLiveMap_drawStaticFrame();
             N3DSRenderer_endBottomCacheDraw(gLive.renderer);
             gLive.cacheReady = true;
         }
@@ -798,8 +795,8 @@ void N3DSLiveMap_draw(void) {
         N3DSRenderer_blitBottomCache(gLive.renderer);
     } else {
         N3DSLiveMap_drawCells(px, py);
-        N3DSLiveMap_drawStaticFrame();
     }
+    N3DSLiveMap_drawStaticFrame();
     N3DSLiveMap_drawLiveFrame();
     N3DSLiveMap_drawHighlight();
     N3DSRenderer_endBottomScreenGUI(gLive.renderer);
