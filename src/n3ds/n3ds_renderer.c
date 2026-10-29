@@ -5435,13 +5435,6 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
         y += 2.0f;
     }
-    // The item cutscene (oItemCutscene, the "能量源" / Energy Tank pickup) draws its title with fontGUI at y=112 and the
-    // line under it with fontMenuSmall2 (font 6) at y=121 - nine pixels apart. The game's own pixel font has ink
-    // shorter than that gap; this port's Chinese strike is a full 12 pixels, so the two lines overlapped. Push the
-    // second line down three, the same way the notification prompt is handled.
-    if ((int32_t) base->drawFont == 6 && base->drawHalign == 1 && y >= 119.5f && y <= 122.5f) {
-        y += 3.0f;
-    }
     // The options page's one-line description sits on the black bar at the very bottom (oOptionsFG draws global.tiptext
     // centred at (160, 228) with fontMenuSmall, white). The Chinese strike is 12px tall, so the line's lower half ran
     // off the 240-tall picture; lift it two pixels. Matched by font (4) and that exact y, white, centred - the pause

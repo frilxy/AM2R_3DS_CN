@@ -37,8 +37,7 @@ static struct {
 static uint32_t N3DSLog_copyCrashedLog(void) {
     FILE* in = fopen(N3DS_SD_DIR "log.txt", "rb");
     if (in == NULL) return 0;
-    remove(N3DS_SD_DIR "log_crash_prev.txt");
-    rename(N3DS_SD_DIR "log_crash.txt", N3DS_SD_DIR "log_crash_prev.txt");
+    remove(N3DS_SD_DIR "log_crash_prev.txt"); // the two-copy scheme is gone; keep the folder tidy
     FILE* out = fopen(N3DS_SD_DIR "log_crash.txt", "wb");
     uint32_t total = 0;
     if (out != NULL) {
