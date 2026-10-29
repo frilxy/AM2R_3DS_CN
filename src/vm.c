@@ -72,7 +72,14 @@ static int gmlTypeNativeSize(uint8_t gmlType) {
 }
 
 static void stackPush(VMContext* ctx, RValue val) {
-    assert(VM_STACK_SIZE > ctx->stack.top);
+    // A real check, not an assert: release builds define NDEBUG, so an overrun used to write past slots[] and corrupt
+    // whatever followed it (the crash that prompted this showed a return address outside the code and a wild fault
+    // address). Failing here names the script instead.
+    if (ctx->stack.top >= VM_STACK_SIZE) {
+        logError("VM: value stack overflow (%d slots) in %s\n", VM_STACK_SIZE,
+            ctx->currentCodeName != NULL ? ctx->currentCodeName : "?");
+        abort();
+    }
 #ifdef ENABLE_VM_TRACING
     if (shouldTraceStack(ctx)) {
         char* valStr = RValue_toStringTyped(val);
@@ -3895,6 +3902,11 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     frame.parent = ctx->callStack;
     ctx->callStack = &frame;
     ctx->callDepth++;
+    // Every GML call is also a C call, so a deep script chain eats the thread stack. Name the depth in the log when it
+    // crosses a threshold: a crash right after such a line says the stack size (or the recursion) is the problem.
+    if (ctx->callDepth == 128 || ctx->callDepth == 256 || ctx->callDepth == 512 || ctx->callDepth == 1024) {
+        logInfo("VM: call depth %d in %s\n", ctx->callDepth, ctx->currentCodeName != NULL ? ctx->currentCodeName : "?");
+    }
 
     int32_t storedStackTop = ctx->stack.top;
 

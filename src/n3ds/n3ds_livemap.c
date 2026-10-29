@@ -26,6 +26,8 @@
 // the language file, so the title is fetched once per language.
 
 #define N3DS_LIVEMAP_CELL 8
+// AM2R has 88 collectible items; its own screens compute the percentage with this divisor.
+#define N3DS_LIVEMAP_ITEM_TOTAL 88.0
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
 
@@ -146,7 +148,10 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.objControl = N3DSGml_objectIndex("oControl");
     gLive.bgGrid = N3DSGml_backgroundIndex("bgMapScreenBG");
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
-    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
+    // bg_MapBottom2 is the variant the game draws when it shows the item percentage: its background carries the
+    // item icon in front of the number. bg_MapBottom (without that icon) is the fallback.
+    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom2");
+    if (gLive.bgBottomBar < 0) gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
     gLive.sprMissile = N3DSGml_spriteIndex("sGUIMissile");
     gLive.sprSMissile = N3DSGml_spriteIndex("sGUISMissile");
     gLive.sprPBomb = N3DSGml_spriteIndex("sGUIPBomb");
@@ -349,13 +354,20 @@ static void N3DSLiveMap_background(int32_t background, float x, float y, float x
 static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour) {
     if (text == NULL || text[0] == '\0' || gLive.font < 0) return;
     Renderer* r = gLive.renderer;
+    int32_t savedValign = r->drawValign;
     r->drawFont = gLive.font;
     r->drawHalign = halign;
+    // The vertical alignment is whatever the game left behind: with valign = bottom the text is shifted down by its own
+    // height, which put the collection percentage two pixels below everything beside it. The strip always draws from
+    // the top edge, and at whole pixels so a glyph never straddles two rows.
+    r->drawValign = 0;
     r->drawAlpha = 1.0f;
+    float px = floorf(x + 0.5f), py = floorf(y + 0.5f);
     r->drawColor = 0x000000;
-    r->vtable->drawText(r, text, x + 1.0f, y + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->vtable->drawText(r, text, px + 1.0f, py + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
     r->drawColor = colour;
-    r->vtable->drawText(r, text, x, y, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->vtable->drawText(r, text, px, py, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->drawValign = savedValign;
 }
 
 // The usual white-on-black-shadow line.
@@ -451,11 +463,21 @@ static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
 
 // value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
 // strip leaves it out rather than showing "0/0" beside the ones the player does have.
+// Globals are not always numbers: during a room change or a suspend they can be unset, NaN or huge, and casting one of
+// those to int prints INT_MIN/INT_MAX, a 20+ character string that overruns the strip and reads as garbage on the
+// bottom screen. Keep every value inside what the HUD can actually show.
+static int N3DSLiveMap_statusValue(double value) {
+    if (!(value == value)) return 0;      // NaN
+    if (value <= 0.0) return 0;
+    if (value >= 999999.0) return 999999;
+    return (int) value;
+}
+
 static void N3DSLiveMap_statusPair(N3DSStatusEntry* entry, const char* current, const char* maximum) {
     double now = 0.0, cap = 0.0;
     if (!N3DSGml_getGlobal(current, -1, &now)) now = 0.0;
     if (!N3DSGml_getGlobal(maximum, -1, &cap)) cap = 0.0;
-    snprintf(entry->text, sizeof(entry->text), "%d/%d", (int) now, (int) cap);
+    snprintf(entry->text, sizeof(entry->text), "%d/%d", N3DSLiveMap_statusValue(now), N3DSLiveMap_statusValue(cap));
     entry->visible = cap > 0.0;
 }
 
@@ -479,9 +501,9 @@ static void N3DSLiveMap_drawStatus(void) {
     double health = 0.0, maxHealth = 0.0;
     N3DSGml_getGlobal("playerhealth", -1, &health);
     if (N3DSGml_getGlobal("maxhealth", -1, &maxHealth) && maxHealth > 0.0) {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d/%d", (int) health, (int) maxHealth);
+        snprintf(entries[0].text, sizeof(entries[0].text), "%d/%d", N3DSLiveMap_statusValue(health), N3DSLiveMap_statusValue(maxHealth));
     } else {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d", (int) health);
+        snprintf(entries[0].text, sizeof(entries[0].text), "%d", N3DSLiveMap_statusValue(health));
     }
     N3DSLiveMap_statusPair(&entries[1], "missiles", "maxmissiles");
     N3DSLiveMap_statusPair(&entries[2], "smissiles", "maxsmissiles");
@@ -618,10 +640,31 @@ static void N3DSLiveMap_drawLiveFrame(void) {
     N3DSLiveMap_twoDigits(left, sizeof(left), "monstersleft");
     N3DSLiveMap_twoDigits(area, sizeof(area), "monstersarea");
     // Items collected, as the percentage the game keeps in global.percent.
-    double percent = 0.0;
-    N3DSGml_getGlobal("percent", -1, &percent);
-    snprintf(collected, sizeof(collected), "%d%%", (int) percent);
-    N3DSLiveMap_text(collected, 227.0f, 197.0f, 0);
+    // There is no global.percent: the game computes the collection rate where it draws it, as the map page and the
+    // IGT screen both do - round(global.itemstaken / 88 * 100). Reading a global that does not exist left this at 0%
+    // for the whole run.
+    double itemsTaken = 0.0;
+    if (!N3DSGml_getGlobal("itemstaken", -1, &itemsTaken)) itemsTaken = 0.0;
+    if (!(itemsTaken == itemsTaken)) itemsTaken = 0.0; // NaN
+    int percent = (int) (itemsTaken / N3DS_LIVEMAP_ITEM_TOTAL * 100.0 + 0.5);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    snprintf(collected, sizeof(collected), "%d%%", percent);
+    // One line every so often with what the strip holds; the digits on screen looked doubled and this is the cheapest
+    // way to tell a render problem from the values themselves.
+    static uint32_t statusLogs = 0;
+    if (statusLogs < 6u && (gLive.frame % 600u) == 0u) {
+        statusLogs++;
+        double healthNow = 0.0, maxHealthNow = 0.0;
+        N3DSGml_getGlobal("playerhealth", -1, &healthNow);
+        N3DSGml_getGlobal("maxhealth", -1, &maxHealthNow);
+        logInfo("LiveMap: energy %d/%d percent '%s' left '%s' area '%s'\n",
+            N3DSLiveMap_statusValue(healthNow), N3DSLiveMap_statusValue(maxHealthNow), collected, left, area);
+    }
+    // Two pixels above the row the other counters use: measured on hardware, the percentage sits two pixels lower than
+    // the "18" beside it even though both are drawn at the same y with the same font. Its glyphs carry a taller box than
+    // the plain digits (the % sign), and the extra height lands at the bottom of the line. Lifting the call lines it up.
+    N3DSLiveMap_text(collected, 214.0f, 195.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
     r->drawFont = font;
@@ -740,8 +783,10 @@ void N3DSLiveMap_draw(void) {
     if (!gLive.cacheReady) {
         // Drawn into the cache with its own 1:1 mapping, then blitted back on the frames that follow.
         if (N3DSRenderer_beginBottomCacheDraw(gLive.renderer)) {
+            // Only the cells go into the cache: they are the thousands of sprite draws worth caching. The bars, the
+            // title and the zoom steps are a handful of draws, and they are repainted every frame further down - which
+            // is also what keeps a changing number from leaving the previous one underneath it.
             N3DSLiveMap_drawCells(px, py);
-            N3DSLiveMap_drawStaticFrame();
             N3DSRenderer_endBottomCacheDraw(gLive.renderer);
             gLive.cacheReady = true;
         }
@@ -753,8 +798,8 @@ void N3DSLiveMap_draw(void) {
         N3DSRenderer_blitBottomCache(gLive.renderer);
     } else {
         N3DSLiveMap_drawCells(px, py);
-        N3DSLiveMap_drawStaticFrame();
     }
+    N3DSLiveMap_drawStaticFrame();
     N3DSLiveMap_drawLiveFrame();
     N3DSLiveMap_drawHighlight();
     N3DSRenderer_endBottomScreenGUI(gLive.renderer);

@@ -1,4 +1,6 @@
 #include "n3ds_renderer.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include "n3ds_screen.h"
 #include "n3ds_prof.h"
 #include "n3ds_platform_config.h"
@@ -248,7 +250,7 @@ typedef struct {
     LightLock lock;
     LightEvent wake;
     CondVar done;
-    FILE* file; // its own handle on atlas.bin (the main thread seeks the other)
+    int fd; // its own handle on atlas.bin, read with pread (the main thread uses another one)
     uint32_t* queue; // stb_ds array of page indices
     volatile bool stop;
 } N3DSBlobLoader;
@@ -1493,12 +1495,17 @@ static bool N3DSRenderer_evictLRUPageBlob(N3DSRenderer* renderer, uint32_t exclu
 
 // ===[ Background page blob loader ]===
 
-#define N3DS_BLOB_LOADER_STACK_SIZE (16u * 1024u)
+// 16 KB was tight: the loader runs newlib's stdio (fread buffering) and the crash in the Zeta room showed a fault
+// inside a function prologue, i.e. a push that ran off the end of a stack. 64 KB costs nothing.
+#define N3DS_BLOB_LOADER_STACK_SIZE (64u * 1024u)
 // Above the main thread (0x30): it spends its time blocked on the SD card, and below it a busy main thread starved
 // it (reads queued at a room change only ran when the main thread next blocked).
 #define N3DS_BLOB_LOADER_PRIORITY 0x2F
 
 static void N3DSBlobLoader_main(void* arg) {
+    // A landmark for crash dumps: the dump only gives SP, and matching it to a thread needs to know where each stack
+    // lives. (The Zeta crash dumps all showed SP near 0x080070c8, which is somebody's stack bottom or close to it.)
+    logInfo("N3DS: page loader thread stack near 0x%08x\n", (unsigned) (uintptr_t) &arg);
     N3DSRenderer* renderer = arg;
     N3DSBlobLoader* loader = &renderer->blobLoader;
     while (true) {
@@ -1527,7 +1534,10 @@ static void N3DSBlobLoader_main(void* arg) {
             LightLock_Unlock(&loader->lock);
 
             uint8_t* data = malloc(size);
-            if (data != NULL && (fseek(loader->file, (long) offset, SEEK_SET) != 0 || fread(data, 1, size, loader->file) != size)) {
+            // lseek+read on a descriptor, not fseek+fread: stdio keeps its state in newlib's shared reentrancy block,
+            // and this thread and the main thread both do I/O. A descriptor has no such shared state (and this thread
+            // is the only user of this one).
+            if (data != NULL && (lseek(loader->fd, (off_t) offset, SEEK_SET) < 0 || read(loader->fd, data, size) != (ssize_t) size)) {
                 free(data);
                 data = NULL;
             }
@@ -1541,12 +1551,24 @@ static void N3DSBlobLoader_main(void* arg) {
     }
 }
 
+// Temporary bisect switch: the background page reader is the one piece of the startup work that runs on a second
+// thread, and the Zeta crash looks like memory being written by something other than the running code. Set to 0 to
+// read every page blob on the main thread again and see whether the crash survives.
+#ifndef N3DS_ENABLE_BLOB_LOADER
+#define N3DS_ENABLE_BLOB_LOADER 1
+#endif
+
 static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
+#if !N3DS_ENABLE_BLOB_LOADER
+    (void) renderer;
+    return;
+#else
     if (renderer->packedAtlasFile == NULL || !N3DSRenderer_isPackedAtlasVersion(renderer->atlasVersion)) return;
     N3DSBlobLoader* loader = &renderer->blobLoader;
     char path[256];
-    loader->file = N3DSRenderer_openAssetFile(renderer, "atlas.bin", path, sizeof(path));
-    if (loader->file == NULL) return;
+    if (!N3DSRenderer_resolveAssetPath(renderer, "atlas.bin", path, sizeof(path))) return;
+    loader->fd = open(path, O_RDONLY);
+    if (loader->fd < 0) return;
     LightLock_Init(&loader->lock);
     LightEvent_Init(&loader->wake, RESET_ONESHOT);
     CondVar_Init(&loader->done);
@@ -1556,12 +1578,13 @@ static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
     loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 2, false);
     if (loader->thread == NULL) loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 1, false);
     if (loader->thread == NULL) {
-        fclose(loader->file);
-        loader->file = NULL;
+        close(loader->fd);
+        loader->fd = -1;
         logWarn("N3DS: no background page loader thread; pages load on the main thread\n");
         return;
     }
     renderer->blobLoaderRunning = true;
+#endif
 }
 
 static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
@@ -1573,7 +1596,7 @@ static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
     LightEvent_Signal(&loader->wake);
     threadJoin(loader->thread, U64_MAX);
     threadFree(loader->thread);
-    fclose(loader->file);
+    close(loader->fd);
     arrfree(loader->queue);
     repeat(renderer->atlasPageCount, i) {
         free(renderer->atlasPages[i].asyncData);
@@ -3630,37 +3653,12 @@ static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer
         return layout;
     }
 
-    int32_t len = (int32_t) strlen(text);
-    bool canAppendSuffix =
-        layout->text != NULL &&
-        layout->fontIndex == fontIndex &&
-        layout->drawHalign == 0 &&
-        layout->drawValign == 0 &&
-        renderer->base.drawHalign == 0 &&
-        renderer->base.drawValign == 0 &&
-        len >= 0;
-
-    if (canAppendSuffix) {
-        int32_t cachedLen = (int32_t) strlen(layout->text);
-        canAppendSuffix =
-            len >= cachedLen &&
-            memcmp(text, layout->text, (size_t) cachedLen) == 0;
-
-        if (canAppendSuffix) {
-            if (len + 1 > layout->textCapacity) {
-                int32_t newCapacity = layout->textCapacity > 0 ? layout->textCapacity : 16;
-                while (newCapacity < len + 1) newCapacity *= 2;
-                layout->text = safeRealloc(layout->text, (size_t) newCapacity);
-                layout->textCapacity = newCapacity;
-            }
-
-            memcpy(layout->text + cachedLen, text + cachedLen, (size_t) (len - cachedLen + 1));
-            N3DSRenderer_appendCachedTextLayoutSuffix(layout, font, text + cachedLen, len - cachedLen);
-            return layout;
-        }
-    }
-
+    // The suffix fast path used to extend the previous layout when the new string started with it (a counter going
+    // 48 -> 49, a score gaining a digit). That produced layouts whose appended glyphs were not laid out like the rest:
+    // the bottom screen's changing numbers came out as two copies a pixel apart. Rebuilding the layout is cheap next
+    // to drawing it, so the cache is only used when the whole string matches.
     N3DSRenderer_freeCachedTextLayout(layout);
+    int32_t len = (int32_t) strlen(text);
     layout->fontIndex = fontIndex;
     layout->drawHalign = renderer->base.drawHalign;
     layout->drawValign = renderer->base.drawValign;
@@ -5402,6 +5400,13 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // green (224,248,208) and its dark shadow (8,24,32). The pause screen's hints use the same font at nearly the same
     // y, but in white, so matching on those two colours keeps them where they are.
     if ((int32_t) base->drawFont == 6 && y >= 220.0f && y <= 260.0f &&
+        (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
+        y += 2.0f;
+    }
+    // The scan notification is the same box with a different second line: oNotification draws its title (fontGUI2) at
+    // y=214 and the "N 只密特罗德在该区域" count with fontMenuSmall (font 4) at y=224. Ten pixels apart against a
+    // 12-pixel Chinese strike, so the count touched the title. Same nudge, matched by font 4 and that exact y.
+    if ((int32_t) base->drawFont == 4 && y >= 222.5f && y <= 225.5f &&
         (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
         y += 2.0f;
     }
