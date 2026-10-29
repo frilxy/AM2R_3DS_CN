@@ -5428,6 +5428,13 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
         y += 2.0f;
     }
+    // The scan notification is the same box with a different second line: oNotification draws its title (fontGUI2) at
+    // y=214 and the "N 只密特罗德在该区域" count with fontMenuSmall (font 4) at y=224. Ten pixels apart against a
+    // 12-pixel Chinese strike, so the count touched the title. Same nudge, matched by font 4 and that exact y.
+    if ((int32_t) base->drawFont == 4 && y >= 222.5f && y <= 225.5f &&
+        (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u)) {
+        y += 2.0f;
+    }
     // The item cutscene (oItemCutscene, the "能量源" / Energy Tank pickup) draws its title with fontGUI at y=112 and the
     // line under it with fontMenuSmall2 (font 6) at y=121 - nine pixels apart. The game's own pixel font has ink
     // shorter than that gap; this port's Chinese strike is a full 12 pixels, so the two lines overlapped. Push the
