@@ -555,6 +555,78 @@ enum {
     N3DS_SCENE_TARGET_SURFACE = 3,
 };
 
+static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, bool force);
+static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float x2, float y2, float width, uint32_t color1, uint32_t color2, float alpha);
+static void N3DSRenderer_applyBlendState(N3DSRenderer* renderer);
+static void N3DSRenderer_applyAlphaState(N3DSRenderer* renderer);
+
+static void N3DSRenderer_drawSprite(Renderer* base, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
+static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, float angleDeg, float pivotX, float pivotY, uint32_t color, float alpha);
+static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX, float offsetY);
+static void N3DSRenderer_drawTiled(Renderer* base, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha);
+static void N3DSRenderer_drawTiledPart(Renderer* base, int32_t tpagIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, float dstX, float dstY, float dstW, float dstH, uint32_t color, float alpha);
+static bool N3DSRenderer_getPageIndexForTPAG(N3DSRenderer* renderer, int32_t tpagIndex, uint32_t* outPageIndex);
+static N3DSTileAtlasEntry* N3DSRenderer_findTileEntryByKey(N3DSRenderer* renderer, int32_t backgroundIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, uint32_t* outEntryIndex);
+static N3DSTileAtlasEntry* N3DSRenderer_findTileEntry(N3DSRenderer* renderer, RoomTile* tile);
+static void N3DSRenderer_prewarmPage(N3DSRenderer* renderer, bool* seenPages, uint32_t pageIndex);
+static bool N3DSRenderer_prewarmPageBlobOnly(N3DSRenderer* renderer, bool* seenPages, uint32_t pageIndex, uint32_t* remainingBlobBytes);
+static void N3DSRenderer_prewarmTPAGBlobOnly(N3DSRenderer* renderer, bool* seenPages, int32_t tpagIndex, uint32_t* remainingBlobBytes);
+static void N3DSRenderer_prewarmTileEntryBlobOnly(N3DSRenderer* renderer, bool* seenPages, const N3DSTileAtlasEntry* entry, uint32_t* remainingBlobBytes);
+static void N3DSRenderer_prewarmRoomBlobCache(N3DSRenderer* renderer, Runner* runner);
+static void N3DSRenderer_preloadFontPages(N3DSRenderer* renderer);
+static bool N3DSRenderer_ensurePageBlobLoaded(N3DSRenderer* renderer, uint32_t pageIndex);
+static void N3DSRenderer_freeCachedTextLayout(N3DSCachedTextLayout* layout);
+static void N3DSRenderer_appendCachedTextLayoutSuffix(N3DSCachedTextLayout* layout, Font* font, const char* suffix, int32_t suffixLen);
+static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer* renderer, Font* font, int32_t fontIndex, const char* text);
+static bool N3DSRenderer_tryDrawSingleGlyphTextFast(
+    Renderer* base,
+    N3DSRenderer* renderer,
+    Font* font,
+    const char* text,
+    int32_t len,
+    float x,
+    float y,
+    float effectiveXScale,
+    float effectiveYScale,
+    float angleDeg,
+    bool gradient,
+    int32_t c1,
+    float alpha,
+    bool useDirectFontAsset,
+    const C2D_Image* directFontImage,
+    const Tex3DS_SubTexture* directFontBaseSubtex,
+    const N3DSAtlasFragment* fontFragment,
+    N3DSLoadedAtlasPage* fontPage
+);
+static bool N3DSRenderer_drawPackedTileEntry(Renderer* base, N3DSRenderer* renderer, const N3DSTileAtlasEntry* tileEntry, float drawX, float drawY, float xscale, float yscale, uint32_t color, float alpha);
+static bool N3DSRenderer_isFragmentedAtlasVersion(uint16_t atlasVersion);
+static void N3DSRenderer_buildReadAheadMap(N3DSRenderer* renderer, DataWin* dataWin);
+static bool N3DSRenderer_isPackedAtlasVersion(uint16_t atlasVersion);
+static const char* N3DSRenderer_getTextureFormatName(uint32_t textureFormat);
+static void N3DSRenderer_sceneBeginTarget(N3DSRenderer* renderer, uint8_t targetKind, bool force);
+static void N3DSRenderer_freeTileLayerChunkCache(N3DSRenderer* renderer, N3DSTileLayerChunkCache* cache);
+static void N3DSRenderer_freeDirectTextureAsset(N3DSDirectTextureAsset* asset, N3DSRenderer* renderer);
+static void N3DSRenderer_unloadDirectTextureBlob(N3DSDirectTextureAsset* asset, N3DSRenderer* renderer);
+static bool N3DSRenderer_evictLRUDirectAsset(N3DSRenderer* renderer, const N3DSDirectTextureAsset* excludeAsset);
+static bool N3DSRenderer_evictLRUDirectAssetBlob(N3DSRenderer* renderer, const N3DSDirectTextureAsset* excludeAsset);
+static void N3DSRenderer_buildDirectAssetMaps(N3DSRenderer* renderer);
+static bool N3DSRenderer_tryDrawDirectMappedSprite(Renderer* base, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
+static bool N3DSRenderer_tryResolveDirectFontImage(N3DSRenderer* renderer, int32_t fontIndex, C2D_Image* outImage, Tex3DS_SubTexture* outSubtex);
+static void N3DSRenderer_drawImage(Renderer* base, C2D_Image* image, float localX, float localY, float width, float height, float pivotX, float pivotY, float angleDeg, uint32_t color, float alpha);
+static void N3DSRenderer_getActiveTargetSize(const N3DSRenderer* renderer, float* outW, float* outH);
+static bool N3DSRenderer_isScreenRectOffscreen(const N3DSRenderer* renderer, float x, float y, float w, float h);
+static bool N3DSRenderer_isScreenRotatedRectOffscreen(const N3DSRenderer* renderer, float x, float y, float w, float h, float angleDeg);
+static bool N3DSRenderer_loadPackedDirectAssets(N3DSRenderer* renderer);
+static bool N3DSRenderer_loadRoomManifest(N3DSRenderer* renderer);
+static const N3DSRoomManifestEntry* N3DSRenderer_findRoomManifestEntry(const N3DSRenderer* renderer, uint32_t roomIndex);
+static void N3DSRenderer_prewarmRoomManifestBlobCache(N3DSRenderer* renderer, uint32_t roomIndex, bool* seenPages, uint32_t* remainingBlobBytes);
+static bool N3DSRenderer_tryLoadPackedDirectTextureBlob(N3DSRenderer* renderer, N3DSDirectTextureAsset* asset, const char* relativePath);
+static N3DSDynamicCaptureTPAG* N3DSRenderer_getDynamicCaptureTPAG(N3DSRenderer* renderer, int32_t tpagIndex);
+static void N3DSRenderer_freeDynamicCaptureTPAG(N3DSRenderer* renderer, N3DSDynamicCaptureTPAG* capture);
+static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer);
+// Defined next to the frozen-screen capture below; the runtime texture uploads tile their pixels the same way.
+static inline uint32_t N3DSRenderer_morton(uint32_t x, uint32_t y);
+
 static void N3DSRenderer_traceTPAGUsage(N3DSRenderer* renderer, uint8_t traceKind, int32_t tpagIndex) {
 #if !N3DS_ENABLE_LOGGING
     (void) renderer;
