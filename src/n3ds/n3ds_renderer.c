@@ -4072,6 +4072,15 @@ void N3DSRenderer_beginOverlay(Renderer* base) {
 
 static void N3DSRenderer_drawImage(Renderer* base, C2D_Image* image, float localX, float localY, float width, float height, float pivotX, float pivotY, float angleDeg, uint32_t color, float alpha) {
     if (image == NULL || image->tex == NULL || image->subtex == NULL) return;
+    if (gDrawTraceFrames > 0 && gDrawTraceLines < N3DS_DRAW_TRACE_LINES_PER_FRAME) {
+        N3DSRenderer* traceRenderer = (N3DSRenderer*) base;
+        logInfo("DRAW image tex=%ux%u subtex=%.3f,%.3f,%.3f,%.3f dest=%.1f,%.1f %.1fx%.1f target=%d frame=%u\n",
+            (unsigned) image->tex->width, (unsigned) image->tex->height,
+            (double) image->subtex->left, (double) image->subtex->top, (double) image->subtex->right, (double) image->subtex->bottom,
+            (double) localX, (double) localY, (double) width, (double) height,
+            (int) traceRenderer->currentTargetSurface, (unsigned) traceRenderer->frameSequence);
+        gDrawTraceLines++;
+    }
     if (!Renderer_isFiniteFloat(localX) || !Renderer_isFiniteFloat(localY) ||
         !Renderer_isFiniteFloat(width) || !Renderer_isFiniteFloat(height) ||
         !Renderer_isFiniteFloat(pivotX) || !Renderer_isFiniteFloat(pivotY) ||
@@ -6541,6 +6550,14 @@ static bool N3DSRenderer_setRenderTarget(Renderer* base, int32_t surfaceID, bool
 
 static void N3DSRenderer_drawSurfaceRegion(Renderer* base, N3DSSurface* surface, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
     surface->lastUsedFrame = ((N3DSRenderer*) base)->frameSequence;
+    if (gDrawTraceFrames > 0 && gDrawTraceLines < N3DS_DRAW_TRACE_LINES_PER_FRAME) {
+        logInfo("DRAW surface id=%d %dx%d backed=%dx%d tex=%ux%u src=%d,%d %dx%d dest=%.1f,%.1f scale=%.2f,%.2f on=%d frame=%u\n",
+            (int) (surface - ((N3DSRenderer*) base)->surfaces), (int) surface->width, (int) surface->height,
+            (int) surface->backedW, (int) surface->backedH, (unsigned) surface->texture.width, (unsigned) surface->texture.height,
+            (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y, (double) xscale, (double) yscale,
+            (int) ((N3DSRenderer*) base)->currentTargetSurface, (unsigned) ((N3DSRenderer*) base)->frameSequence);
+        gDrawTraceLines++;
+    }
     // Negative width = the whole surface (draw_surface / draw_surface_ext), as in the GL renderer.
     if (0 > srcWidth) {
         srcLeft = 0;
