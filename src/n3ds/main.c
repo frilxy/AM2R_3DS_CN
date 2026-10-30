@@ -921,7 +921,6 @@ int main(int argc, char** argv) {
     uint32_t skippedFrames = 0;
     if (fileExists(N3DS_SD_DIR "drawtrace.txt")) {
         N3DSRenderer_startDrawTrace(renderer, 6);
-        bootBlackout = false; // trace what the game actually draws, not the blackout
         logInfo("N3DS: draw trace on (6 frames)\n");
     }
 
@@ -1204,12 +1203,12 @@ int main(int argc, char** argv) {
             // The first frames of the first real room (the title) are the ones that came out wrong: its artwork's page
             // is not what it should be for that one frame. Two frames are enough for the room to have drawn again with
             // the page settled, and the room fades in from black anyway, so nothing visible is lost.
-            if (bootRoomStill || framesSinceRoom < 2) {
+            if (bootRoomStill || framesSinceRoom < 10) {
                 // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
                 N3DSRenderer_clearScreens(renderer);
             } else {
                 bootBlackout = false;
-                logInfo("N3DS: boot blackout ends in %s\n", bootRoom);
+                logInfo("N3DS: boot blackout ends in %s after %d frames\n", bootRoom, (int) framesSinceRoom);
             }
         }
         if (bootShotsLeft > 0 && bootPendingShot < 0) {
