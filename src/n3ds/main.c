@@ -1081,6 +1081,9 @@ int main(int argc, char** argv) {
             N3DSAudio_prewarmRoom(runner->audioSystem, runner);
 #endif
             N3DSProf_end(N3DS_PROF_PREWARM, prewarmStart);
+            // The boot frames are not where the wrong picture is: it is the first frames of the title room, which start
+            // seconds later. Restart the trace on every room entry so the room that draws it is the one recorded.
+            if (fileExists(N3DS_SD_DIR "drawtrace.txt")) N3DSRenderer_startDrawTrace(renderer, 6);
             N3DS_logMemory("room start");
         }
 
