@@ -556,6 +556,8 @@ enum {
 };
 
 static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys);
+static void N3DSRenderer_traceTiledDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys, float roomW, float roomH);
+static void N3DSRenderer_traceBind(N3DSRenderer* renderer, int32_t surfaceID, float w, float h);
 static int32_t gDrawTraceFrames;
 static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, bool force);
 static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float x2, float y2, float width, uint32_t color1, uint32_t color2, float alpha);
@@ -4823,6 +4825,7 @@ static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX,
 
 static void N3DSRenderer_drawTiled(Renderer* base, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
     N3DS_ZONE(N3DS_ZONE_TILED);
+    N3DSRenderer_traceTiledDraw((N3DSRenderer*) base, tpagIndex, x, y, xscale, yscale, roomW, roomH);
     if (!Renderer_isFiniteFloat(originX) || !Renderer_isFiniteFloat(originY) ||
         !Renderer_isFiniteFloat(x) || !Renderer_isFiniteFloat(y) ||
         !Renderer_isFiniteFloat(xscale) || !Renderer_isFiniteFloat(yscale) ||
@@ -5959,6 +5962,8 @@ static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, b
     if (!force && renderer->currentTargetSurface == surfaceID && renderer->activeSceneTarget != N3DS_SCENE_TARGET_NONE) return;
     N3DSRenderer_flushC2DQueue(renderer);
     N3DSSurface* surface = N3DSRenderer_getSurface(renderer, surfaceID);
+    N3DSRenderer_traceBind(renderer, surfaceID, surface != NULL ? (float) surface->width : (float) N3DS_TOP_WIDTH,
+        surface != NULL ? (float) surface->height : (float) N3DS_TOP_HEIGHT);
     if (surface == NULL) {
         renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
         renderer->targetW = N3DS_TOP_WIDTH;
@@ -7061,6 +7066,22 @@ void N3DSRenderer_startDrawTrace(Renderer* base, int32_t frames) {
     (void) base;
     gDrawTraceFrames = frames;
     gDrawTraceLines = 0;
+}
+
+static void N3DSRenderer_traceTiledDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys, float roomW, float roomH) {
+    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
+    uint32_t pageIndex = 0;
+    bool havePage = N3DSRenderer_getPageIndexForTPAG(renderer, tpagIndex, &pageIndex);
+    logInfo("DRAW tiled tpag=%d page=%d dest=%.1f,%.1f scale=%.2f,%.2f room=%.0fx%.0f frame=%u\n", (int) tpagIndex,
+        havePage ? (int) pageIndex : -1, (double) x, (double) y, (double) xs, (double) ys, (double) roomW, (double) roomH,
+        (unsigned) renderer->frameSequence);
+    gDrawTraceLines++;
+}
+
+static void N3DSRenderer_traceBind(N3DSRenderer* renderer, int32_t surfaceID, float w, float h) {
+    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
+    logInfo("DRAW bind surface=%d size=%.0fx%.0f frame=%u\n", (int) surfaceID, (double) w, (double) h, (unsigned) renderer->frameSequence);
+    gDrawTraceLines++;
 }
 
 static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys) {
