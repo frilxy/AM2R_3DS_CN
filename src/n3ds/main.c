@@ -912,6 +912,11 @@ int main(int argc, char** argv) {
     int32_t bootShotsLeft = fileExists(N3DS_SD_DIR "bootshots.txt") ? 12 : 0;
     int32_t bootShotIndex = 0;
     int32_t bootPendingShot = -1;
+    // The game's first room and the transition into the title draw a collage of unrelated menu artwork (screenshots of
+    // the boot frames show the title's UI pieces tiled across the screen): whatever the game draws there, it is not
+    // what the player should see. Keep both screens black until a real room is up; the title then fades in from black,
+    // which is how it starts anyway.
+    bool bootBlackout = true;
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
@@ -1171,6 +1176,16 @@ int main(int argc, char** argv) {
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
+        if (bootBlackout) {
+            const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
+            if (bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0) {
+                // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
+                N3DSRenderer_clearScreens(renderer);
+            } else {
+                bootBlackout = false;
+                logInfo("N3DS: boot blackout ends in %s\n", bootRoom);
+            }
+        }
         if (bootShotsLeft > 0 && bootPendingShot < 0) {
             bootShotsLeft--;
             bootPendingShot = bootShotIndex++;
