@@ -59,6 +59,9 @@ void N3DSRenderer_importReadAhead(Renderer* renderer);
 // previous frame and the vblank); frameEnd submits it.
 void N3DSRenderer_frameGate(void);
 void N3DSRenderer_frameEnd(void);
+// Clears both screens to black inside the frame that is already open. The startup frame presents before the main loop,
+// where nothing has been drawn yet; without this it showed whatever the buffers happened to hold.
+void N3DSRenderer_clearScreens(Renderer* renderer);
 bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);

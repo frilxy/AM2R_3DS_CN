@@ -907,11 +907,30 @@ int main(int argc, char** argv) {
     int32_t inputFrame = 0;
     if (fileExists(N3DS_SD_DIR "inputs.json")) inputPlayback = InputRecording_createPlayer(N3DS_SD_DIR "inputs.json", NULL);
 
+    // The game's startup rooms draw a collage of unrelated menu artwork (the boot screenshots show the title's UI pieces
+    // tiled across the screen), and the title's first frames draw its artwork from an atlas page whose texture does not
+    // hold that artwork yet - the same frame a moment later is right. Neither is worth showing: the screens stay black
+    // until the first real room has drawn a few frames, and the title fades in from black as it does on its own.
+    bool bootBlackout = true;
+    int32_t framesSinceRoom = 1000;
+
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
+    // The first frame is drawn straight after this, and the loading screen has already gone: without warming the room
+    // here that frame reads its artwork from the card while drawing (the log showed io 33 ms in it), so it showed the
+    // textures' previous contents. Every later room is warmed at the end of its transition frame; the first one gets
+    // the same treatment, while the blackened startup frame below is all that is on screen.
+    {
+        u64 prewarmStart = N3DSProf_begin();
+        N3DSRenderer_prewarmRoom(renderer, runner);
+        N3DSProf_end(N3DS_PROF_PREWARM, prewarmStart);
+    }
     // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next boot.
     N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
+    // Nothing has been drawn for either screen yet in this frame, so clear them: an opened frame presents whatever the
+    // buffers hold, which was leftover from before the loading screen's target was released.
+    N3DSRenderer_clearScreens(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
     N3DS_logMemory("first room");
@@ -1020,6 +1039,7 @@ int main(int argc, char** argv) {
         N3DSRenderer_importReadAhead(renderer);
 
         bool roomChanged = runner->currentRoom != lastRoom;
+        if (roomChanged) framesSinceRoom = 0; else if (framesSinceRoom < 1000) framesSinceRoom++;
         if (roomChanged) {
             // How the room just left ran, as a whole (the Perf line is per 5 s and mixes rooms).
             if (lastRoom != NULL && roomStats.frames > 0) {
@@ -1143,6 +1163,20 @@ int main(int argc, char** argv) {
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
+        if (bootBlackout) {
+            const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
+            bool bootRoomStill = bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0;
+            // The first frames of the first real room (the title) came out wrong; a handful of frames is enough for it
+            // to have drawn again with its artwork settled, and the room fades in from black anyway, so nothing visible
+            // is lost.
+            if (bootRoomStill || framesSinceRoom < 10) {
+                // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
+                N3DSRenderer_clearScreens(renderer);
+            } else {
+                bootBlackout = false;
+                logInfo("N3DS: boot blackout ends in %s after %d frames\n", bootRoom, (int) framesSinceRoom);
+            }
+        }
         N3DSRenderer_frameEnd();
         u64 gcStartTick = svcGetSystemTick();
 #ifdef N3DS_FRAME_PROFILER

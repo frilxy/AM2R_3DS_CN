@@ -633,15 +633,6 @@ enum {
     N3DS_TRACE_KIND_FONT = 1u << 2,
 };
 
-static const char* N3DSRenderer_getTraceKindName(uint8_t traceKind) {
-    switch (traceKind) {
-        case N3DS_TRACE_KIND_SPRITE: return "sprite";
-        case N3DS_TRACE_KIND_SPRITE_PART: return "sprite_part";
-        case N3DS_TRACE_KIND_FONT: return "font";
-        default: return "unknown";
-    }
-}
-
 static void N3DSRenderer_traceTPAGUsage(N3DSRenderer* renderer, uint8_t traceKind, int32_t tpagIndex) {
 #if !N3DS_ENABLE_LOGGING
     (void) renderer;
@@ -1870,6 +1861,14 @@ static bool N3DSRenderer_loadPage(N3DSRenderer* renderer, uint32_t pageIndex) {
     N3DSProf_end(N3DS_PROF_TEX, texStart);
     if (page->t3x == NULL) {
         return false;
+    }
+    // A page's blob is read by offset; if the wrong bytes arrive (or the data is not what the manifest says), the
+    // texture comes out at the wrong size and every sprite on the page shows another page's artwork - the title screen
+    // flashed a grid of page 0's sprites exactly this way. Say so, with both sizes, so a bad blob is not mistaken for a
+    // bad draw.
+    if (page->texture.width != page->width || page->texture.height != page->height) {
+        logWarn("N3DS: page %lu imported %ux%u but the manifest says %ux%u\n", (unsigned long) pageIndex,
+            (unsigned) page->texture.width, (unsigned) page->texture.height, (unsigned) page->width, (unsigned) page->height);
     }
 
     C3D_TexSetFilter(&page->texture, GPU_NEAREST, GPU_NEAREST);
@@ -7040,10 +7039,31 @@ void N3DSRenderer_frameGate(void) {
     gFrameOpen = true;
 }
 
+
 void N3DSRenderer_frameEnd(void) {
     N3DSRenderer_frameGate();
     C3D_FrameEnd(0);
     gFrameOpen = false;
+}
+
+// Startup only: the frame that runs Runner_initFirstRoom is presented before the main loop, so nothing has been drawn
+// to either screen yet, and an opened frame presents whatever the buffers held when the loading screen's target was
+// released. Clearing them here makes that frame black instead of that leftover.
+void N3DSRenderer_clearScreens(Renderer* base) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL) return;
+    N3DSRenderer_flushC2DQueue(renderer);
+    if (renderer->bottomTarget != NULL) {
+        C2D_TargetClear(renderer->bottomTarget, C2D_Color32(0, 0, 0, 255));
+        C2D_SceneBegin(renderer->bottomTarget);
+    }
+    if (renderer->topTarget != NULL) {
+        C2D_TargetClear(renderer->topTarget, C2D_Color32(0, 0, 0, 255));
+        C2D_SceneBegin(renderer->topTarget);
+    }
+    renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
+    renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
+    N3DSRenderer_flushC2DQueue(renderer);
 }
 
 bool N3DSRenderer_frameIsOpen(void) {
