@@ -907,6 +907,12 @@ int main(int argc, char** argv) {
     int32_t inputFrame = 0;
     if (fileExists(N3DS_SD_DIR "inputs.json")) inputPlayback = InputRecording_createPlayer(N3DS_SD_DIR "inputs.json", NULL);
 
+    // Boot diagnostics: with sdmc:/3ds/am2r/bootshots.txt on the card, the first frames after the loading screen are
+    // saved as shots/boot_<n>.png. The gate has just waited for the previous frame, so each file is what was presented.
+    int32_t bootShotsLeft = fileExists(N3DS_SD_DIR "bootshots.txt") ? 12 : 0;
+    int32_t bootShotIndex = 0;
+    int32_t bootPendingShot = -1;
+
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
     // The first frame is drawn straight after this, and the loading screen has already gone: without warming the room
@@ -924,6 +930,10 @@ int main(int argc, char** argv) {
     // Nothing has been drawn for either screen yet in this frame, so clear them: an opened frame presents whatever the
     // buffers hold, which was leftover from before the loading screen's target was released.
     N3DSRenderer_clearScreens(renderer);
+    if (bootShotsLeft > 0) {
+        bootShotsLeft--;
+        bootPendingShot = bootShotIndex++;
+    }
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
     N3DS_logMemory("first room");
@@ -981,6 +991,12 @@ int main(int argc, char** argv) {
         // The GPU frame isn't opened here: the step runs while the GPU still draws the previous frame, and the first
         // renderer call that needs the GPU opens it (N3DSRenderer_frameGate), else the drawing below does. (The screen
         // captures here open it themselves when they run.)
+        // Boot diagnostics: the previously presented frame is complete now (the harness screenshots open the gate the
+        // same way), so this file is exactly what the player saw.
+        if (bootPendingShot >= 0) {
+            N3DSScreenshot_captureTopNow(renderer, bootPendingShot);
+            bootPendingShot = -1;
+        }
         N3DSScreenshot_captureIfRequested(renderer);
         N3DSLiveMap_beginFrame();
         // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
@@ -1155,6 +1171,10 @@ int main(int argc, char** argv) {
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
+        if (bootShotsLeft > 0 && bootPendingShot < 0) {
+            bootShotsLeft--;
+            bootPendingShot = bootShotIndex++;
+        }
         N3DSRenderer_frameEnd();
         u64 gcStartTick = svcGetSystemTick();
 #ifdef N3DS_FRAME_PROFILER

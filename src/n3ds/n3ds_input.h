@@ -27,5 +27,7 @@ void N3DSInput_injectButton(Runner* runner, int32_t index);
 
 // Self-screenshots of the top screen (PNG under N3DS_SD_DIR "shots/").
 void N3DSScreenshot_request(int32_t frame);
+// Boot diagnostics (bootshots.txt present): saves the top screen as last presented, as shots/boot_<n>.png.
+void N3DSScreenshot_captureTopNow(Renderer* renderer, int32_t index);
 // Call right after C3D_FrameBegin: the previous frame is finished and still in the top screen's color buffer.
 void N3DSScreenshot_captureIfRequested(Renderer* renderer);
