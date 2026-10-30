@@ -555,99 +555,6 @@ enum {
     N3DS_SCENE_TARGET_SURFACE = 3,
 };
 
-static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys);
-static void N3DSRenderer_traceTiledDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys, float roomW, float roomH);
-static void N3DSRenderer_traceBind(N3DSRenderer* renderer, int32_t surfaceID, float w, float h);
-static int32_t gDrawTraceFrames;
-static int32_t gDrawTraceLines;
-#define N3DS_DRAW_TRACE_LINES_PER_FRAME 80
-static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, bool force);
-static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float x2, float y2, float width, uint32_t color1, uint32_t color2, float alpha);
-static void N3DSRenderer_applyBlendState(N3DSRenderer* renderer);
-static void N3DSRenderer_applyAlphaState(N3DSRenderer* renderer);
-
-static void N3DSRenderer_drawSprite(Renderer* base, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
-static void N3DSRenderer_drawSpritePart(Renderer* base, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, float angleDeg, float pivotX, float pivotY, uint32_t color, float alpha);
-static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX, float offsetY);
-static void N3DSRenderer_drawTiled(Renderer* base, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha);
-static void N3DSRenderer_drawTiledPart(Renderer* base, int32_t tpagIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, float dstX, float dstY, float dstW, float dstH, uint32_t color, float alpha);
-static bool N3DSRenderer_getPageIndexForTPAG(N3DSRenderer* renderer, int32_t tpagIndex, uint32_t* outPageIndex);
-static N3DSTileAtlasEntry* N3DSRenderer_findTileEntryByKey(N3DSRenderer* renderer, int32_t backgroundIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, uint32_t* outEntryIndex);
-static N3DSTileAtlasEntry* N3DSRenderer_findTileEntry(N3DSRenderer* renderer, RoomTile* tile);
-static void N3DSRenderer_prewarmPage(N3DSRenderer* renderer, bool* seenPages, uint32_t pageIndex);
-static bool N3DSRenderer_prewarmPageBlobOnly(N3DSRenderer* renderer, bool* seenPages, uint32_t pageIndex, uint32_t* remainingBlobBytes);
-static void N3DSRenderer_prewarmTPAGBlobOnly(N3DSRenderer* renderer, bool* seenPages, int32_t tpagIndex, uint32_t* remainingBlobBytes);
-static void N3DSRenderer_prewarmTileEntryBlobOnly(N3DSRenderer* renderer, bool* seenPages, const N3DSTileAtlasEntry* entry, uint32_t* remainingBlobBytes);
-static void N3DSRenderer_prewarmRoomBlobCache(N3DSRenderer* renderer, Runner* runner);
-static void N3DSRenderer_preloadFontPages(N3DSRenderer* renderer);
-static bool N3DSRenderer_ensurePageBlobLoaded(N3DSRenderer* renderer, uint32_t pageIndex);
-static void N3DSRenderer_freeCachedTextLayout(N3DSCachedTextLayout* layout);
-static void N3DSRenderer_appendCachedTextLayoutSuffix(N3DSCachedTextLayout* layout, Font* font, const char* suffix, int32_t suffixLen);
-static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer* renderer, Font* font, int32_t fontIndex, const char* text);
-static bool N3DSRenderer_tryDrawSingleGlyphTextFast(
-    Renderer* base,
-    N3DSRenderer* renderer,
-    Font* font,
-    const char* text,
-    int32_t len,
-    float x,
-    float y,
-    float effectiveXScale,
-    float effectiveYScale,
-    float angleDeg,
-    bool gradient,
-    int32_t c1,
-    float alpha,
-    bool useDirectFontAsset,
-    const C2D_Image* directFontImage,
-    const Tex3DS_SubTexture* directFontBaseSubtex,
-    const N3DSAtlasFragment* fontFragment,
-    N3DSLoadedAtlasPage* fontPage
-);
-static bool N3DSRenderer_drawPackedTileEntry(Renderer* base, N3DSRenderer* renderer, const N3DSTileAtlasEntry* tileEntry, float drawX, float drawY, float xscale, float yscale, uint32_t color, float alpha);
-static bool N3DSRenderer_isFragmentedAtlasVersion(uint16_t atlasVersion);
-static void N3DSRenderer_buildReadAheadMap(N3DSRenderer* renderer, DataWin* dataWin);
-static bool N3DSRenderer_isPackedAtlasVersion(uint16_t atlasVersion);
-static const char* N3DSRenderer_getTextureFormatName(uint32_t textureFormat);
-static void N3DSRenderer_sceneBeginTarget(N3DSRenderer* renderer, uint8_t targetKind, bool force);
-static void N3DSRenderer_freeTileLayerChunkCache(N3DSRenderer* renderer, N3DSTileLayerChunkCache* cache);
-static void N3DSRenderer_freeDirectTextureAsset(N3DSDirectTextureAsset* asset, N3DSRenderer* renderer);
-static void N3DSRenderer_unloadDirectTextureBlob(N3DSDirectTextureAsset* asset, N3DSRenderer* renderer);
-static bool N3DSRenderer_evictLRUDirectAsset(N3DSRenderer* renderer, const N3DSDirectTextureAsset* excludeAsset);
-static bool N3DSRenderer_evictLRUDirectAssetBlob(N3DSRenderer* renderer, const N3DSDirectTextureAsset* excludeAsset);
-static void N3DSRenderer_buildDirectAssetMaps(N3DSRenderer* renderer);
-static bool N3DSRenderer_tryDrawDirectMappedSprite(Renderer* base, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
-static bool N3DSRenderer_tryResolveDirectFontImage(N3DSRenderer* renderer, int32_t fontIndex, C2D_Image* outImage, Tex3DS_SubTexture* outSubtex);
-static void N3DSRenderer_drawImage(Renderer* base, C2D_Image* image, float localX, float localY, float width, float height, float pivotX, float pivotY, float angleDeg, uint32_t color, float alpha);
-static void N3DSRenderer_getActiveTargetSize(const N3DSRenderer* renderer, float* outW, float* outH);
-static bool N3DSRenderer_isScreenRectOffscreen(const N3DSRenderer* renderer, float x, float y, float w, float h);
-static bool N3DSRenderer_isScreenRotatedRectOffscreen(const N3DSRenderer* renderer, float x, float y, float w, float h, float angleDeg);
-static bool N3DSRenderer_loadPackedDirectAssets(N3DSRenderer* renderer);
-static bool N3DSRenderer_loadRoomManifest(N3DSRenderer* renderer);
-static const N3DSRoomManifestEntry* N3DSRenderer_findRoomManifestEntry(const N3DSRenderer* renderer, uint32_t roomIndex);
-static void N3DSRenderer_prewarmRoomManifestBlobCache(N3DSRenderer* renderer, uint32_t roomIndex, bool* seenPages, uint32_t* remainingBlobBytes);
-static bool N3DSRenderer_tryLoadPackedDirectTextureBlob(N3DSRenderer* renderer, N3DSDirectTextureAsset* asset, const char* relativePath);
-static N3DSDynamicCaptureTPAG* N3DSRenderer_getDynamicCaptureTPAG(N3DSRenderer* renderer, int32_t tpagIndex);
-static void N3DSRenderer_freeDynamicCaptureTPAG(N3DSRenderer* renderer, N3DSDynamicCaptureTPAG* capture);
-static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer);
-// Defined next to the frozen-screen capture below; the runtime texture uploads tile their pixels the same way.
-static inline uint32_t N3DSRenderer_morton(uint32_t x, uint32_t y);
-
-enum {
-    N3DS_TRACE_KIND_SPRITE = 1u << 0,
-    N3DS_TRACE_KIND_SPRITE_PART = 1u << 1,
-    N3DS_TRACE_KIND_FONT = 1u << 2,
-};
-
-static const char* N3DSRenderer_getTraceKindName(uint8_t traceKind) {
-    switch (traceKind) {
-        case N3DS_TRACE_KIND_SPRITE: return "sprite";
-        case N3DS_TRACE_KIND_SPRITE_PART: return "sprite_part";
-        case N3DS_TRACE_KIND_FONT: return "font";
-        default: return "unknown";
-    }
-}
-
 static void N3DSRenderer_traceTPAGUsage(N3DSRenderer* renderer, uint8_t traceKind, int32_t tpagIndex) {
 #if !N3DS_ENABLE_LOGGING
     (void) renderer;
@@ -4082,15 +3989,6 @@ void N3DSRenderer_beginOverlay(Renderer* base) {
 
 static void N3DSRenderer_drawImage(Renderer* base, C2D_Image* image, float localX, float localY, float width, float height, float pivotX, float pivotY, float angleDeg, uint32_t color, float alpha) {
     if (image == NULL || image->tex == NULL || image->subtex == NULL) return;
-    if (gDrawTraceFrames > 0 && gDrawTraceLines < N3DS_DRAW_TRACE_LINES_PER_FRAME) {
-        N3DSRenderer* traceRenderer = (N3DSRenderer*) base;
-        logInfo("DRAW image tex=%ux%u subtex=%.3f,%.3f,%.3f,%.3f dest=%.1f,%.1f %.1fx%.1f target=%d frame=%u\n",
-            (unsigned) image->tex->width, (unsigned) image->tex->height,
-            (double) image->subtex->left, (double) image->subtex->top, (double) image->subtex->right, (double) image->subtex->bottom,
-            (double) localX, (double) localY, (double) width, (double) height,
-            (int) traceRenderer->currentTargetSurface, (unsigned) traceRenderer->frameSequence);
-        gDrawTraceLines++;
-    }
     if (!Renderer_isFiniteFloat(localX) || !Renderer_isFiniteFloat(localY) ||
         !Renderer_isFiniteFloat(width) || !Renderer_isFiniteFloat(height) ||
         !Renderer_isFiniteFloat(pivotX) || !Renderer_isFiniteFloat(pivotY) ||
@@ -4283,7 +4181,6 @@ static void N3DSRenderer_drawSprite(Renderer* base, int32_t tpagIndex, float x, 
     TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
-    N3DSRenderer_traceSpriteDraw(renderer, tpagIndex, x, y, xscale, yscale);
     N3DSDynamicCaptureTPAG* dynamicCapture = N3DSRenderer_getDynamicCaptureTPAG(renderer, tpagIndex);
     N3DSRenderer_traceTPAGUsage(renderer, N3DS_TRACE_KIND_SPRITE, tpagIndex);
     renderer->frameSpriteDrawCalls++;
@@ -4844,7 +4741,6 @@ static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX,
 
 static void N3DSRenderer_drawTiled(Renderer* base, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
     N3DS_ZONE(N3DS_ZONE_TILED);
-    N3DSRenderer_traceTiledDraw((N3DSRenderer*) base, tpagIndex, x, y, xscale, yscale, roomW, roomH);
     if (!Renderer_isFiniteFloat(originX) || !Renderer_isFiniteFloat(originY) ||
         !Renderer_isFiniteFloat(x) || !Renderer_isFiniteFloat(y) ||
         !Renderer_isFiniteFloat(xscale) || !Renderer_isFiniteFloat(yscale) ||
@@ -5981,8 +5877,6 @@ static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, b
     if (!force && renderer->currentTargetSurface == surfaceID && renderer->activeSceneTarget != N3DS_SCENE_TARGET_NONE) return;
     N3DSRenderer_flushC2DQueue(renderer);
     N3DSSurface* surface = N3DSRenderer_getSurface(renderer, surfaceID);
-    N3DSRenderer_traceBind(renderer, surfaceID, surface != NULL ? (float) surface->width : (float) N3DS_TOP_WIDTH,
-        surface != NULL ? (float) surface->height : (float) N3DS_TOP_HEIGHT);
     if (surface == NULL) {
         renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
         renderer->targetW = N3DS_TOP_WIDTH;
@@ -6430,13 +6324,6 @@ static void N3DSRenderer_endFrameEnd(Renderer* base) {
     N3DSRenderer_bindTarget(renderer, RENDER_TARGET_HOST_FRAMEBUFFER, true);
     float dx, dy, dw, dh;
     N3DSRenderer_screenRect(renderer, app->width, app->height, &dx, &dy, &dw, &dh);
-    if (gDrawTraceFrames > 0) {
-        logInfo("DRAW present surface=%d %dx%d backed=%dx%d tex=%ux%u subtex=%.3f,%.3f,%.3f,%.3f dest=%.1f,%.1f %.1fx%.1f\n",
-            (int) runner->applicationSurfaceId, (int) app->width, (int) app->height, (int) app->backedW, (int) app->backedH,
-            (unsigned) app->texture.width, (unsigned) app->texture.height,
-            (double) app->subtex.left, (double) app->subtex.top, (double) app->subtex.right, (double) app->subtex.bottom,
-            (double) dx, (double) dy, (double) dw, (double) dh);
-    }
     float scale = dw / (float) app->width;
     float scaleY = dh / (float) app->height;
     bool integer = scale == floorf(scale) && scaleY == floorf(scaleY);
@@ -6560,14 +6447,6 @@ static bool N3DSRenderer_setRenderTarget(Renderer* base, int32_t surfaceID, bool
 
 static void N3DSRenderer_drawSurfaceRegion(Renderer* base, N3DSSurface* surface, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
     surface->lastUsedFrame = ((N3DSRenderer*) base)->frameSequence;
-    if (gDrawTraceFrames > 0 && gDrawTraceLines < N3DS_DRAW_TRACE_LINES_PER_FRAME) {
-        logInfo("DRAW surface id=%d %dx%d backed=%dx%d tex=%ux%u src=%d,%d %dx%d dest=%.1f,%.1f scale=%.2f,%.2f on=%d frame=%u\n",
-            (int) (surface - ((N3DSRenderer*) base)->surfaces), (int) surface->width, (int) surface->height,
-            (int) surface->backedW, (int) surface->backedH, (unsigned) surface->texture.width, (unsigned) surface->texture.height,
-            (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y, (double) xscale, (double) yscale,
-            (int) ((N3DSRenderer*) base)->currentTargetSurface, (unsigned) ((N3DSRenderer*) base)->frameSequence);
-        gDrawTraceLines++;
-    }
     // Negative width = the whole surface (draw_surface / draw_surface_ext), as in the GL renderer.
     if (0 > srcWidth) {
         srcLeft = 0;
@@ -7082,60 +6961,9 @@ void N3DSRenderer_frameGate(void) {
     gFrameOpen = true;
 }
 
-// Drawing census for the boot investigation: with sdmc:/3ds/am2r/drawtrace.txt on the card, the first frames log every
-// sprite draw (name, tpag, page, destination) plus the final present blit, so a wrong frame can be traced to the draw
-// that produced it.
-static int32_t gDrawTraceFrames = 0;
-static int32_t gDrawTraceLines = 0;
-
-void N3DSRenderer_startDrawTrace(Renderer* base, int32_t frames) {
-    (void) base;
-    gDrawTraceFrames = frames;
-    gDrawTraceLines = 0;
-}
-
-static void N3DSRenderer_traceTiledDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys, float roomW, float roomH) {
-    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
-    uint32_t pageIndex = 0;
-    bool havePage = N3DSRenderer_getPageIndexForTPAG(renderer, tpagIndex, &pageIndex);
-    logInfo("DRAW tiled tpag=%d page=%d dest=%.1f,%.1f scale=%.2f,%.2f room=%.0fx%.0f frame=%u\n", (int) tpagIndex,
-        havePage ? (int) pageIndex : -1, (double) x, (double) y, (double) xs, (double) ys, (double) roomW, (double) roomH,
-        (unsigned) renderer->frameSequence);
-    gDrawTraceLines++;
-}
-
-static void N3DSRenderer_traceBind(N3DSRenderer* renderer, int32_t surfaceID, float w, float h) {
-    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
-    logInfo("DRAW bind surface=%d size=%.0fx%.0f frame=%u\n", (int) surfaceID, (double) w, (double) h, (unsigned) renderer->frameSequence);
-    gDrawTraceLines++;
-}
-
-static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys) {
-    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
-    DataWin* dw = renderer->base.dataWin;
-    int32_t spriteIndex = (tpagIndex >= 0 && (uint32_t) tpagIndex < renderer->baseTPAGCount) ? renderer->tpagSprite[tpagIndex] : -1;
-    const char* name = (dw != NULL && spriteIndex >= 0 && (uint32_t) spriteIndex < dw->sprt.count && dw->sprt.sprites[spriteIndex].name != NULL)
-        ? dw->sprt.sprites[spriteIndex].name : "?";
-    uint32_t pageIndex = 0;
-    bool havePage = N3DSRenderer_getPageIndexForTPAG(renderer, tpagIndex, &pageIndex);
-    logInfo("DRAW sprite=%s tpag=%d page=%d dest=%.1f,%.1f scale=%.2f,%.2f frame=%u\n", name, (int) tpagIndex,
-        havePage ? (int) pageIndex : -1, (double) x, (double) y, (double) xs, (double) ys, (unsigned) renderer->frameSequence);
-    gDrawTraceLines++;
-}
-
-// Pages imported while this frame was being drawn (reset at frame start). A page's transfer to VRAM is asynchronous:
-// the first frame that draws it can still show what that memory held before, which is how the title screen flashed a
-// grid of another page's sprites. The caller uses this to skip presenting that frame.
-uint32_t N3DSRenderer_framePageImports(Renderer* base) {
-    return ((N3DSRenderer*) base)->framePageImports;
-}
 
 void N3DSRenderer_frameEnd(void) {
     N3DSRenderer_frameGate();
-    if (gDrawTraceFrames > 0) {
-        gDrawTraceFrames--;
-        gDrawTraceLines = 0;
-    }
     C3D_FrameEnd(0);
     gFrameOpen = false;
 }

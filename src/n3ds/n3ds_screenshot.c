@@ -56,17 +56,6 @@ static void N3DSScreenshot_save(C3D_RenderTarget* target, const char* path) {
     free(rgb);
 }
 
-// Boot diagnostics: saves the top screen as it stands in the frame that was last presented (called at the start of a
-// frame, after the gate has waited for the GPU, so the picture is the finished one). Enabled by the presence of
-// sdmc:/3ds/am2r/bootshots.txt; writes shots/boot_<n>.png.
-void N3DSScreenshot_captureTopNow(Renderer* renderer, int32_t index) {
-    if (renderer == NULL) return;
-    mkdir(N3DS_SD_DIR "shots", 0777);
-    char path[128];
-    snprintf(path, sizeof(path), N3DS_SD_DIR "shots/boot_%02d.png", (int) index);
-    N3DSScreenshot_save(N3DSRenderer_getTopTarget(renderer), path);
-}
-
 void N3DSScreenshot_captureIfRequested(Renderer* renderer) {
     if (gRequestedFrame < 0) return;
     int32_t frame = gRequestedFrame;

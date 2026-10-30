@@ -907,22 +907,12 @@ int main(int argc, char** argv) {
     int32_t inputFrame = 0;
     if (fileExists(N3DS_SD_DIR "inputs.json")) inputPlayback = InputRecording_createPlayer(N3DS_SD_DIR "inputs.json", NULL);
 
-    // Boot diagnostics: with sdmc:/3ds/am2r/bootshots.txt on the card, the first frames after the loading screen are
-    // saved as shots/boot_<n>.png. The gate has just waited for the previous frame, so each file is what was presented.
-    int32_t bootShotsLeft = fileExists(N3DS_SD_DIR "bootshots.txt") ? 12 : 0;
-    int32_t bootShotIndex = 0;
-    int32_t bootPendingShot = -1;
-    // The game's first room and the transition into the title draw a collage of unrelated menu artwork (screenshots of
-    // the boot frames show the title's UI pieces tiled across the screen): whatever the game draws there, it is not
-    // what the player should see. Keep both screens black until a real room is up; the title then fades in from black,
-    // which is how it starts anyway.
+    // The game's startup rooms draw a collage of unrelated menu artwork (the boot screenshots show the title's UI pieces
+    // tiled across the screen), and the title's first frames draw its artwork from an atlas page whose texture does not
+    // hold that artwork yet - the same frame a moment later is right. Neither is worth showing: the screens stay black
+    // until the first real room has drawn a few frames, and the title fades in from black as it does on its own.
     bool bootBlackout = true;
     int32_t framesSinceRoom = 1000;
-    uint32_t skippedFrames = 0;
-    if (fileExists(N3DS_SD_DIR "drawtrace.txt")) {
-        N3DSRenderer_startDrawTrace(renderer, 6);
-        logInfo("N3DS: draw trace on (6 frames)\n");
-    }
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
@@ -941,10 +931,6 @@ int main(int argc, char** argv) {
     // Nothing has been drawn for either screen yet in this frame, so clear them: an opened frame presents whatever the
     // buffers hold, which was leftover from before the loading screen's target was released.
     N3DSRenderer_clearScreens(renderer);
-    if (bootShotsLeft > 0) {
-        bootShotsLeft--;
-        bootPendingShot = bootShotIndex++;
-    }
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
     N3DS_logMemory("first room");
@@ -1002,12 +988,6 @@ int main(int argc, char** argv) {
         // The GPU frame isn't opened here: the step runs while the GPU still draws the previous frame, and the first
         // renderer call that needs the GPU opens it (N3DSRenderer_frameGate), else the drawing below does. (The screen
         // captures here open it themselves when they run.)
-        // Boot diagnostics: the previously presented frame is complete now (the harness screenshots open the gate the
-        // same way), so this file is exactly what the player saw.
-        if (bootPendingShot >= 0) {
-            N3DSScreenshot_captureTopNow(renderer, bootPendingShot);
-            bootPendingShot = -1;
-        }
         N3DSScreenshot_captureIfRequested(renderer);
         N3DSLiveMap_beginFrame();
         // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
@@ -1083,9 +1063,6 @@ int main(int argc, char** argv) {
             N3DSAudio_prewarmRoom(runner->audioSystem, runner);
 #endif
             N3DSProf_end(N3DS_PROF_PREWARM, prewarmStart);
-            // The boot frames are not where the wrong picture is: it is the first frames of the title room, which start
-            // seconds later. Restart the trace on every room entry so the room that draws it is the one recorded.
-            if (fileExists(N3DS_SD_DIR "drawtrace.txt")) N3DSRenderer_startDrawTrace(renderer, 6);
             N3DS_logMemory("room start");
         }
 
@@ -1186,23 +1163,12 @@ int main(int argc, char** argv) {
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
-        // A page that was imported while this frame drew is still being transferred to VRAM, so this frame can show
-        // the memory's previous contents (the title screen flashed another page's sprite grid this way). At room entry
-        // nothing is lost by not showing one frame - the room is fading in from black anyway.
-        if (bootBlackout && framesSinceRoom <= 1 && N3DSRenderer_framePageImports(renderer) > 0) {
-            N3DSRenderer_clearScreens(renderer);
-            skippedFrames++;
-            if (skippedFrames <= 4) {
-                logInfo("N3DS: room entry imported %lu pages; that frame was not presented\n",
-                    (unsigned long) N3DSRenderer_framePageImports(renderer));
-            }
-        }
         if (bootBlackout) {
             const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
             bool bootRoomStill = bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0;
-            // The first frames of the first real room (the title) are the ones that came out wrong: its artwork's page
-            // is not what it should be for that one frame. Two frames are enough for the room to have drawn again with
-            // the page settled, and the room fades in from black anyway, so nothing visible is lost.
+            // The first frames of the first real room (the title) came out wrong; a handful of frames is enough for it
+            // to have drawn again with its artwork settled, and the room fades in from black anyway, so nothing visible
+            // is lost.
             if (bootRoomStill || framesSinceRoom < 10) {
                 // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
                 N3DSRenderer_clearScreens(renderer);
@@ -1210,10 +1176,6 @@ int main(int argc, char** argv) {
                 bootBlackout = false;
                 logInfo("N3DS: boot blackout ends in %s after %d frames\n", bootRoom, (int) framesSinceRoom);
             }
-        }
-        if (bootShotsLeft > 0 && bootPendingShot < 0) {
-            bootShotsLeft--;
-            bootPendingShot = bootShotIndex++;
         }
         N3DSRenderer_frameEnd();
         u64 gcStartTick = svcGetSystemTick();
