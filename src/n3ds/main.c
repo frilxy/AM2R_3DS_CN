@@ -917,6 +917,8 @@ int main(int argc, char** argv) {
     // what the player should see. Keep both screens black until a real room is up; the title then fades in from black,
     // which is how it starts anyway.
     bool bootBlackout = true;
+    int32_t framesSinceRoom = 1000;
+    uint32_t skippedFrames = 0;
     if (fileExists(N3DS_SD_DIR "drawtrace.txt")) {
         N3DSRenderer_startDrawTrace(renderer, 6);
         bootBlackout = false; // trace what the game actually draws, not the blackout
@@ -1058,6 +1060,7 @@ int main(int argc, char** argv) {
         N3DSRenderer_importReadAhead(renderer);
 
         bool roomChanged = runner->currentRoom != lastRoom;
+        if (roomChanged) framesSinceRoom = 0; else if (framesSinceRoom < 1000) framesSinceRoom++;
         if (roomChanged) {
             // How the room just left ran, as a whole (the Perf line is per 5 s and mixes rooms).
             if (lastRoom != NULL && roomStats.frames > 0) {
@@ -1184,6 +1187,17 @@ int main(int argc, char** argv) {
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
+        // A page that was imported while this frame drew is still being transferred to VRAM, so this frame can show
+        // the memory's previous contents (the title screen flashed another page's sprite grid this way). At room entry
+        // nothing is lost by not showing one frame - the room is fading in from black anyway.
+        if (bootBlackout && framesSinceRoom <= 1 && N3DSRenderer_framePageImports(renderer) > 0) {
+            N3DSRenderer_clearScreens(renderer);
+            skippedFrames++;
+            if (skippedFrames <= 4) {
+                logInfo("N3DS: room entry imported %lu pages; that frame was not presented\n",
+                    (unsigned long) N3DSRenderer_framePageImports(renderer));
+            }
+        }
         if (bootBlackout) {
             const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
             if (bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0) {

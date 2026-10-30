@@ -64,6 +64,9 @@ void N3DSRenderer_frameEnd(void);
 void N3DSRenderer_clearScreens(Renderer* renderer);
 // Boot investigation: logs every sprite draw plus the present blit for the next `frames` frames (drawtrace.txt).
 void N3DSRenderer_startDrawTrace(Renderer* renderer, int32_t frames);
+// Number of atlas pages imported while the current frame was drawn; a frame that imported pages can still show the
+// memory's previous contents, so the caller may choose not to present it.
+uint32_t N3DSRenderer_framePageImports(Renderer* renderer);
 bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);

@@ -7115,6 +7115,13 @@ static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagInd
     gDrawTraceLines++;
 }
 
+// Pages imported while this frame was being drawn (reset at frame start). A page's transfer to VRAM is asynchronous:
+// the first frame that draws it can still show what that memory held before, which is how the title screen flashed a
+// grid of another page's sprites. The caller uses this to skip presenting that frame.
+uint32_t N3DSRenderer_framePageImports(Renderer* base) {
+    return ((N3DSRenderer*) base)->framePageImports;
+}
+
 void N3DSRenderer_frameEnd(void) {
     N3DSRenderer_frameGate();
     if (gDrawTraceFrames > 0) {
