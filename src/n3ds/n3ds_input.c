@@ -258,6 +258,11 @@ static u32 N3DSInput_filterChord(u32 held) {
 #define N3DS_PAUSE_PAGE_ITEMS 1.0
 #define N3DS_PAUSE_PAGE_MENU  3.0
 
+// A short START tap belongs to the game: after a new area is scanned, the game shows that area's description with it,
+// and the port used to take every START press for its pause screen, so only the pause ever came up. Holding START is
+// the port's own way into the pause (map page) instead.
+#define N3DS_START_HOLD_MS 400u
+
 static struct {
     double pendingPage;   // page the player asked for; -1 when there is nothing to do
     int32_t pausedFrames; // frames spent in the pause since, for the safety net
@@ -265,7 +270,9 @@ static struct {
     // few frames to come up, and a tap that is still held when it does would otherwise reach the game's own Start
     // binding and close the pause on its first frame - the "opens and immediately closes" of a quick press.
     u32 swallowed;
-} gPauseKeys = { -1.0, 0, 0 };
+    u64 startDownMs;      // when START went down in play; 0 when no hold is being watched
+    bool watchingStart;   // that press has not yet become the pause and still belongs to the game
+} gPauseKeys = { -1.0, 0, 0, 0, false };
 
 static Instance* N3DSInput_objectInstance(const char* name) {
     int32_t index = N3DSGml_objectIndex(name);
@@ -389,28 +396,44 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
-    // In play, both buttons open the pause and pick a page. In the pause, SELECT leaves; START is left to the game,
-    // whose own binding already exits. The pair still toggles the debug monitor. (The area description after a scan is
-    // the game's own START binding, not SELECT: SELECT has no game-side use here.)
+    // In play: SELECT opens the pause on its items page, START only does so when held - a tap of START is the game's,
+    // which uses it for the area description after a scan. In the pause, SELECT leaves (START is left to the game,
+    // whose own binding already exits). The pair still toggles the debug monitor.
     {
         static u32 prevPauseKeys;
         u32 pauseKeys = held & (KEY_START | KEY_SELECT);
         u32 edges = pauseKeys & ~prevPauseKeys;
         prevPauseKeys = pauseKeys;
-        if (edges != 0 && pauseKeys != (KEY_START | KEY_SELECT)) {
-            if (N3DSPause_inPlay()) {
-                double page = (edges & KEY_SELECT) ? N3DS_PAUSE_PAGE_ITEMS : N3DS_PAUSE_PAGE_MENU;
+        bool chord = pauseKeys == (KEY_START | KEY_SELECT);
+        if (!chord && N3DSPause_inPlay()) {
+            if ((edges & KEY_SELECT) != 0) {
                 N3DSInput_openPause(runner);
                 // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
                 // actually want now, so the room is built with it and never shows the menu first.
-                N3DSGml_setGlobal("ssmode", page);
-                gPauseKeys.pendingPage = page;
-                gPauseKeys.swallowed |= edges;
-            } else if (N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
-                N3DSInput_closePause(runner);
-                gPauseKeys.pendingPage = -1.0;
+                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_ITEMS);
+                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_ITEMS;
                 gPauseKeys.swallowed |= (edges & KEY_SELECT);
+            } else if ((edges & KEY_START) != 0) {
+                // Watch this press: still down after the threshold and it becomes the pause, otherwise the game keeps it.
+                gPauseKeys.startDownMs = osGetTime();
+                gPauseKeys.watchingStart = true;
+            } else if (gPauseKeys.watchingStart && (held & KEY_START) != 0 &&
+                       osGetTime() - gPauseKeys.startDownMs >= N3DS_START_HOLD_MS) {
+                gPauseKeys.watchingStart = false;
+                N3DSInput_openPause(runner);
+                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_MENU);
+                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_MENU;
+                gPauseKeys.swallowed |= KEY_START;
             }
+        } else if (!chord && N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
+            N3DSInput_closePause(runner);
+            gPauseKeys.pendingPage = -1.0;
+            gPauseKeys.watchingStart = false;
+            gPauseKeys.swallowed |= (edges & KEY_SELECT);
+        }
+        if ((pauseKeys & KEY_START) == 0) {
+            gPauseKeys.watchingStart = false;
+            gPauseKeys.startDownMs = 0;
         }
         // Keep a taken-over button away from the game until it is released, so the room's own bindings never see the
         // press that opened it.
