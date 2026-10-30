@@ -29,7 +29,7 @@ Upgrading from an older build is just a CIA reinstall; saves and SD data stay.
 |---|---|
 | A / B / X / Y / L / R / ZL / ZR | In-game actions (as configured in the game) |
 | **START** | Pause → map page; press again to resume |
-| **SELECT** | Pause → items page; press again to resume |
+| **SELECT** | Tap: the game's own (area description after a scan); **hold**: pause → items page, press again to resume |
 | Bottom screen touch | Drag the map; tap to place/remove a marker |
 | START + SELECT | Debug overlay |
 | Pause menu → Display | Screen mode (point / wide / stretch), status bar, frameskip, fast scripts, FPS counter, cheats |

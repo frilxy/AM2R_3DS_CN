@@ -7046,6 +7046,26 @@ void N3DSRenderer_frameEnd(void) {
     gFrameOpen = false;
 }
 
+// Startup only: the frame that runs Runner_initFirstRoom is presented before the main loop, so nothing has been drawn
+// to either screen yet, and an opened frame presents whatever the buffers held when the loading screen's target was
+// released. Clearing them here makes that frame black instead of that leftover.
+void N3DSRenderer_clearScreens(Renderer* base) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL) return;
+    N3DSRenderer_flushC2DQueue(renderer);
+    if (renderer->bottomTarget != NULL) {
+        C2D_TargetClear(renderer->bottomTarget, C2D_Color32(0, 0, 0, 255));
+        C2D_SceneBegin(renderer->bottomTarget);
+    }
+    if (renderer->topTarget != NULL) {
+        C2D_TargetClear(renderer->topTarget, C2D_Color32(0, 0, 0, 255));
+        C2D_SceneBegin(renderer->topTarget);
+    }
+    renderer->activeSceneTarget = N3DS_SCENE_TARGET_NONE;
+    renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
+    N3DSRenderer_flushC2DQueue(renderer);
+}
+
 bool N3DSRenderer_frameIsOpen(void) {
     return gFrameOpen;
 }

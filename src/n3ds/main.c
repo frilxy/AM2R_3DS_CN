@@ -909,9 +909,21 @@ int main(int argc, char** argv) {
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
+    // The first frame is drawn straight after this, and the loading screen has already gone: without warming the room
+    // here that frame reads its artwork from the card while drawing (the log showed io 33 ms in it), so it showed the
+    // textures' previous contents. Every later room is warmed at the end of its transition frame; the first one gets
+    // the same treatment, while the blackened startup frame below is all that is on screen.
+    {
+        u64 prewarmStart = N3DSProf_begin();
+        N3DSRenderer_prewarmRoom(renderer, runner);
+        N3DSProf_end(N3DS_PROF_PREWARM, prewarmStart);
+    }
     // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next boot.
     N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
+    // Nothing has been drawn for either screen yet in this frame, so clear them: an opened frame presents whatever the
+    // buffers hold, which was leftover from before the loading screen's target was released.
+    N3DSRenderer_clearScreens(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
     N3DS_logMemory("first room");
