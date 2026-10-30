@@ -62,6 +62,8 @@ void N3DSRenderer_frameEnd(void);
 // Clears both screens to black inside the frame that is already open. The startup frame presents before the main loop,
 // where nothing has been drawn yet; without this it showed whatever the buffers happened to hold.
 void N3DSRenderer_clearScreens(Renderer* renderer);
+// Boot investigation: logs every sprite draw plus the present blit for the next `frames` frames (drawtrace.txt).
+void N3DSRenderer_startDrawTrace(Renderer* renderer, int32_t frames);
 bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);

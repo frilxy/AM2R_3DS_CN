@@ -4260,6 +4260,7 @@ static void N3DSRenderer_drawSprite(Renderer* base, int32_t tpagIndex, float x, 
     TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    N3DSRenderer_traceSpriteDraw(renderer, tpagIndex, x, y, xscale, yscale);
     N3DSDynamicCaptureTPAG* dynamicCapture = N3DSRenderer_getDynamicCaptureTPAG(renderer, tpagIndex);
     N3DSRenderer_traceTPAGUsage(renderer, N3DS_TRACE_KIND_SPRITE, tpagIndex);
     renderer->frameSpriteDrawCalls++;
@@ -6403,6 +6404,13 @@ static void N3DSRenderer_endFrameEnd(Renderer* base) {
     N3DSRenderer_bindTarget(renderer, RENDER_TARGET_HOST_FRAMEBUFFER, true);
     float dx, dy, dw, dh;
     N3DSRenderer_screenRect(renderer, app->width, app->height, &dx, &dy, &dw, &dh);
+    if (gDrawTraceFrames > 0) {
+        logInfo("DRAW present surface=%d %dx%d backed=%dx%d tex=%ux%u subtex=%.3f,%.3f,%.3f,%.3f dest=%.1f,%.1f %.1fx%.1f\n",
+            (int) runner->applicationSurfaceId, (int) app->width, (int) app->height, (int) app->backedW, (int) app->backedH,
+            (unsigned) app->texture.width, (unsigned) app->texture.height,
+            (double) app->subtex.left, (double) app->subtex.top, (double) app->subtex.right, (double) app->subtex.bottom,
+            (double) dx, (double) dy, (double) dw, (double) dh);
+    }
     float scale = dw / (float) app->width;
     float scaleY = dh / (float) app->height;
     bool integer = scale == floorf(scale) && scaleY == floorf(scaleY);
@@ -7040,8 +7048,38 @@ void N3DSRenderer_frameGate(void) {
     gFrameOpen = true;
 }
 
+// Drawing census for the boot investigation: with sdmc:/3ds/am2r/drawtrace.txt on the card, the first frames log every
+// sprite draw (name, tpag, page, destination) plus the final present blit, so a wrong frame can be traced to the draw
+// that produced it.
+static int32_t gDrawTraceFrames = 0;
+static int32_t gDrawTraceLines = 0;
+#define N3DS_DRAW_TRACE_LINES_PER_FRAME 80
+
+void N3DSRenderer_startDrawTrace(Renderer* base, int32_t frames) {
+    (void) base;
+    gDrawTraceFrames = frames;
+    gDrawTraceLines = 0;
+}
+
+static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys) {
+    if (gDrawTraceFrames <= 0 || gDrawTraceLines >= N3DS_DRAW_TRACE_LINES_PER_FRAME) return;
+    DataWin* dw = renderer->base.dataWin;
+    int32_t spriteIndex = (tpagIndex >= 0 && (uint32_t) tpagIndex < renderer->baseTPAGCount) ? renderer->tpagSprite[tpagIndex] : -1;
+    const char* name = (dw != NULL && spriteIndex >= 0 && (uint32_t) spriteIndex < dw->sprt.count && dw->sprt.sprites[spriteIndex].name != NULL)
+        ? dw->sprt.sprites[spriteIndex].name : "?";
+    uint32_t pageIndex = 0;
+    bool havePage = N3DSRenderer_getPageIndexForTPAG(renderer, tpagIndex, &pageIndex);
+    logInfo("DRAW sprite=%s tpag=%d page=%d dest=%.1f,%.1f scale=%.2f,%.2f frame=%u\n", name, (int) tpagIndex,
+        havePage ? (int) pageIndex : -1, (double) x, (double) y, (double) xs, (double) ys, (unsigned) renderer->frameSequence);
+    gDrawTraceLines++;
+}
+
 void N3DSRenderer_frameEnd(void) {
     N3DSRenderer_frameGate();
+    if (gDrawTraceFrames > 0) {
+        gDrawTraceFrames--;
+        gDrawTraceLines = 0;
+    }
     C3D_FrameEnd(0);
     gFrameOpen = false;
 }

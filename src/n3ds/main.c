@@ -917,6 +917,11 @@ int main(int argc, char** argv) {
     // what the player should see. Keep both screens black until a real room is up; the title then fades in from black,
     // which is how it starts anyway.
     bool bootBlackout = true;
+    if (fileExists(N3DS_SD_DIR "drawtrace.txt")) {
+        N3DSRenderer_startDrawTrace(renderer, 6);
+        bootBlackout = false; // trace what the game actually draws, not the blackout
+        logInfo("N3DS: draw trace on (6 frames)\n");
+    }
 
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
