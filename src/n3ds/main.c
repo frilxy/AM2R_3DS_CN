@@ -1200,7 +1200,11 @@ int main(int argc, char** argv) {
         }
         if (bootBlackout) {
             const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
-            if (bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0) {
+            bool bootRoomStill = bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0;
+            // The first frames of the first real room (the title) are the ones that came out wrong: its artwork's page
+            // is not what it should be for that one frame. Two frames are enough for the room to have drawn again with
+            // the page settled, and the room fades in from black anyway, so nothing visible is lost.
+            if (bootRoomStill || framesSinceRoom < 2) {
                 // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
                 N3DSRenderer_clearScreens(renderer);
             } else {

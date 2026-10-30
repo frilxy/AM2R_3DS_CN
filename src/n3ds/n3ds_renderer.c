@@ -1877,6 +1877,14 @@ static bool N3DSRenderer_loadPage(N3DSRenderer* renderer, uint32_t pageIndex) {
     if (page->t3x == NULL) {
         return false;
     }
+    // A page's blob is read by offset; if the wrong bytes arrive (or the data is not what the manifest says), the
+    // texture comes out at the wrong size and every sprite on the page shows another page's artwork - the title screen
+    // flashed a grid of page 0's sprites exactly this way. Say so, with both sizes, so a bad blob is not mistaken for a
+    // bad draw.
+    if (page->texture.width != page->width || page->texture.height != page->height) {
+        logWarn("N3DS: page %lu imported %ux%u but the manifest says %ux%u\n", (unsigned long) pageIndex,
+            (unsigned) page->texture.width, (unsigned) page->texture.height, (unsigned) page->width, (unsigned) page->height);
+    }
 
     C3D_TexSetFilter(&page->texture, GPU_NEAREST, GPU_NEAREST);
     C3D_TexSetWrap(&page->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
