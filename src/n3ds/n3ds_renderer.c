@@ -559,6 +559,8 @@ static void N3DSRenderer_traceSpriteDraw(N3DSRenderer* renderer, int32_t tpagInd
 static void N3DSRenderer_traceTiledDraw(N3DSRenderer* renderer, int32_t tpagIndex, float x, float y, float xs, float ys, float roomW, float roomH);
 static void N3DSRenderer_traceBind(N3DSRenderer* renderer, int32_t surfaceID, float w, float h);
 static int32_t gDrawTraceFrames;
+static int32_t gDrawTraceLines;
+#define N3DS_DRAW_TRACE_LINES_PER_FRAME 80
 static void N3DSRenderer_bindTarget(N3DSRenderer* renderer, int32_t surfaceID, bool force);
 static void N3DSRenderer_drawLineColor(Renderer* base, float x1, float y1, float x2, float y2, float width, uint32_t color1, uint32_t color2, float alpha);
 static void N3DSRenderer_applyBlendState(N3DSRenderer* renderer);
@@ -7077,7 +7079,6 @@ void N3DSRenderer_frameGate(void) {
 // that produced it.
 static int32_t gDrawTraceFrames = 0;
 static int32_t gDrawTraceLines = 0;
-#define N3DS_DRAW_TRACE_LINES_PER_FRAME 80
 
 void N3DSRenderer_startDrawTrace(Renderer* base, int32_t frames) {
     (void) base;
