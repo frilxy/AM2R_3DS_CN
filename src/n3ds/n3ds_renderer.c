@@ -627,6 +627,12 @@ static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer);
 // Defined next to the frozen-screen capture below; the runtime texture uploads tile their pixels the same way.
 static inline uint32_t N3DSRenderer_morton(uint32_t x, uint32_t y);
 
+enum {
+    N3DS_TRACE_KIND_SPRITE = 1u << 0,
+    N3DS_TRACE_KIND_SPRITE_PART = 1u << 1,
+    N3DS_TRACE_KIND_FONT = 1u << 2,
+};
+
 static void N3DSRenderer_traceTPAGUsage(N3DSRenderer* renderer, uint8_t traceKind, int32_t tpagIndex) {
 #if !N3DS_ENABLE_LOGGING
     (void) renderer;
