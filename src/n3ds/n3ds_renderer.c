@@ -5278,24 +5278,6 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
     // matching on the string content moves every pass together. The shifts only apply in Wide - the other modes draw
     // the game's plain 320x240 picture whose own layout already fits.
-    // The scan prompts are handled in every mode now: point-for-point and stretch draw the game's plain 320-wide picture
-    // centred at displayx, so the prompt's anchor lands left of where it belongs by the same 13 columns the HUD had to
-    // be compensated for.
-    if (text != NULL && N3DS_getScreenMode() != N3DS_SCREEN_WIDE) {
-        // Substring, not prefix: the prompt arrives with whatever the language file puts in front of it.
-        bool isScanPrompt = strstr(text, "\xe6\x89\xab\xe6\x8f\x8f") != NULL || // 扫描
-                            strstr(text, "Scanning") != NULL || strstr(text, "Energy Pattern") != NULL;
-        if (isScanPrompt) {
-            static int budget = 20;
-            if (budget > 0) {
-                budget--;
-                logInfo("ScanPrompt: x=%.1f -> %.1f screenX=%.1f len=%d <<%.24s>>\n",
-                    (double) x, (double) (x + 13.0f), (double) N3DSRenderer_transformScreenX(renderer, x + 13.0f),
-                    (int) strlen(text), text);
-            }
-            x += 13.0f;
-        }
-    }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
         static const char* const kRightEdgePopups[] = {
             // Chinese.
@@ -5621,23 +5603,6 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
                 }
             } else {
                 renderer->frameTextGlyphDraws++;
-                // Diagnostic (scan prompt): the anchor said 11 and the transform said 24, but the glyph lands off the
-                // left edge - this prints the position the glyph is actually handed to the renderer, and where that
-                // ends up on screen.
-                if (cursorY > 200.0f) { // the bottom strip: the scan prompt, not the HUD
-                    static int budget = 12;
-                    if (budget > 0) {
-                        budget--;
-                        logInfo("GlyphPos: cursor=(%.1f,%.1f) screen=(%.1f,%.1f) view %d,%d scale %.3f,%.3f off %.1f,%.1f\n",
-                            (double) (cursorX + (float) glyph->offset * effectiveXScale), (double) cursorY,
-                            (double) N3DSRenderer_transformScreenX(renderer, cursorX + (float) glyph->offset * effectiveXScale),
-                            (double) N3DSRenderer_transformScreenY(renderer, cursorY),
-                            (int) renderer->viewX, (int) renderer->viewY,
-                            (double) renderer->viewScaleX, (double) renderer->viewScaleY,
-                            (double) renderer->frameOffsetX + (double) renderer->portOffsetX,
-                            (double) renderer->frameOffsetY + (double) renderer->portOffsetY);
-                    }
-                }
                 N3DSRenderer_drawSpritePart(
                     base,
                     font->tpagIndex,
