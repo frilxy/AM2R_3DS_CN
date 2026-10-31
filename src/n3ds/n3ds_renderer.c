@@ -580,6 +580,8 @@ static bool N3DSRenderer_tryLoadPackedDirectTextureBlob(N3DSRenderer* renderer, 
 static N3DSDynamicCaptureTPAG* N3DSRenderer_getDynamicCaptureTPAG(N3DSRenderer* renderer, int32_t tpagIndex);
 static void N3DSRenderer_freeDynamicCaptureTPAG(N3DSRenderer* renderer, N3DSDynamicCaptureTPAG* capture);
 static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer);
+// Defined at the bottom with the screen-copy helpers; the image page writer (see allocImagePageRGBA8) needs it first.
+static inline uint32_t N3DSRenderer_morton(uint32_t x, uint32_t y);
 
 enum {
     N3DS_TRACE_KIND_SPRITE = 1u << 0,
