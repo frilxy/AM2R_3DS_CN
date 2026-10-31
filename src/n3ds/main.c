@@ -1166,6 +1166,7 @@ int main(int argc, char** argv) {
         u64 roomChangeStartTick = svcGetSystemTick();
         {
             N3DS_ZONE(N3DS_ZONE_ROOM_CHANGE);
+            N3DSAm2r_prepareRoomChange(); // before the new room's Create events read widescreen_space
             Runner_handlePendingRoomChange(runner);
             renderer->vtable->flush(renderer);
         }

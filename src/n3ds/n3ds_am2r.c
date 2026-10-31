@@ -1466,6 +1466,20 @@ static void N3DSAm2r_updateCredits(void) {
     }
 }
 
+// The pause room's pages size their text box with oControl.widescreen_space (149 + space) and wrap the text with the
+// same value (148 + space). The game resets it on room entry, so a page built before the port restates it gets a 149-wide
+// box while the text wraps at 228 - the right of the screen stays black and the text is clipped. Writing it here, before
+// the room's Create events run, makes both halves agree.
+void N3DSAm2r_prepareRoomChange(void) {
+    if (!gAm2r.active || N3DS_getScreenMode() != N3DS_SCREEN_WIDE) return;
+    Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
+    if (control == NULL) return;
+    double space = 0.0;
+    if (N3DSGml_getVar(control, "widescreen_space", &space) && space != N3DS_AM2R_NATIVE_SPACE) {
+        N3DSGml_setVar(control, "widescreen_space", N3DS_AM2R_NATIVE_SPACE);
+    }
+}
+
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     N3DSAm2r_stopStraySpinLoops();
