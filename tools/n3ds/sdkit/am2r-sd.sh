@@ -144,6 +144,15 @@ This takes a few minutes. Go?" || exit 0
         ! -path './gfx/*' ! -path './audio/*' -print0 | while IFS= read -r -d '' f; do
             mkdir -p "$out/$(dirname "$f")" && cp -f "$f" "$out/$f"
         done)
+    # Only Chinese is translated here, and the language list on the card is ours (lang/languages.txt), so the other
+    # languages' title logos and area banners can never be loaded: drop them, they are ~3 MB of the card.
+    for dir in "$out/lang/headers" "$out/lang/titles"; do
+        [ -d "$dir" ] || continue
+        find "$dir" -maxdepth 1 -type f -name '*.png' -print0 | while IFS= read -r -d '' f; do
+            case "$f" in *简体中文*) ;; *) rm -f "$f" ;; esac
+        done
+    done
+
     # The 3DS program loads data.win (a Linux build's game.unx is the same file).
     [[ "$(basename "$datawin")" != "data.win" ]] && cp -f "$datawin" "$out/data.win"
 

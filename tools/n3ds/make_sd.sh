@@ -20,6 +20,15 @@ rsync -a --exclude '*.exe' --exclude '*.dll' --exclude '*.ogg' --exclude '*.wav'
 # rsync -a also copies the game folder's own permissions, and an install directory that is not readable/writable by its
 # owner (mode 000 from a NAS, an unzipped release, a copied disc) makes the output unusable and blocks the writes below.
 chmod -R u+rwX "$out" 2>/dev/null || true
+# Only Chinese is translated here, and the language list on the card is ours (lang/languages.txt), so the other
+# languages' title logos and area banners can never be loaded: drop them, they are ~3 MB of the card.
+for dir in "$out/lang/headers" "$out/lang/titles"; do
+    [ -d "$dir" ] || continue
+    find "$dir" -maxdepth 1 -type f -name '*.png' -print0 | while IFS= read -r -d '' f; do
+        case "$f" in *简体中文*) ;; *) rm -f "$f" ;; esac
+    done
+done
+
 "$pre/n3ds-preprocess" "$game/data.win" "$out"
 cp "$src/tools/n3ds/sd_data_rev.txt" "$out/sd_data_rev.txt"
 # Default files for this game (e.g. AM2R's 3DS control config), only where the card has none. cp's --update=none needs
