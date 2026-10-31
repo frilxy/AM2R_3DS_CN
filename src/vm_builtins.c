@@ -12511,6 +12511,13 @@ static RValue builtin_surface_create(VMContext* ctx, RValue* args, MAYBE_UNUSED 
     int32_t width = (int32_t) RValue_toReal(args[0]);
     int32_t height = (int32_t) RValue_toReal(args[1]);
     Runner* runner = ctx->runner;
+    // The log page builds its text box as 149 + widescreen_space, and that variable can still be 0 when the page's
+    // Create runs (the game resets it on room entry; the port's own value lands a frame later). The page then wraps its
+    // text at 148 + widescreen_space (228) into a 149-wide surface, so the right half of the screen stays black and the
+    // text is clipped. Widening exactly this one surface to match the wrap fixes both, with no timing dependence.
+    if (width == 149 && height == 137) {
+        width = 149 + 80;
+    }
     if (runner->renderer != nullptr) {
         int32_t surfaceId = Renderer_createSurface(runner->renderer, width,height);
         return RValue_makeReal(surfaceId);
