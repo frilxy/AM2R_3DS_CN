@@ -11716,6 +11716,20 @@ static RValue builtin_draw_text_transformed(VMContext* ctx, RValue* args, MAYBE_
 // Drives draw_text_ext / draw_text_ext_transformed by wrapping the (preprocessed) text and forwarding to drawText.
 // Disable wrapping with 0 > "width", keep the font default line stride with 0 > "separation".
 static void drawTextExtCommonColor(Runner* runner, const char* str, float x, float y, float xscale, float yscale, float angle, int32_t separation, int32_t width, uint32_t c1, uint32_t c2, uint32_t c3, uint32_t c4) {
+    // Diagnostic (diag/logpopup): the new-log popup is drawn straight to the screen, so the only way to identify it is
+    // by who draws it and with what layout. Logs the caller's object name, not a guessed one, plus the parameters.
+    {
+        static int budget = 300;
+        VMContext* ctx = runner->vmContext;
+        if (budget > 0 && ctx != NULL && ctx->currentInstance != NULL) {
+            budget--;
+            const char* owner = ctx->runner->dataWin->objt.objects[ctx->currentInstance->objectIndex].name;
+            logInfo("TextExt: obj=%d=%s x=%.0f y=%.0f sep=%d wrap=%d len=%d font=%d <<%.60s>>\n",
+                (int) ctx->currentInstance->objectIndex, owner != NULL ? owner : "?", (double) x, (double) y,
+                (int) separation, (int) width, (int) (str != NULL ? strlen(str) : 0), (int) runner->renderer->drawFont,
+                str != NULL ? str : "");
+        }
+    }
     int32_t fontIndex = runner->renderer->drawFont;
     if (0 > fontIndex || (uint32_t) fontIndex >= runner->dataWin->font.count) return;
     Font* font = &runner->dataWin->font.fonts[fontIndex];
