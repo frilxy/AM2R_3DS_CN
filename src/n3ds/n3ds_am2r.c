@@ -152,6 +152,9 @@ static RValue hookDamageSamusKnockdown(VMContext* ctx, RValue* args, int32_t arg
 static RValue hookDamageSamusPush(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookFontReplace(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookDrawText(VMContext* ctx, RValue* args, int32_t argCount);
+// The builtin the hook replaced, so every other draw_text still runs the game's own.
+static BuiltinFunc gDrawTextBuiltin = NULL;
 
 static N3DSAm2rHook gHooks[] = {
     { "get_text", hookGetText, -1 },
@@ -401,6 +404,22 @@ static RValue hookFontReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t
     return RValue_makeUndefined();
 }
 
+// draw_text(x, y, string). One string the game draws is a literal in its own bytecode, not a language-file key, so no
+// translation can reach it: the pause screen draws "[Select] -> Logs" in oSubScrTopLayer's Draw event. Only that exact
+// string is translated -- everything else passes straight through, so the HUD, dialogue and item screens are untouched.
+static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount == 3 && args[2].type == RVALUE_STRING && args[2].string != NULL &&
+        strcmp(args[2].string, "[Select] -> Logs") == 0 && N3DSAm2r_languageIs("schinese")) {
+        RValue translated = RValue_makeOwnedString(safeStrdup("[Select] -> 日志"));
+        RValue a[3] = { args[0], args[1], translated };
+        a[2].ownsReference = false;
+        RValue result = gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, a, 3) : RValue_makeUndefined();
+        RValue_free(&translated);
+        return result;
+    }
+    return gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
+}
+
 // ===[ Unlimited health ]===
 
 static bool N3DSAm2r_cheat(int which);
@@ -570,9 +589,14 @@ void N3DSAm2r_init(Runner* runner) {
     // language pack calls it.
     for (uint32_t i = 0; i < vm->funcCallCacheCount; i++) {
         const char* name = dataWin->func.functions[i].name;
-        if (name == NULL || strcmp(name, "font_replace") != 0) continue;
-        vm->funcCallCache[i].builtin = (void*) hookFontReplace;
-        logInfo("AM2R: font_replace goes through the 3DS front end\n");
+        if (name == NULL) continue;
+        if (strcmp(name, "font_replace") == 0) {
+            vm->funcCallCache[i].builtin = (void*) hookFontReplace;
+            logInfo("AM2R: font_replace goes through the 3DS front end\n");
+        } else if (strcmp(name, "draw_text") == 0) {
+            gDrawTextBuiltin = (BuiltinFunc) vm->funcCallCache[i].builtin;
+            vm->funcCallCache[i].builtin = (void*) hookDrawText;
+        }
     }
     // Fast scripts default to on; cheats.ini can turn them off.
     N3DSAm2rNative_setEnabled(true);
