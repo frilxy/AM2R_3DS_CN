@@ -155,6 +155,7 @@ static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookFontReplace(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDrawText(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookBackgroundReplace(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookSpriteReplace(VMContext* ctx, RValue* args, int32_t argCount);
 // The builtin the hook replaced, so every other draw_text still runs the game's own.
 static BuiltinFunc gDrawTextBuiltin = NULL;
 
@@ -461,6 +462,57 @@ static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     return RValue_makeUndefined();
 }
 
+// sprite_replace(sprite, png, imgnum, removeback, smooth, xorig, yorig). The language packs use it for the area title
+// banners: AM2R's own headers are English animation strips (sIntro_A1..A8, 19-31 frames of 10px text), and a pack
+// ships its language's banner as ONE wide strip whose frame width is encoded in the file name
+// (<language>_a<area>_f<frameWidth>_b0_c3_d<..>_e<..>.png). The game replaces the sprite's image with that strip and
+// draws pieces of it with draw_sprite_part, so all this has to do is put the picture in and let the sprite be that
+// wide; the frame width stays the game's business.
+static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount < 2 || args[1].type != RVALUE_STRING || args[1].string == NULL) return RValue_makeUndefined();
+    Runner* runner = gAm2r.runner;
+    DataWin* dw = runner != NULL ? runner->dataWin : NULL;
+    if (dw == NULL || runner->fileSystem == NULL || runner->renderer == NULL) return RValue_makeUndefined();
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    if (spriteIndex < 0 || (uint32_t) spriteIndex >= dw->sprt.count) return RValue_makeUndefined();
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    if (sprite->tpagIndices == NULL || sprite->textureCount == 0) return RValue_makeUndefined();
+    int32_t imageIndex = argCount > 2 ? RValue_toInt32(args[2]) : 0;
+    if (imageIndex < 0 || (uint32_t) imageIndex >= sprite->textureCount) imageIndex = 0;
+
+    uint8_t* png = NULL;
+    int32_t pngSize = 0;
+    bool read = runner->fileSystem->vtable->readFileBinary(runner->fileSystem, args[1].string, &png, &pngSize);
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* pixels = (read && png != NULL && pngSize > 0) ? stbi_load_from_memory(png, pngSize, &width, &height, &channels, 4) : NULL;
+    free(png);
+    if (pixels == NULL || width <= 0 || height <= 0) {
+        logInfo("AM2R: sprite_replace could not read %s\n", args[1].string);
+        if (pixels != NULL) stbi_image_free(pixels);
+        return RValue_makeUndefined();
+    }
+
+    int32_t tpagIndex = N3DSRenderer_allocImagePageRGBA8(runner->renderer, pixels, (uint32_t) width, (uint32_t) height);
+    stbi_image_free(pixels);
+    if (tpagIndex < 0) {
+        logError("AM2R: sprite_replace could not upload %s (%dx%d)\n", args[1].string, width, height);
+        return RValue_makeUndefined();
+    }
+
+    // The image goes in at imgnum and the sprite becomes as large as the picture: the pack's strip is wider than the
+    // English frames, and the game reads sprite_get_width to know how many pieces it has.
+    sprite->tpagIndices[imageIndex] = tpagIndex;
+    sprite->width = (uint32_t) width;
+    sprite->height = (uint32_t) height;
+    if (argCount > 6) {
+        sprite->originX = (int32_t) RValue_toInt32(args[5]);
+        sprite->originY = (int32_t) RValue_toInt32(args[6]);
+    }
+    logInfo("AM2R: sprite %d (%s) image %d -> %s (%dx%d, tpag %d)\n",
+        (int) spriteIndex, sprite->name != NULL ? sprite->name : "?", (int) imageIndex, args[1].string, width, height, (int) tpagIndex);
+    return RValue_makeUndefined();
+}
+
 // ===[ Unlimited health ]===
 
 static bool N3DSAm2r_cheat(int which);
@@ -640,6 +692,9 @@ void N3DSAm2r_init(Runner* runner) {
         } else if (strcmp(name, "background_replace") == 0) {
             vm->funcCallCache[i].builtin = (void*) hookBackgroundReplace;
             logInfo("AM2R: background_replace goes through the 3DS front end\n");
+        } else if (strcmp(name, "sprite_replace") == 0) {
+            vm->funcCallCache[i].builtin = (void*) hookSpriteReplace;
+            logInfo("AM2R: sprite_replace goes through the 3DS front end\n");
         }
     }
     // Fast scripts default to on; cheats.ini can turn them off.
