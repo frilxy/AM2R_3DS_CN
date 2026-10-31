@@ -1489,6 +1489,18 @@ void N3DSAm2r_prepareRoomChange(void) {
 
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
+    // Widescreen belongs to the game's picture. The pause room (map, items, log pages) and the HUD are laid out for the
+    // game's own 320-wide canvas; handing them the widescreen space drew a 400-wide layout that ran off the right of the
+    // screen - the energy readout cut to "E - 00", the "scanning" note past the edge, the log text spilling out of its
+    // box. While the pause is up the game is told it has the plain picture; on the way back the mode below restores it.
+    if (N3DSPause_isPaused()) {
+        Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
+        if (control != NULL) {
+            double flag = 0.0, space = 0.0;
+            if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) N3DSGml_setVar(control, "widescreen", 0.0);
+            if (N3DSGml_getVar(control, "widescreen_space", &space) && space != 0.0) N3DSGml_setVar(control, "widescreen_space", 0.0);
+        }
+    }
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_applyScreenMode();
