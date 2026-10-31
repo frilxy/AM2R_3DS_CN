@@ -337,6 +337,30 @@ def pack_strips(strips):
     return cursor_y
 
 
+def derive_strip(base, em_size):
+    """A smaller size of the same font file, drawn from the pixels already packed for the larger one.
+
+    Same file, same strike: the bitmaps are identical, and only the rectangles differ, because the requested size is
+    the ascent (a 10px request puts a glyph's ink 2 rows higher in its rectangle than a 12px one). Cropping the blank
+    rows off the top of each rectangle gives exactly the rectangles a dedicated bake would have produced, so the page
+    does not carry the same ink twice. A glyph whose ink reaches the top of its rectangle (bearing above the smaller
+    ascent) has nothing to crop and keeps the larger rectangle, which draws it a row or two lower than a dedicated
+    bake would - one character in 1291, and not a visible one.
+    """
+    delta = base["ascent"] - em_size
+    glyphs = []
+    for glyph in base["glyphs"]:
+        copied = dict(glyph)
+        if delta > 0 and copied["height"] - delta >= 1 and copied["ink_y"] >= delta:
+            copied["y"] += delta
+            copied["ink_y"] -= delta
+            copied["height"] -= delta
+        glyphs.append(copied)
+    return {"ppem": base["ppem"], "ascent": em_size, "glyphs": glyphs,
+            "maxGlyphHeight": max((g["height"] for g in glyphs), default=0), "names": [],
+            "yOffset": base["yOffset"], "blockHeight": base["blockHeight"]}
+
+
 def next_power_of_two(value, minimum=8):
     result = minimum
     while result < value:
@@ -375,10 +399,10 @@ def main():
     sizes = read_sizes(fonts_dir)
     print(f"{len(codepoints)} characters to bake, sizes.ini {'read' if sizes else 'missing (using the defaults)'}")
 
-    # A strip is keyed by the font file's CONTENTS and the requested size: three of the five files are byte-identical,
-    # and 04b09 is asked for at two sizes, so it is the pair that decides whether the bitmaps are the same.
-    strips = []
-    by_key = {}
+    # One image per font file's CONTENTS: three of the five files are byte-identical, so they share it, and a file asked
+    # for at two sizes (04b09 at 12 and 10) is packed once at the larger size - the smaller one reuses those pixels.
+    groups = {}
+    order = []
     for name, size_key, fallback in REQUESTS:
         path = fonts_dir / name
         if not path.exists():
@@ -386,27 +410,46 @@ def main():
             continue
         content = hashlib.md5(path.read_bytes()).hexdigest()
         em_size = sizes.get(size_key, fallback)
-        key = (content, em_size)
-        if key not in by_key:
-            strip = build_strip(Font(path), em_size, codepoints)
-            strip["names"] = []
-            by_key[key] = strip
-            strips.append(strip)
-            print(f"  {name} @ {em_size}px: {len(strip['glyphs'])} glyphs from the {strip['ppem']}px strike, "
-                  f"tallest {strip['maxGlyphHeight']} rows")
-        by_key[key]["names"].append((name, em_size))
+        if content not in groups:
+            groups[content] = {"path": path, "requests": []}
+            order.append(content)
+        groups[content]["requests"].append((name, em_size))
 
-    if not strips:
+    bases = []
+    for content in order:
+        group = groups[content]
+        largest = max(em_size for _, em_size in group["requests"])
+        strip = build_strip(Font(group["path"]), largest, codepoints)
+        strip["ascent"] = largest
+        strip["names"] = [(n, s) for n, s in group["requests"] if s == largest]
+        strip["derived"] = []
+        bases.append(strip)
+        print(f"  {group['path'].name} @ {largest}px: {len(strip['glyphs'])} glyphs from the {strip['ppem']}px strike, "
+              f"tallest {strip['maxGlyphHeight']} rows")
+
+    if not bases:
         sys.exit("no fonts found")
 
-    used_rows = pack_strips(strips)
+    used_rows = pack_strips(bases)
+    # A size the same file is also asked for gets rectangles cropped out of the packed ones, not a second copy of the
+    # ink: 04b09@10 would otherwise sit in the page as ~150 rows that are an exact duplicate of 04b09@12.
+    strips = []
+    for content, base in zip(order, bases):
+        strips.append(base)
+        for name, em_size in groups[content]["requests"]:
+            if em_size == base["ascent"]:
+                continue
+            derived = derive_strip(base, em_size)
+            derived["names"] = [(name, em_size)]
+            base["derived"].append(derived)
+            strips.append(derived)
     if used_rows > ATLAS_MAX_HEIGHT:
         sys.exit(f"the strips need {used_rows} rows, more than the {ATLAS_MAX_HEIGHT}-row page allows")
     texture_height = next_power_of_two(used_rows)
 
     # Lay the ink out: white pixels for the glyphs, everything else transparent.
     page = [bytearray(ATLAS_WIDTH) for _ in range(used_rows)]
-    for strip in strips:
+    for strip in bases:  # a derived strip shares these pixels; drawing it too would paint them twice
         for glyph in strip["glyphs"]:
             base_x = glyph["x"] + glyph["ink_x"]
             for row_index, row in enumerate(glyph["rows"]):

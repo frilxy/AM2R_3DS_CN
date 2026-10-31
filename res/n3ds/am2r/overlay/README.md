@@ -34,7 +34,7 @@ fills exactly.
 ## `lang/fonts/cjk-font.bin`
 
 The glyphs the port's `font_replace` loads: every character the language files use, the port's own front-end strings and
-ASCII, rasterized from the same five files above and packed into one 1024x1024 page by
+ASCII, rasterized from the same five files above and packed into one 1024x512 page by
 `tools/n3ds/fontgen/make_cjk_font.py`. Regenerate it whenever the translation, `sizes.ini` or the fonts change;
 `cjk-font.png` next to it is the same page as a picture, for review. `tools/n3ds/fontgen/verify_cjk_font.py` re-reads
 the pack like the 3DS does and draws a sample string out of it.
