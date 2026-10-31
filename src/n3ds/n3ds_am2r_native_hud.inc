@@ -303,7 +303,18 @@ static int32_t withInstances(int32_t obj) {
 
 static GMLReal gViewX, gViewY;
 
+// The light surface oLightEngine builds is 512x256 (its user event 0), and sprite 1127 is the 64x64 soft light with its
+// origin inside: anything further than 64 x scale from the edge draws nothing into it. Skipping those saves four draw
+// calls each, which is most of the cost in a dark room full of lights.
+#define N3DS_LIGHT_SURFACE_W 512
+#define N3DS_LIGHT_SURFACE_H 256
+#define N3DS_LIGHT_SPRITE 1127
 static void lightQuad(GMLReal sprite, GMLReal x, GMLReal y, GMLReal sx, GMLReal sy, GMLReal rot, GMLReal colour, GMLReal alpha) {
+    if ((int32_t) sprite == N3DS_LIGHT_SPRITE) {
+        GMLReal asx = sx < 0 ? -sx : sx, asy = sy < 0 ? -sy : sy;
+        GMLReal r = 64 * (asx > asy ? asx : asy);
+        if (x + r < 0 || x - r > N3DS_LIGHT_SURFACE_W || y + r < 0 || y - r > N3DS_LIGHT_SURFACE_H) return;
+    }
     drawSpriteExt(sprite, -1, x, y, sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, -sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, sx, -sy, rot, colour, alpha);
