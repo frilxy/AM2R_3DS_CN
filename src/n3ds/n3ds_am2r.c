@@ -1329,7 +1329,13 @@ static void N3DSAm2r_applyScreenMode(void) {
         // it loses exactly the columns that side of the picture loses. Moving each block back in by its own side's crop
         // is what gives the two blocks the same margin (Wide: 13 each; 1x: none - its picture starts at 0 and ends at
         // 400). Using the whole overflow for the right block instead would leave it a crop's worth short of the edge.
-        gAm2r.hudLeftInset = wantedX < 0.0 ? -wantedX : 0.0;
+        // The game lays the HUD out for its own picture (320 + widescreen_space, 106 -> 426). The port makes that
+        // picture 400 wide on the screen, so the left block still starts 13 columns to the left of where the game puts
+        // it and the leading digit of the energy readout is cut ("99" showed only its right 9). 13 is (426 - 400) / 2,
+        // the same crop the game's picture loses on each side; the right block already gets its half from rightCrop.
+        double gamePictureW = 320.0 + 106.0;
+        double leftCrop = (gamePictureW - (double) N3DS_AM2R_WIDE_SCREEN_W) * 0.5;
+        gAm2r.hudLeftInset = (wantedX < 0.0 ? -wantedX : 0.0) + (leftCrop > 0.0 ? leftCrop : 0.0);
         double rightCrop = wantedX + pictureW * wantedScale - (double) N3DS_AM2R_WIDE_SCREEN_W;
         gAm2r.hudInset = rightCrop > 0.0 ? rightCrop : 0.0;
         double value = 0.0;
