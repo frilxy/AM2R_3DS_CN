@@ -71,14 +71,16 @@ jobs:
       - name: Build the SD card kit
         run: |
           # What tools/n3ds/sdkit/am2r-sd.sh downloads: the preprocessor (static: runs on any Linux / WSL), tex3ds,
-          # the SD data revision and the 3DS control config.
+          # the SD data revision, the 3DS control config and this port's own language assets (overlay/, which replaces
+          # the game's outline-font pack with the pixel fonts and the baked cjk-font.bin).
           cmake -S tools/n3ds-preprocess -B build-preprocess -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS=-static
           cmake --build build-preprocess
           mkdir -p kit/bin kit/seed
           cp build-preprocess/n3ds-preprocess "$DEVKITPRO/tools/bin/tex3ds" kit/bin/
           cp tools/n3ds/sd_data_rev.txt kit/
           cp res/n3ds/am2r/sd/config.ini kit/seed/
-          tar -czf out/am2r-sd-tools.tar.gz -C kit bin sd_data_rev.txt seed
+          cp -r res/n3ds/am2r/overlay kit/overlay
+          tar -czf out/am2r-sd-tools.tar.gz -C kit bin sd_data_rev.txt seed overlay
           cp tools/n3ds/sdkit/am2r-sd.sh tools/n3ds/sdkit/am2r-sd.bat out/
           ls -la out
 

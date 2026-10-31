@@ -153,6 +153,9 @@ This takes a few minutes. Go?" || exit 0
         exit 1
     fi
     cp -f "$here/sd_data_rev.txt" "$out/sd_data_rev.txt"
+    # This port's own language assets, which REPLACE the game's copies (applied after them on purpose): the game ships
+    # outline fonts, the port draws from the pixel fonts' 1-bit strikes and reads the baked glyph pack next to them.
+    if [[ -d "$here/overlay" ]]; then cp -r "$here/overlay/." "$out/"; fi
     # The 3DS control layout, only where there is no config yet.
     [[ -f "$out/config.ini" ]] || cp "$here/seed/config.ini" "$out/config.ini"
 
