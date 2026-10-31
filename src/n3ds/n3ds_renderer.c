@@ -96,7 +96,11 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_TOP_BATTLE_SCENE_Y_OFFSET 200.0f
 #define N3DS_TOP_BATTLE_ENEMY_Y_OFFSET 200.0f
 // Flushing doesn't free citro2d buffer space (that resets per frame), it only adds GPU draw calls.
-#define N3DS_C2D_FLUSH_DRAW_BUDGET 2048u
+// Batches are flushed well before the GPU command buffer can fill: citro3d calls svcBreak when it runs out of room,
+// which is how a screen full of debris and effect sprites (several Metroids dying at once) managed to crash the game -
+// the stack was C2D_DrawImage -> C3Di_UpdateContext -> GPUCMD_Add -> svcBreak. 2048 quads was too many for the 512 KB
+// buffer once each quad needs its own texture and blend commands.
+#define N3DS_C2D_FLUSH_DRAW_BUDGET 384u
 #define N3DS_PERF_LOG_INTERVAL_FRAMES 30u
 #define N3DS_ATLAS_TRACE_LOG_PATH N3DS_SD_DIR "atlas_trace.log"
 
