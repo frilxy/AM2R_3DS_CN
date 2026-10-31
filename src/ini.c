@@ -80,6 +80,11 @@ IniFile* Ini_parse(const char* text) {
 
     // Make a mutable copy to tokenize
     char* data = safeStrdup(text);
+    // The game's language files start with a UTF-8 BOM, which would prefix the first line and stop "[Header]" being
+    // recognized as a section -- and with it the language name, and every key of the file's first section.
+    if ((unsigned char) data[0] == 0xEFu && (unsigned char) data[1] == 0xBBu && (unsigned char) data[2] == 0xBFu) {
+        memmove(data, data + 3, strlen(data + 3) + 1u);
+    }
     IniSection* currentSection = nullptr;
 
     char* line = data;

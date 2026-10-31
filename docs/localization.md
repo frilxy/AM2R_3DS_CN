@@ -1,3 +1,10 @@
+> **Status on the `new` branch (2026-11-01).** Everything below describes the fork's first Chinese implementation,
+> which the `new` branch (a fresh start from upstream b0c705f) did not carry over. What exists here now: the offline
+> baked glyph pack and its loader (`docs/font-plan.md`), the port's own front-end strings following the language, and
+> the BOM fix from "the other three fixes" (`src/ini.c`). Still missing: `background_replace` (the title logo),
+> `program_directory`, and the devoptab absolute-path fix in `src/overlay_file_system.c` — the text below is the
+> reference for porting those.
+
 # Localization (Chinese, with a config.ini language switch)
 
 AM2R's `data.win` carries **no CJK glyphs at all**. The language packs make Chinese appear by swapping whole fonts at
