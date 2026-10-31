@@ -7,3 +7,5 @@ compat/config.mk
 /.vs
 *.log
 /build-web/
+__pycache__/
+*.pyc

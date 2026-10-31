@@ -388,6 +388,8 @@ def main():
     parser.add_argument("--fonts", default=None, help="TTF directory (default: <lang>/fonts)")
     parser.add_argument("--out", default=None, help="output directory (default: <lang>/fonts)")
     parser.add_argument("--source", default=str(root / "src/n3ds"), help="where the port's own Chinese strings live")
+    parser.add_argument("--preview", default=str(root / "docs/cjk-font-atlas.png"),
+                        help="where to write the page as a picture (review only, the 3DS never reads it)")
     args = parser.parse_args()
 
     lang_dir = Path(args.lang)
@@ -498,10 +500,13 @@ def main():
 
     pack_path = out_dir / "cjk-font.bin"
     pack_path.write_bytes(pack)
-    write_png(out_dir / "cjk-font.png", ATLAS_WIDTH, used_rows, page)
+    # The picture is for review only: it goes to docs/ rather than next to the pack, which is copied to every card.
+    preview_path = Path(args.preview)
+    if preview_path.parent.exists() or preview_path.parent.mkdir(parents=True, exist_ok=True) is None:
+        write_png(preview_path, ATLAS_WIDTH, used_rows, page)
 
     print(f"{len(strips)} strips, {len(glyph_records)} glyph records, {used_rows}/{texture_height} texture rows")
-    print(f"wrote {pack_path} ({len(pack) // 1024} KB) and {out_dir / 'cjk-font.png'}")
+    print(f"wrote {pack_path} ({len(pack) // 1024} KB) and {preview_path}")
     for strip in strips:
         end = strip["yOffset"] + strip["blockHeight"]
         names = ", ".join(f"{n}@{s}" for n, s in strip["names"])

@@ -12,7 +12,7 @@
 
 | 部分 | 位置 | 作用 |
 |---|---|---|
-| 生成器 | `tools/n3ds/fontgen/make_cjk_font.py` | 读语言文件 + TTF 的 EBLC/EBDT，烘出 `cjk-font.bin`（+ 预览图 `cjk-font.png`） |
+| 生成器 | `tools/n3ds/fontgen/make_cjk_font.py` | 读语言文件 + TTF 的 EBLC/EBDT，烘出 `cjk-font.bin`（页面另存一张 `docs/cjk-font-atlas.png` 供审阅，不进卡） |
 | 产物 | `res/n3ds/am2r/overlay/lang/fonts/cjk-font.{bin,png}` | 随 overlay 进 SD 卡：`sdmc:/3ds/am2r/lang/fonts/` |
 | 校验 | `tools/n3ds/fontgen/verify_cjk_font.py` | 用与 C 相同的偏移解析产物，并按绘制规则把字画出来 |
 | 运行时装载 | `src/n3ds/n3ds_cjk_font.c/.h` | 读包、建贴图页、装字形 |
@@ -66,7 +66,7 @@ runner 画字时把字形矩形放在**行顶**（`cursorY`），矩形底边就
 ## 重新生成
 
 ```
-python3 tools/n3ds/fontgen/make_cjk_font.py      # 生成 cjk-font.bin + cjk-font.png
+python3 tools/n3ds/fontgen/make_cjk_font.py      # 生成 cjk-font.bin（+ docs/cjk-font-atlas.png 预览）
 python3 tools/n3ds/fontgen/verify_cjk_font.py    # 自检，并用产物的位图把一句中文画成字符画
 ```
 
