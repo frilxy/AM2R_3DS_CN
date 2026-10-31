@@ -1,8 +1,6 @@
 #include "n3ds_am2r_native.h"
 
-#include "n3ds_am2r.h"
 #include "n3ds_gml.h"
-#include "n3ds_screen.h"
 
 #include "../instance.h"
 #include "../int_rvalue_hashmap.h"
@@ -15,6 +13,7 @@
 #include <stb/ds/stb_ds.h>
 #include <math.h>
 #include <string.h>
+#include <3ds.h>
 
 // Each native below follows the game's bytecode instruction for instruction (the disassembly it was written from is
 // quoted in its comment where the order matters): the same values read, the same variables written (with the same
@@ -685,6 +684,16 @@ void N3DSAm2rNative_init(Runner* runner) {
     N.initialised = true;
     logInfo("AM2R natives: %ld of %ld match this game\n", (long) N.available, (long) N_ENTRIES);
     install(N.enabled);
+}
+
+static bool gLightingOn = true;
+
+void N3DSAm2rNative_setLighting(bool on) {
+    gLightingOn = on;
+}
+
+bool N3DSAm2rNative_lighting(void) {
+    return gLightingOn;
 }
 
 void N3DSAm2rNative_setEnabled(bool enabled) {

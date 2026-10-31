@@ -65,67 +65,33 @@ into the desktop's `--goto-room <frame>:<room>`.
   and a target must fit in one; a surface that doesn't fit at RGBA8 drops to RGBA5551, then to a smaller stored
   area (top-left part). Over 1024 only the top-left 1024 is stored (PICA limit). AM2R's 2048x1024 pause map ends
   up as 1024x512 RGBA5551, which holds the whole map (it uses about 600x464).
-- Screen: AM2R has its own 16:9 widescreen (`oControl.widescreen`, on by default: a 426x240 view into
-  `widescreen_surface`), which is wider than the 5:3 top screen, so the upstream widescreen hack has nothing to add and
-  the port has to choose what gives. The mode is picked in Options -> Display -> Screen:
-  - **Wide** (default): the picture 1:1 and centred, filling the screen - the 26 columns past 400 are given up 13 each
-    side, so nothing is scaled and there are no bars.
-  - **Stretch**: the same 426 columns squeezed into 400 (a 0.939 horizontal squash), so the whole view is shown but is
-    not square.
-  - **1x**: the whole 426x240 view fitted to the screen at 400x225, centred, with 7px bars top and bottom and 8px
-    below (0.939, so slightly soft). The port states this fit itself - the game cannot produce it, see below.
-  - **2x**: 2x, centred, showing the middle of the picture.
-
-  AM2R draws its own picture, so the mode works by what the game is told, not by presenting an application surface:
-  `application_surface_draw_enable(0)` leaves `appSurfaceAutoDraw` false, and `N3DSRenderer_endFrameEnd` returns early
-  on that (`usingAppSurface && !appSurfaceAutoDraw`), so the app surface is never presented and `screenRect`
-  (`stretchToScreen`/`fixedScale`) only affects the GUI/HUD layer. The game draws its widescreen surface itself at
-  `(displayx, displayy)` scaled by `display_scale`, and it sizes that surface from `320 + widescreen_space`, reading
-  `window_get_width()` (the port's `gWindowW`) to centre it. So `main.c` gives the game the window each mode needs -
-  the screen (400) for Wide/1x so the game fits and centres its own picture, the game's own 426 for Stretch/2x so it
-  draws 1:1 and the renderer transforms it.
-
-  The game's own Step picks `display_scale`/`displayx`/`displayy` from `window_get_width()`/`height()` and
-  `window_get_fullscreen()`, and this port stubs the latter to 0, so AM2R always takes its *window* branch:
-
-      display_scale = window_get_width() / (320 + space)   [when window H < window W]
-      displayx      = window_get_width()  / 2 - (320 + space) * scale / 2
-
-  At the 400-wide window Wide and 1x both give (its first branch wins because 240 < 400, so the 0.939 fit it computes
-  is discarded and `scale` comes out 1.0 with `displayx` -13). That is why **1x and Wide looked identical**: it is the
-  game's arithmetic, not a mistake in the mode code, and no window the port can give it makes 1x differ. So
-  `N3DSAm2r_applyScreenMode` (once a frame, after the game's step and before its draw) states the transform itself for
-  those two modes - Wide: `display_scale` 1 and `displayx = (400 - pictureW) / 2` (-13, the 26 columns past 400 given
-  up 13 each side); 1x: `display_scale = 400 / pictureW` and the offsets for that fit (`displayx` 0, `displayy` 7).
-  Stretch and 2x leave `display_*` entirely to the game. The picture width is read from the surface itself, and
-  `widescreen_space` is deliberately no longer clamped: the game rewrites it every Step, so clamping fought the game
-  and made `N3DSAm2r_checkWidescreenSurface` free and remake the surface every frame. 1.5 makes `widescreen_surface`
-  once, on its first frame, 320 wide (before the widescreen width is set); on a PC it is lost and remade at startup,
-  here the front end frees a wrong-sized one so the game remakes it.
-- HUD: the game's own switch for it is the global `opshowhud` (its Options page had the `HUDDisplay`/`ShowHUD` row, which
-  this port's Display page replaced), and the native `draw_gui` already honours it (`n3ds_am2r_native_hud.inc` returns
-  early when it is off). The port's Display page therefore just puts the row back; the choice is kept in `cheats.ini`
-  (`hud=`) and stated to the game every frame, because the game's own `load_gameoptions` would otherwise restore the
-  value from the save. Until the player sets it here, the game's own value is left alone.
-  The HUD shares the picture's transform: `draw_gui` lays it out in the picture's own coordinates and the Draw GUI blit
-  applies `displayx`/`display_scale` to it, so each side of the HUD loses exactly the columns that side of the picture
-  loses. In Wide the picture starts at `displayx` -13, so the left-hand block (health, tanks, ammo, laid out from x = 0)
-  would be cut by 13 and the right-hand block (map and Metroid-counter frames, at 250/272/276/296 + `widescreen_space`)
-  would reach 13 past the right edge. `N3DSAm2r_hudLeftInset`/`N3DSAm2r_hudRightInset` report each side's own crop
-  (Wide: 13 and 13; 1x: 0 and 0) and the native HUD moves each block back in by its own side's amount, so both keep the
-  same margin. Using the whole 26-column overflow for the right block instead left it a crop's worth short of the edge.
-  Only the native (Fast scripts) draw_gui does this, so with Fast scripts off the game's own code still lays the blocks
-  out for the wider window.
-- Pause screen (`n3ds_pause.c`): AM2R's `rm_subscreen` is the pause menu and the game draws and operates it like any
-  other room - on the top screen, with its own Menu1/Menu2 (A/B) and D-pad bindings. The front end does nothing for
-  it: `N3DSPause_update` only tracks whether the game is in the pause room (following `rm_transition`'s `targetroom`
-  into `rm_subscreen`), which `main.c` uses to pin the window height (the pause screen lays itself out for a tall
-  320x568 surface, which would letterbox the picture away). There is no touch handling, no queued presses, no frozen
-  frame and no bottom screen.
-- Bottom screen: black and nothing else. The screen's render target is still created, cleared to black and bound once
-  a frame (`N3DSRenderer_beginFrame`): a screen the GPU is never told to draw to keeps its previous framebuffer, which
-  is not reliably black, so simply not making a target is not the same as a black screen. No GUI, map, snapshot or
-  frozen frame draws to it any more.
+- Screen: AM2R lays out its own picture in the window it is told about (application surface and HUD at its own
+  offsets), so the window the game sees is the game's size and the renderer scales that to the screen. In AM2R the
+  mode is picked in Options -> Display -> Screen: Stretch (default), 1x (centred 1:1), 2x (doubled and centred) or
+  Wide (upstream's widescreen hack); 1x/2x use `N3DSRenderer_setFixedScale`. AM2R 1.5 has its own widescreen
+  (`oControl.widescreen`, on by default: a 426x240 view into `widescreen_surface`, centred by the game in the window):
+  while it is on, the window is 426 wide (`N3DSAm2r_gameWidth`), the GUI layer is the window's size (1.5 draws its
+  HUD in window coordinates) and Wide adds no hack on top. 1.5 makes `widescreen_surface` once, on its first frame,
+  320 wide (before the widescreen width is set); on a PC it is lost and remade at startup, here the front end frees a
+  wrong-sized one so the game remakes it. The touch screen belongs to the pause screen.
+- Pause screen (`n3ds_pause.c`): while the game is in `rm_subscreen` (or the transition into it), the game's
+  screen (`RENDER_TARGET_HOST_FRAMEBUFFER`) is the bottom screen, 1:1, and the top screen shows the game as it was
+  when paused. That frame is captured when Start goes into the input delay line (AM2R blanks the screen on the
+  frame it leaves for the pause room). Touch becomes the presses the pause screen already understands (AM2R's own
+  Menu1/Menu2 bindings and the D-pad), plus a few variable writes:
+  - the hint strip at the bottom (it shows the Menu2 hint) is Menu2: change page / back;
+  - page cross: tap an icon;
+  - map: drag to pan (`oMapCamera.targetx/targety`), tap a cell to put the marker there, tap the marker to delete it;
+  - inventory: tap an item to select it (shows its tip), tap again to toggle it;
+  - logs: tap an entry to select it, tap again to expand; drag to scroll the list or the text;
+  - options and submenus: tap a row to select, tap again to activate; touch and hold the left/right half of a
+    selected value box to turn it down/up (the volume sliders only move while the direction is held).
+  Touch must never become a mouse: AM2R moves Samus to the mouse while button 1 is held (a debug leftover).
+- Bottom screen during play (`n3ds_livemap.c`): the map, drawn from the game's own map data the way
+  `draw_map_surf`/`draw_mapblock` draw it (`global.map[x, y]` cell strings, `global.dmap` explored state, the map
+  sprites), centred on Samus's cell (`global.mapposx/y`) with `sMapHilight` and the marker. It is redrawn when Samus
+  changes cell and once a second; the finished frame is kept as the bottom-screen picture in between (only the
+  highlight is drawn every frame). A tap pauses the game (the pause screen opens on its map page).
 - AM2R adjustments from the front end (`n3ds_am2r.c`; the game's files are unchanged): calls to the game's
   `get_text`, `get_xjoybtnname` and `get_xjoybtnsprite` go through C hooks that call the game's script and adjust
   the result (Nintendo button names, A/B and X/Y icons swapped by position, "XBox 360 Joypad" -> "Nintendo 3DS",
@@ -208,39 +174,9 @@ User Event 1 (the light map; a room with `oCoreX`, whose block nests further wit
   and 1.5.5 has a local `scale` that shadowed `oA6Dust.scale`.
 - Checked with `profrooms_cu_seeded.txt`: top-screen screenshots pixel-identical with the option on and off.
 
-## Chinese localisation (branch `top-screen-zh`)
-
-The localised line keeps the top-screen work and adds AM2R's own Chinese: the game already reads `config.ini`'s
-`[Screen] Language` into `global.currentlanguage` and picks the line's file from `lang/languages.txt`, so switching
-needs no code here. What the port adds is the two builtins AM2R's language packs are made of, neither of which
-Butterscotch implemented:
-
-- **`font_replace(font, ttf, size, bold, italic)`** (`src/n3ds/n3ds_font_replace.c`): reads the 1-bit `EBLC`/`EBDT`
-  bitmap strikes out of the TTF and packs every glyph into **one** shared runtime atlas (citro3d accepts only one),
-  uploading 8x8 Morton tiles. Every font size stacks below the previous one.
-- **`background_replace(background, png, removeback, smooth, xorigin, yorigin)`**: decodes the PNG and uploads it as a
-  runtime texture (the language packs use it for the title logo).
-
-The glyph set is built from `lang/languages.txt` itself: every quoted string in every listed file, so the atlas covers
-exactly the characters the shipped languages need (about 1264) instead of all of CJK, and a language switch never needs
-a rebuild. The 3DS front end's own pages are in no language file, so their strings are registered up front
-(`N3DSAm2r_registerPortGlyphs`) and follow the selection through `N3DSAm2r_text`.
-
-Three supporting fixes were needed for the title screen (all three are described in `docs/localization.md`):
-`src/ini.c` skipping the files' UTF-8 BOM, the `program_directory` built-in the game builds `lang/titles/…` from, and
-`src/overlay_file_system.c` treating `sdmc:/…` as absolute. `res/n3ds/am2r/overlay/` carries the fusion-pixel bitmap
-fonts the layout was designed around, and `tools/n3ds/make_sd.sh` copies the overlay over the game's own files.
-
-**The item page** was the one thing that stayed English through all of this: its names come from `[ItemsMenu]`, and the
-game's shipped `schinese.ini` never translated that section (all 21 keys byte-identical to `english.ini`, while
-`[Items]` next to it is translated; Russian, French and Spanish all translate it). The overlay's `schinese.ini`
-therefore carries those 21 names translated and nothing else changed.
-
-The bundled `config.ini` defaults to Chinese (`Language="1"`); `"0"` is English.
-
 ## Diagnostics
 
-Top screen (toggle Start+Select): FPS, average frame ms and the worst in the last quarter second; `S` step (GML),
+Bottom screen (top screen while paused; toggle Start+Select): FPS, average frame ms and the worst in the last quarter second; `S` step (GML),
 `W` waiting for the GPU/VBlank, `D` building the GPU frame, `P` room prewarm; `IO` SD reads by the renderer,
 `TX` texture uploads/surface allocations, `FS` the game's file I/O, `AU` audio calls (all ms per frame, main
 thread only); VRAM, heap used/total, linear free, UNIMPL count, room. `log.txt`: a `Perf:` line every 5 s, every

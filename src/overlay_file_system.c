@@ -39,13 +39,7 @@ static inline char* normalizePath(const char* path) {
 }
 
 static bool isAbsolute(const char* path) {
-    if (path == nullptr) return false;
-    if (path[0] == '/') return true;
-    // A devoptab path such as "sdmc:/3ds/am2r/lang/titles" is absolute too. Treating it as relative made it get the
-    // bundle path prepended, so the game's program_directory-based lookups -- lang/titles and lang/headers -- resolved
-    // to "sdmc:/3ds/am2r/sdmc:/3ds/am2r/..." and directory_exists reported that the folders did not exist.
-    const char* colon = strchr(path, ':');
-    return colon != nullptr && colon != path && colon[1] == '/';
+    return path != nullptr && path[0] == '/';
 }
 
 // Joins basePath (assumed to end with '/') with a relative path. Absolute inputs pass through as-is.

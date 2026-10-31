@@ -3,7 +3,6 @@
 
 // ===[ draw_gui ]===
 
-
 static int32_t gCode_draw_gui = -1, gCode_gui_health = -1, gCode_to_string_lz = -1;
 
 typedef struct {
@@ -121,20 +120,16 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     if (ok && gmlCmp(g.ophudshowmetrcount, 2) == 0) ok = globalNum(&v_monstersleft, &g.monstersleft);
     if (!ok) return callOriginal(gCode_draw_gui, args, argCount);
 
-    // The tank frame (the game checks each pair; 29 also takes 30 and up). The whole left-hand block rides the picture's
-    // transform in the game's own HUD, so however many columns the picture loses off the left are lost off this block
-    // too: shift it back in by that much (N3DSAm2r_hudLeftInset; 0 unless the picture starts left of the screen). The
-    // shift is a GMLReal (like every other HUD coordinate here) so it stays in the game's own arithmetic.
-    GMLReal hudShift = (GMLReal) N3DSAm2r_hudLeftInset();
-    GMLReal xoff = 33 + hudShift;
-    setNum(self, &v_xoff, xoff);
-    if (gmlCmp(g.etanks, 0) == 0) drawBackgroundAt(117, hudShift, 0);
+    // The tank frame (the game checks each pair; 29 also takes 30 and up).
+    GMLReal xoff = 33;
+    setNum(self, &v_xoff, 33);
+    if (gmlCmp(g.etanks, 0) == 0) drawBackgroundAt(117, 0, 0);
     for (int32_t pair = 1; pair < 16; pair++) {
         int32_t lo = pair * 2 - 1;
         bool match = gmlCmp(g.etanks, lo) == 0 || (pair == 15 ? gmlCmp(g.etanks, 30) >= 0 : gmlCmp(g.etanks, lo + 1) == 0);
         if (!match) continue;
-        drawBackgroundAt(kTankFrames[pair].bg, hudShift, 0);
-        xoff = kTankFrames[pair].xoff + hudShift;
+        drawBackgroundAt(kTankFrames[pair].bg, 0, 0);
+        xoff = kTankFrames[pair].xoff;
         setNum(self, &v_xoff, xoff);
     }
 
@@ -145,12 +140,12 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     RValue colour[1] = { R(16777215) };
     callVoid(N.drawSetColor, colour, 1);
     RValue health = callScript(gCode_gui_health, NULL, 0);
-    drawText(4 + hudShift, 4, health);
+    drawText(4, 4, health);
     RValue_free(&health);
     if (truthy(hudflash)) {
         setFont(*guifont1a);
         RValue flashText = callScript(gCode_gui_health, NULL, 0);
-        RValue a[8] = { R(4 + hudShift), R(4), flashText, R(16777215), R(16777215), R(16777215), R(16777215), R(hudflashfx / 4) };
+        RValue a[8] = { R(4), R(4), flashText, R(16777215), R(16777215), R(16777215), R(16777215), R(hudflashfx / 4) };
         a[2].ownsReference = false;
         callVoid(N.drawTextColor, a, 8);
         RValue_free(&flashText);
@@ -162,7 +157,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     for (int32_t k = 1; k <= 30; k++) {
         if (gmlCmp(g.etanks, k) < 0) continue;
         GMLReal threshold = k == 1 ? 99.9 : 99.9 + (GMLReal) (100 * (k - 1)) * mult;
-        GMLReal x = (k <= 2 ? 0 + etankxoff : (0 + etankxoff) + kTankX[k]) + hudShift;
+        GMLReal x = k <= 2 ? 0 + etankxoff : (0 + etankxoff) + kTankX[k];
         GMLReal y = (k & 1) ? 4 : 10;
         if (gmlCmp(g.playerhealth, threshold) > 0) drawSprite(511, 1, x, y);
         if (gmlCmp(g.playerhealth, threshold) <= 0) drawSprite(511, 0, x, y);
@@ -217,28 +212,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         if (styleToggle) drawSprite(506, gmlCmp(g.currentweapon, 3) == 0 ? 1 : 0, ix, 4);
     }
 
-    // Map and Metroid counter frames. The game lays these out at 250 + widescreen_space, for a picture as wide as its
-    // own. Two things move them back in:
-    //
-    //  - point-for-point and stretch draw the game's plain 320x240 picture, so the space is cancelled outright and the
-    //    block ends at 320, flush with the picture's right edge.
-    //  - wide keeps the game's 426-wide picture and only gives up the columns the screen crops, which is what
-    //    N3DSAm2r_hudRightInset reports.
-    //
-    // The first case is decided here rather than from a value cached in applyHud: the game rewrites widescreen_space in
-    // its own Step, so a figure read there can disagree with the one the layout actually used - which is what pushed
-    // the block 106 columns right, over the black margin and off the screen's edge.
-    //
-    // ws is GMLReal (float) and -Werror=double-promotion is on, so the inset is narrowed rather than promoting ws.
-    N3DSScreenMode hudScreenMode = N3DS_getScreenMode();
-    if (hudScreenMode == N3DS_SCREEN_1X || hudScreenMode == N3DS_SCREEN_STRETCH) {
-        ws = 0;
-    } else {
-        // Wide: the picture is 320 + the space this front end states, not the game's own. draw_gui is called from the
-        // game's Step, a step before the port restates the value for the views, so the game's variable still holds 106
-        // here even though the picture being drawn is 400 wide - which is what put the block 26 columns past the edge.
-        ws = (GMLReal) N3DSAm2r_pictureSpace() - (GMLReal) N3DSAm2r_hudRightInset();
-    }
+    // Map and Metroid counter frames (moved right by the widescreen width).
     bool showMap = truthy(g.ophudshowmap), showCount = truthy(g.ophudshowmetrcount);
     if (showMap && showCount) {
         drawBackgroundAt(123, 250 + ws, 0);
@@ -303,18 +277,25 @@ static int32_t withInstances(int32_t obj) {
 
 static GMLReal gViewX, gViewY;
 
-// The light surface oLightEngine builds is 512x256 (its user event 0), and sprite 1127 is the 64x64 soft light with its
-// origin inside: anything further than 64 x scale from the edge draws nothing into it. Skipping those saves four draw
-// calls each, which is most of the cost in a dark room full of lights.
-#define N3DS_LIGHT_SURFACE_W 512
-#define N3DS_LIGHT_SURFACE_H 256
-#define N3DS_LIGHT_SPRITE 1127
+// Light-map statistics for the log (one line every LIGHT_STATS_FRAMES maps): quads drawn and skipped.
+#define LIGHT_STATS_FRAMES 300
+#define LIGHT_SURFACE_W 512 // oLightEngine user event 0: surface_create(512, 256)
+#define LIGHT_SURFACE_H 256
+#define LIGHT_SPRITE 1127   // the 64 x 64 soft light
+static uint32_t gLightQuads, gLightSkipped, gLightMaps;
+static double gLightMs;
+
 static void lightQuad(GMLReal sprite, GMLReal x, GMLReal y, GMLReal sx, GMLReal sy, GMLReal rot, GMLReal colour, GMLReal alpha) {
-    if ((int32_t) sprite == N3DS_LIGHT_SPRITE) {
-        GMLReal asx = sx < 0 ? -sx : sx, asy = sy < 0 ? -sy : sy;
-        GMLReal r = 64 * (asx > asy ? asx : asy);
-        if (x + r < 0 || x - r > N3DS_LIGHT_SURFACE_W || y + r < 0 || y - r > N3DS_LIGHT_SURFACE_H) return;
+    // A light whose sprite lies wholly outside the light surface draws nothing: skip its four calls. The 64 x 64
+    // sprite's origin is inside it, so 64 x scale around the position bounds it.
+    if (sprite == LIGHT_SPRITE) {
+        GMLReal r = 64 * (fabs(sx) > fabs(sy) ? fabs(sx) : fabs(sy));
+        if (x + r < 0 || x - r > LIGHT_SURFACE_W || y + r < 0 || y - r > LIGHT_SURFACE_H) {
+            gLightSkipped++;
+            return;
+        }
     }
+    gLightQuads++;
     drawSpriteExt(sprite, -1, x, y, sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, -sx, sy, rot, colour, alpha);
     drawSpriteExt(sprite, -1, x, y, sx, -sy, rot, colour, alpha);
@@ -385,6 +366,7 @@ static void lightDeclined(const char* why) {
 }
 
 static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* self) {
+    if (!N3DSAm2rNative_lighting()) return true; // Lighting off: no light map (the engine isn't drawn either)
     Instance* control = VM_findInstanceByTarget(N.vm, N.objControl);
     RValue* widescreenSlot = control != NULL ? varSlot(control, &v_widescreen) : NULL;
     RValue* surfSlot = varSlot(self, &v_surf);
@@ -405,6 +387,7 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* 
     RValue_free(&vx);
     RValue_free(&vy);
 
+    u64 lightStart = svcGetSystemTick();
     RValue target[1] = { *surfSlot };
     target[0].ownsReference = false;
     callVoid(N.surfaceSetTarget, target, 1);
@@ -562,5 +545,12 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance* 
 
     blendMode(0);
     callVoid(N.surfaceResetTarget, NULL, 0);
+    gLightMs += (double) (svcGetSystemTick() - lightStart) * 1000.0 / (double) SYSCLOCK_ARM11;
+    if (++gLightMaps == LIGHT_STATS_FRAMES) {
+        logInfo("Light map: %.2f ms, %.1f quads (+%.1f skipped outside the surface) per map, last %u maps\n",
+            gLightMs / gLightMaps, (double) gLightQuads / gLightMaps, (double) gLightSkipped / gLightMaps, (unsigned) gLightMaps);
+        gLightQuads = gLightSkipped = gLightMaps = 0;
+        gLightMs = 0;
+    }
     return true;
 }

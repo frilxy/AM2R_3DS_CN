@@ -14,5 +14,8 @@ void N3DSAm2rNative_init(Runner* runner);
 // Turns the natives on or off (takes effect from the next call).
 void N3DSAm2rNative_setEnabled(bool enabled);
 bool N3DSAm2rNative_enabled(void);
+// The dark rooms' light effect (the light map): off skips building it, so those rooms are drawn fully lit.
+void N3DSAm2rNative_setLighting(bool on);
+bool N3DSAm2rNative_lighting(void);
 // How many of the natives match this game's code (0: none apply, the option does nothing).
 int32_t N3DSAm2rNative_available(void);

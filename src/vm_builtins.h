@@ -274,9 +274,6 @@ typedef enum {
     // Async system
     BUILTIN_VAR_ASYNC_LOAD,
     BUILTIN_VAR_EVENT_DATA,
-
-    // Appended at the end so that no existing built-in variable's numeric id changes.
-    BUILTIN_VAR_PROGRAM_DIRECTORY,
 } BuiltinVarId;
 
 void VMBuiltins_registerAll(VMContext* ctx);

@@ -182,6 +182,12 @@ RValue* N3DSGml_globalSlot(const char* name) {
     return IntRValueHashMap_findSlot(&((Instance*) gRunner->vmContext->globalScopeInstance)->selfVars, varId);
 }
 
+void N3DSGml_setGlobalElement(const char* name, int32_t index, double value) {
+    RValue* slot = N3DSGml_globalSlot(name);
+    if (slot == NULL || slot->type != RVALUE_ARRAY || index < 0) return;
+    GMLArray_setOnArrayRef(slot, index, RValue_makeReal(value));
+}
+
 void N3DSGml_setGlobal(const char* name, double value) {
     int32_t varId = N3DSGml_varId(name);
     if (varId < 0 || gRunner->vmContext->globalScopeInstance == NULL) return;

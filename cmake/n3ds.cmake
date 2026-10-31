@@ -18,7 +18,7 @@ set(N3DS_ASSET_DIR "" CACHE PATH "Optional icon.png (48x48), banner.png (256x128
 if(N3DS_ASSET_DIR STREQUAL "" OR N3DS_ASSET_DIR STREQUAL "${CMAKE_SOURCE_DIR}/res/n3ds/butterscotch")
     set(N3DS_ASSET_DIR "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}")
 endif()
-set(N3DS_SCREEN_MODE "wide" CACHE STRING "Default top-screen mode: wide, stretch, 1x or 2x")
+set(N3DS_SCREEN_MODE "wide" CACHE STRING "Default top-screen mode: wide (widescreen hack), stretch or pillarbox")
 set(N3DS_TOOLS_DIR "/root/kfx/3ds-prefix/bin" CACHE PATH "Where makerom and bannertool are")
 
 add_compile_definitions(PLATFORM_N3DS)
@@ -88,13 +88,6 @@ target_link_libraries(butterscotch PRIVATE bzip2 stb_ds sha1 stb_vorbis citro2d 
 set(N3DS_ROMFS_DIR "${CMAKE_CURRENT_BINARY_DIR}/romfs")
 file(MAKE_DIRECTORY "${N3DS_ROMFS_DIR}")
 file(WRITE "${N3DS_ROMFS_DIR}/build.txt" "${N3DS_APP_NAME} on Butterscotch ${BUTTERSCOTCH_COMMIT_HASH}\n")
-
-# The bottom screen's artwork ships inside the title, so a fresh install is not a black screen. A file at
-# sdmc:/3ds/am2r/gfx/bottom.png wins over this one (see main.c).
-if(EXISTS "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png")
-    file(MAKE_DIRECTORY "${N3DS_ROMFS_DIR}/gfx")
-    configure_file("${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png" "${N3DS_ROMFS_DIR}/gfx/bottom.png" COPYONLY)
-endif()
 
 set(N3DS_SMDH_FILE "${CMAKE_CURRENT_BINARY_DIR}/${N3DS_OUTPUT_NAME}.smdh")
 set(_n3ds_icon_args "")

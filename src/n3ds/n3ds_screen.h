@@ -4,13 +4,11 @@
 
 // The top screen's mode (N3DS_SCREEN_MODE in cmake/n3ds.cmake is the default; a game front end can change it).
 typedef enum {
-    N3DS_SCREEN_WIDE,      // widescreen: for a game with its own widescreen, the picture 1:1 filling the screen (the
-                           // columns past the screen's width given up evenly); otherwise upstream's hack, where the
-                           // views grow to the 5:3 screen, 1:1 pixels
+    N3DS_SCREEN_WIDE,      // upstream's widescreen hack: views grow to the 5:3 screen, 1:1 pixels
     N3DS_SCREEN_STRETCH,   // the game's size stretched to the whole screen
     N3DS_SCREEN_PILLARBOX, // the screen's size as the game's window, the game 1:1 and centred
-    N3DS_SCREEN_1X,        // point-for-point: the game's own 320x240 4:3 picture at 1:1, bars at the sides (the
-                           // game's widescreen is off in this mode, so nothing is scaled or cropped)
+    N3DS_SCREEN_1X,        // the game's size, 1:1 and centred (the GUI too)
+    N3DS_SCREEN_2X,        // the game's size at 2x, centred: the middle of the picture, the rest off screen
     N3DS_SCREEN_MODE_COUNT
 } N3DSScreenMode;
 

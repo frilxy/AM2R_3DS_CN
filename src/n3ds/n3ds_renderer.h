@@ -13,6 +13,18 @@ Renderer* N3DSRenderer_create(void);
 bool N3DSRenderer_isReady(Renderer* renderer);
 const char* N3DSRenderer_getStartupError(Renderer* renderer);
 void N3DSRenderer_beginOverlay(Renderer* renderer);
+void N3DSRenderer_beginBottomScreenGUIEx(Renderer* renderer, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY);
+void N3DSRenderer_beginBottomScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_endBottomScreenGUI(Renderer* renderer);
+void N3DSRenderer_beginTopScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_endTopScreenGUI(Renderer* renderer);
+void N3DSRenderer_beginBottomScreenGUI2x(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_endBottomScreenGUI2x(Renderer* renderer);
+void N3DSRenderer_beginTopScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_endTopScreenGUI(Renderer* renderer);
+void N3DSRenderer_beginTopScreenGUI2x(Renderer* renderer, int32_t guiW, int32_t guiH);
+void N3DSRenderer_endTopScreenGUI2x(Renderer* renderer);
+bool N3DSRenderer_isTopScreenGUIActive(Renderer* renderer);
 bool N3DSRenderer_isTopScreenBattleViewActive(Renderer* renderer);
 void N3DSRenderer_setTopScreenBattleViewActive(Renderer* renderer, bool active);
 uint32_t N3DSRenderer_getResidentAtlasVRAMBytes(Renderer* renderer);
@@ -31,27 +43,6 @@ uint32_t N3DSRenderer_getFrameTextGlyphDraws(Renderer* renderer);
 uint32_t N3DSRenderer_getFrameTextTenthsMs(Renderer* renderer);
 int32_t N3DSRenderer_findTileEntryIndex(Renderer* renderer, int32_t backgroundIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH);
 bool N3DSRenderer_drawCachedTileEntry(Renderer* renderer, int32_t tileEntryIndex, float drawX, float drawY, float xscale, float yscale, uint32_t color, float alpha);
-// Runtime textures for font_replace and background_replace (see docs/localization.md). Every font size shares ONE
-// texture: with two or more, particular strings stopped drawing while the atlases themselves looked correct.
-int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* renderer);
-int32_t N3DSRenderer_sharedFontAtlasIndex(Renderer* renderer);
-int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* renderer);
-bool N3DSRenderer_uploadFontAtlasRegion(Renderer* renderer, const uint8_t* rgba, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
-// The shared texture's first free row. Each font size stacks below the previous one, and reallocating the atlas
-// resets it, so the two are kept together.
-uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* renderer);
-// The shared font atlas is VRAM, so the on-card cache copies it out and back through the CPU mapping: `pixels` is
-// tiled RGBA8, `usedRows` the rows filled so far (what restore writes back and makes the new write pointer).
-const uint8_t* N3DSRenderer_sharedFontAtlasPixels(Renderer* renderer, uint32_t* usedRows);
-bool N3DSRenderer_restoreSharedFontAtlasPixels(Renderer* renderer, const uint8_t* pixels, uint32_t usedRows);
-void N3DSRenderer_setSharedFontAtlasNextY(Renderer* renderer, uint32_t y);
-int32_t N3DSRenderer_allocRuntimeImage(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
-// Optional 320x240 art drawn on the bottom screen wherever the port would leave it black (title, file select,
-// options, pause). Stretched to the screen, so any size works; 320x240 is what it is designed for.
-bool N3DSRenderer_setBottomBackground(Renderer* renderer, const uint8_t* rgba, uint32_t w, uint32_t h);
-bool N3DSRenderer_setRuntimeTPAGContent(Renderer* renderer, int32_t tpagIndex, uint32_t contentW, uint32_t contentH);
-// A swapped font has a whole new glyph array; a text layout cached before the swap still holds the old rectangles.
-void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);
 // Loads the textures a room is likely to need (call when the room changes).
 void N3DSRenderer_prewarmRoom(Renderer* renderer, Runner* runner);
 void N3DSRenderer_importReadAhead(Renderer* renderer);
@@ -59,28 +50,11 @@ void N3DSRenderer_importReadAhead(Renderer* renderer);
 // previous frame and the vblank); frameEnd submits it.
 void N3DSRenderer_frameGate(void);
 void N3DSRenderer_frameEnd(void);
-// Clears both screens to black inside the frame that is already open. The startup frame presents before the main loop,
-// where nothing has been drawn yet; without this it showed whatever the buffers happened to hold.
-void N3DSRenderer_clearScreens(Renderer* renderer);
 bool N3DSRenderer_frameIsOpen(void);
 double N3DSRenderer_frameWaitMs(void);
 double N3DSRenderer_frameGpuMs(void);
 C3D_RenderTarget* N3DSRenderer_getTopTarget(Renderer* renderer);
-// Draws the game's GUI on the bottom screen: everything drawn between begin and end is mapped into a guiW x guiH box
-// fitted to the 320x240 screen, then the top screen's own mapping is restored. Ex takes a scale and an offset.
-void N3DSRenderer_beginBottomScreenGUI(Renderer* renderer, int32_t guiW, int32_t guiH);
-void N3DSRenderer_beginBottomScreenGUIEx(Renderer* renderer, int32_t guiW, int32_t guiH, float scaleX, float scaleY, float offsetX, float offsetY);
-void N3DSRenderer_endBottomScreenGUI(Renderer* renderer);
-// The bottom screen's static layer, cached in a texture the port owns. Most of the map (its cells, bars, zoom labels
-// and title) only changes when the map is panned, zoomed or newly explored, so it is drawn into this cache once and
-// blitted back on later frames; the counters, the clock and the pulsing marker stay per-frame and are drawn on top.
-// Call invalidate whenever the static layer would change, then draw it into the cache with begin/end (the caller
-// draws exactly what it would draw to the bottom screen), and blit it inside a bottom-screen GUI pass.
-void N3DSRenderer_invalidateBottomCache(Renderer* renderer);
-bool N3DSRenderer_beginBottomCacheDraw(Renderer* renderer);
-void N3DSRenderer_endBottomCacheDraw(Renderer* renderer);
-void N3DSRenderer_blitBottomCache(Renderer* renderer);
-void N3DSRenderer_freeBottomCache(Renderer* renderer);
+C3D_RenderTarget* N3DSRenderer_getBottomTarget(Renderer* renderer);
 // Deletes surfaces freed during earlier frames. Call outside C3D_FrameBegin/End; all = everything (shutdown).
 void N3DSRenderer_collectGarbage(Renderer* renderer, bool all);
 void N3DSRenderer_logDiag(Renderer* renderer);
@@ -88,7 +62,17 @@ void N3DSRenderer_logDiag(Renderer* renderer);
 void N3DSRenderer_setStretchToScreen(Renderer* renderer, bool stretch);
 // 1x / 2x screen modes: the game's picture at this scale on the top screen, centred (0: the usual fit).
 void N3DSRenderer_setFixedScale(Renderer* renderer, int32_t scale);
-// Plain citro2d drawing in screen pixels on top of the game's frame, on the top screen.
+// Sends the game's screen (RENDER_TARGET_HOST_FRAMEBUFFER) to the bottom screen, 1:1 (the pause screen).
+void N3DSRenderer_setHostScreenBottom(Renderer* renderer, bool bottom);
+// Keeps the last finished top-screen frame (call right after C3D_FrameBegin) / shows it / lets it go.
+bool N3DSRenderer_captureFrozenTop(Renderer* renderer);
+void N3DSRenderer_drawFrozenTop(Renderer* renderer);
+void N3DSRenderer_dropFrozenTop(Renderer* renderer);
+// Keeps the finished bottom screen (the pause screen; call right after C3D_FrameBegin) / shows it.
+bool N3DSRenderer_captureBottomSnapshot(Renderer* renderer);
+bool N3DSRenderer_hasBottomSnapshot(Renderer* renderer);
+void N3DSRenderer_drawBottomSnapshot(Renderer* renderer);
+// Plain citro2d drawing in screen pixels on top of the game's frame (top or bottom screen).
 #define N3DS_OVERLAY_DEPTH 1.0f
-void N3DSRenderer_beginScreenOverlay(Renderer* renderer);
+void N3DSRenderer_beginScreenOverlay(Renderer* renderer, bool top);
 void N3DSRenderer_endScreenOverlay(Renderer* renderer);

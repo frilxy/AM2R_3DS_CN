@@ -35,6 +35,8 @@ int32_t N3DSGml_instances(int32_t objectIndex, Instance** out, int32_t max);
 // global.<name> (or global.<name>[index] with index >= 0) as a number.
 bool N3DSGml_getGlobal(const char* name, int32_t index, double* out);
 void N3DSGml_setGlobal(const char* name, double value);
+// global.<name>[index] = value (the global must already hold an array).
+void N3DSGml_setGlobalElement(const char* name, int32_t index, double value);
 // The value slot of global.<name> (NULL if it isn't set): read many elements of a global array without a lookup each.
 // Valid until the game next assigns that global.
 RValue* N3DSGml_globalSlot(const char* name);

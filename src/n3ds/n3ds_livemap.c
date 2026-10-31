@@ -20,68 +20,15 @@
 // (tiled from cell 3,3), black bands top and bottom, the bg_SubScrBottom bar with the page title, and the
 // bg_MapBottom bar with the play time (as steps_to_time2(global.gametime)) and the Metroids left (global.monstersleft,
 // global.monstersarea).
-// Everything is redrawn every frame. The dual-screen line kept the finished picture and blitted it back when nothing
-// had changed, which needs a second screen-sized texture and the copy-to-texture path; a map view is a few hundred
-// cells, so redrawing costs a fraction of a millisecond and there is no stale copy to get out of step. get_text reads
-// the language file, so the title is fetched once per language.
+// The cells are redrawn only when they change: Samus changes cell, the marker moves, or a cell in view is explored
+// (checked every few frames); the finished frame is kept as the bottom-screen picture for the frames in between. The
+// bars, text and highlight are drawn on top of it every frame (the black bands cover the old ones), so the clock
+// doesn't need a redraw. get_text reads the language file: the title is fetched once per language.
 
 #define N3DS_LIVEMAP_CELL 8
-// AM2R has 88 collectible items; its own screens compute the percentage with this divisor.
-#define N3DS_LIVEMAP_ITEM_TOTAL 88.0
+#define N3DS_LIVEMAP_CHECK_FRAMES 15
 #define N3DS_LIVEMAP_W 320
 #define N3DS_LIVEMAP_H 240
-
-// The map's zoom steps, as the pixel height of one map cell: 0.5x, 1x, 2x and 3x against the cells' native 8.
-// 8 and 16 and 24 are whole multiples, so their upscales are pixel-exact under a nearest filter; 4 is the only
-// downscale and the renderer switches to a linear filter there, where a 1-pixel wall line thins to a half-pixel
-// and the map reads as blockier than at 1x.
-static const int32_t kZoomSteps[] = { 4, 8, 16, 24 };
-#define N3DS_ZOOM_COUNT ((int32_t) (sizeof(kZoomSteps) / sizeof(kZoomSteps[0])))
-#define N3DS_ZOOM_DEFAULT 1  // 8 pixels a cell, the native size
-
-// The two rows at the top of the bottom screen. The green bar does not move: it stays where the game's map page
-// puts it (y 30..44) and the counters are drawn on it. What moves is the title, off the bar and into the black
-// margin above it, so the bar carries live numbers and the page's name sits in the space that was empty.
-//
-// The title is 12 pixels tall, so it centres in the 30-pixel margin at (30 - 12) / 2 = 9.
-#define N3DS_TITLE_BAR_TOP 30.0f   // the green bar keeps its place; the counters go on it
-#define N3DS_STATUS_BAND_BOTTOM 44.0f
-#define N3DS_STATUS_TITLE_Y 9.0f   // the title's own top, centred in the margin above the bar
-#define N3DS_STATUS_ICON_H 12
-#define N3DS_STATUS_GAP 2       // between an icon and its value
-#define N3DS_STATUS_MIN_GAP 4.0f  // the least space between two entries, whatever the counters' widths
-// The counters' row on the green bar: the icons are 12 pixels tall (the game's ammo sprites) and the bar is 14, so
-// centring them puts their top at 31.
-#define N3DS_STATUS_Y (N3DS_TITLE_BAR_TOP + 1.0f)
-// The values are drawn two pixels above the icons. A line of the font's digits is only 10 tall, so they sit higher in
-// the bar than the 12-pixel icons do; 29..38 with the shadow at 30..39 stays inside the bar, which ends at 44.
-#define N3DS_STATUS_TEXT_Y (N3DS_TITLE_BAR_TOP - 1.0f)
-// The value font is fontGUI2: digits are 6 wide with shift 7, so a rendered digit is 7 pixels.
-#define N3DS_STATUS_DIGIT_W 7
-// The energy plate. data.win has no stand-alone green "E" to borrow - its bgGUIHealth backgrounds are near-transparent
-// shadow plates and the bar's bright green appears in no texture page, so the game builds this at draw time and so
-// does the port. Size and colour come from a console screenshot of the game's own bar: there the plate is 19x16
-// screenshot pixels against a 45-pixel-tall bar, and the bar is 14 game pixels, so the plate is about 6x5.
-//
-// Colours here are BGR, not RGB (the renderer unpacks them with BGR_R/BGR_G/BGR_B), so a value read as RGB off a
-// screenshot has its red and blue swapped: 0x84e629 pasted in straight draws cyan instead of green.
-#define N3DS_STATUS_ETANK_W 6
-#define N3DS_STATUS_ETANK_H 5
-// The E is a vertical gradient, which is what the reference has: a light green top stroke, a mid green middle and a
-// dark green bottom. Literals are BGR (see the note above).
-#define N3DS_STATUS_ETANK_TOP 0x63e67bu    // RGB 0x7be663
-#define N3DS_STATUS_ETANK_MID 0x00d629u    // RGB 0x29d600
-#define N3DS_STATUS_ETANK_BOT 0x009400u    // RGB 0x009400
-#define N3DS_STATUS_ETANK_BACK 0x000000u   // the counter behind the E, which is black rather than the bar's green
-// The ammo sprites are white on the game's own black plate; on the green bar a multiplicative tint in the plate's
-// green puts them in the same family as the energy plate next to them.
-#define N3DS_STATUS_ICON_TINT N3DS_STATUS_ETANK_MID
-
-// The zoom control in the bottom margin. The game's footer bar ends at 212, so the control owns 212..240: 28 pixels,
-// which is enough for one line of the 12-pixel font with room above and below.
-#define N3DS_STATUS_ZOOM_TOP 212.0f
-#define N3DS_STATUS_ZOOM_LABEL_Y 220.0f
-#define N3DS_ZOOM_DIM_COLOUR 0x5a5a5au  // the grey the settings pages use for a value that is not selected
 
 typedef struct {
     Runner* runner;
@@ -89,24 +36,11 @@ typedef struct {
     int32_t sprBlock, sprCorner, sprHLine, sprVLine, sprHPass, sprVPass, sprSP, sprHilight, sprMarker;
     int32_t objControl;
     int32_t bgGrid, bgTopBar, bgBottomBar, font, scriptText;
-    // The status strip's ammo icons: the game's own sprites (sGUIMissile, sGUISMissile, sGUIPBomb). The energy entry
-    // has no sprite to borrow - the game's green plate is a black background coloured at draw time - so it is drawn
-    // from rectangles instead (N3DSLiveMap_drawEnergyPlate).
-    int32_t sprMissile, sprSMissile, sprPBomb;
     uint32_t frame;
+    uint32_t lastDrawCall;
+    uint32_t lastCheck;
+    uint32_t signature; // of what the cells show (explored states in view, the marker)
     int32_t lastPx, lastPy;
-    // The zoom step the cached layer was drawn at, so a zoom change invalidates it.
-    int32_t lastZoom;
-    // The cells' fingerprint the cached layer was built from, so newly explored cells invalidate it.
-    uint32_t lastCellsHash;
-    // The pan the cached layer was drawn at, so a drag invalidates it.
-    float lastPanX, lastPanY;
-    // True while the cached static layer matches the current camera.
-    bool cacheReady;
-    // How far the player has dragged the map away from Samus, in pixels. Zero means the map follows her.
-    float panX, panY;
-    // Which zoom step (an index into kZoomSteps) the map is drawn at.
-    int32_t zoom;
     // The black bands cover everything the bars and text draw: the saved picture has the previous frame's in it.
     float topBandEnd, bottomBandStart;
     char* title;
@@ -114,21 +48,11 @@ typedef struct {
     bool titleFetched;
     char time[16];
     int32_t timeSeconds;
+    bool pendingCapture;
+    bool haveSnapshot;
 } N3DSLiveMap;
 
 static N3DSLiveMap gLive;
-
-// The cell size the map is currently drawn at.
-static int32_t N3DSLiveMap_cell(void) {
-    if (gLive.zoom < 0) return kZoomSteps[0];
-    if (gLive.zoom >= N3DS_ZOOM_COUNT) return kZoomSteps[N3DS_ZOOM_COUNT - 1];
-    return kZoomSteps[gLive.zoom];
-}
-
-// How much a cell's 8x8 sprites are scaled at the current step.
-static float N3DSLiveMap_cellScale(void) {
-    return (float) N3DSLiveMap_cell() / (float) N3DS_LIVEMAP_CELL;
-}
 
 void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     free(gLive.title);
@@ -148,20 +72,8 @@ void N3DSLiveMap_init(Runner* runner, Renderer* renderer) {
     gLive.objControl = N3DSGml_objectIndex("oControl");
     gLive.bgGrid = N3DSGml_backgroundIndex("bgMapScreenBG");
     gLive.bgTopBar = N3DSGml_backgroundIndex("bg_SubScrBottom");
-    // bg_MapBottom2 is the variant the game draws when it shows the item percentage: its background carries the
-    // item icon in front of the number. bg_MapBottom (without that icon) is the fallback.
-    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom2");
-    if (gLive.bgBottomBar < 0) gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
-    gLive.sprMissile = N3DSGml_spriteIndex("sGUIMissile");
-    gLive.sprSMissile = N3DSGml_spriteIndex("sGUISMissile");
-    gLive.sprPBomb = N3DSGml_spriteIndex("sGUIPBomb");
-    gLive.zoom = N3DS_ZOOM_DEFAULT;
-    // The fonts in data.win carry a "Default" suffix (fontGUI2Default, fontMenuTinyDefault, ...), so the bare
-    // GameMaker name finds nothing and every map string is skipped - which is why the map had its bars and its
-    // symbols but no title, no play time and no counter.
-    gLive.font = N3DSGml_fontIndex("fontGUI2Default");
-    if (gLive.font < 0) gLive.font = N3DSGml_fontIndex("fontGUI2");
-    if (gLive.font < 0) logInfo("Live map: no fontGUI2Default in this game, the map's text is off\n");
+    gLive.bgBottomBar = N3DSGml_backgroundIndex("bg_MapBottom");
+    gLive.font = N3DSGml_fontIndex("fontGUI2");
     gLive.scriptText = N3DSGml_scriptIndex("get_text");
     gLive.lastPx = gLive.lastPy = INT32_MIN;
     DataWin* dataWin = runner->dataWin;
@@ -195,12 +107,14 @@ bool N3DSLiveMap_available(void) {
 
 void N3DSLiveMap_beginFrame(void) {
     gLive.frame++;
+    if (!gLive.pendingCapture) return;
+    gLive.pendingCapture = false;
+    gLive.haveSnapshot = N3DSRenderer_captureBottomSnapshot(gLive.renderer);
 }
 
 static void N3DSLiveMap_sprite(int32_t sprite, int32_t frame, float x, float y, float alpha) {
     if (sprite < 0) return;
-    float scale = N3DSLiveMap_cellScale();
-    Renderer_drawSpriteExt(gLive.renderer, sprite, frame, x, y, scale, scale, 0.0f, 0xFFFFFF, alpha);
+    Renderer_drawSpriteExt(gLive.renderer, sprite, frame, x, y, 1.0f, 1.0f, 0.0f, 0xFFFFFF, alpha);
 }
 
 static int32_t N3DSLiveMap_cornerFrame(char c) {
@@ -216,26 +130,17 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
     char wallU = cell[0], wallR = cell[1], wallD = cell[2], wallL = cell[3], color = cell[4], special = cell[5];
     char corner = cell[6];
     if (color >= '1' && color <= '4') N3DSLiveMap_sprite(gLive.sprBlock, color - '1', x, y, 1.0f);
-    // At 0.5x a cell is four pixels and the wall bars are one: the four walls, four passages and the corner tile land
-    // on top of each other and read as noise rather than as a room. The block colour and the special marker carry all
-    // the information that still survives at this size, so the rest is skipped - which also takes the busiest zoom
-    // step from about eleven draws a cell to two. Special markers (items, save points, transitions) stay: they are the
-    // reason to open the map at this zoom at all.
+    int32_t cornerFrame = N3DSLiveMap_cornerFrame(corner);
+    if (cornerFrame >= 0) N3DSLiveMap_sprite(gLive.sprCorner, cornerFrame, x, y, 1.0f);
+    if (wallU == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y, 1.0f);
+    if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + 7.0f, 1.0f);
+    if (wallL == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x, y, 1.0f);
+    if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + 7.0f, y, 1.0f);
+    if (wallU == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y, 1.0f);
+    if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + 7.0f, 1.0f);
+    if (wallL == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x, y, 1.0f);
+    if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + 7.0f, y, 1.0f);
     int32_t sp = -1;
-    bool skipDetail = N3DSLiveMap_cell() <= N3DS_LIVEMAP_CELL / 2;
-    if (!skipDetail) {
-        int32_t cornerFrame = N3DSLiveMap_cornerFrame(corner);
-        if (cornerFrame >= 0) N3DSLiveMap_sprite(gLive.sprCorner, cornerFrame, x, y, 1.0f);
-        if (wallU == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y, 1.0f);
-        float edge = (float) N3DSLiveMap_cell() - 1.0f;
-        if (wallD == '1') N3DSLiveMap_sprite(gLive.sprHLine, 0, x, y + edge, 1.0f);
-        if (wallL == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x, y, 1.0f);
-        if (wallR == '1') N3DSLiveMap_sprite(gLive.sprVLine, 0, x + edge, y, 1.0f);
-        if (wallU == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y, 1.0f);
-        if (wallD == '2') N3DSLiveMap_sprite(gLive.sprHPass, 0, x, y + edge, 1.0f);
-        if (wallL == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x, y, 1.0f);
-        if (wallR == '2') N3DSLiveMap_sprite(gLive.sprVPass, 0, x + edge, y, 1.0f);
-    }
     switch (special) {
         case '1': sp = 0; break;
         case '2': sp = 1; break;
@@ -257,91 +162,8 @@ static void N3DSLiveMap_block(float x, float y, const char* cell, double explore
 }
 
 static void N3DSLiveMap_cellOrigin(int32_t cx, int32_t cy, int32_t px, int32_t py, float* x, float* y) {
-    float cell = (float) N3DSLiveMap_cell();
-    *x = ((float) N3DS_LIVEMAP_W * 0.5f - cell * 0.5f + (float) (cx - px) * cell) + gLive.panX;
-    *y = ((float) N3DS_LIVEMAP_H * 0.5f - cell * 0.5f + (float) (cy - py) * cell) + gLive.panY;
-}
-
-// Declared ahead of their definitions: the zoom control below is drawn before the text helpers it uses are defined.
-static float N3DSLiveMap_statusTextWidth(const char* text);
-static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour);
-
-// The zoom control along the bottom margin: one "[1X]" per step, the current step highlighted. The brackets follow
-// the settings pages' convention for a selected value, and the enabled/disabled colouring is theirs too.
-static void N3DSLiveMap_drawZoomControl(void) {
-    // The step's scale against the cells' native 8 pixels, upper case to match the settings pages' option text.
-    static const char* kLabels[N3DS_ZOOM_COUNT] = { "0.5X", "1X", "2X", "3X" };
-    Renderer* r = gLive.renderer;
-    int32_t font = r->drawFont, halign = r->drawHalign;
-    uint32_t color = r->drawColor;
-    float alpha = r->drawAlpha;
-    r->drawFont = gLive.font;
-    r->drawAlpha = 1.0f;
-    // Each step owns an equal slice of the strip, so a tap lands on the step whose label is under the finger.
-    float slice = (float) N3DS_LIVEMAP_W / (float) N3DS_ZOOM_COUNT;
-    for (int32_t i = 0; i < N3DS_ZOOM_COUNT; i++) {
-        bool current = i == gLive.zoom;
-        char label[24];
-        // The brackets are the settings pages' mark for the value in effect.
-        snprintf(label, sizeof(label), "%s%s%s", current ? "[" : " ", kLabels[i], current ? "]" : " ");
-        // Unselected steps are dimmed rather than hidden, the way the settings pages grey out rows that cannot be
-        // edited; the current one is drawn in the bright text colour.
-        float centre = slice * (float) i + slice * 0.5f;
-        float width = N3DSLiveMap_statusTextWidth(label);
-        N3DSLiveMap_textColoured(label, centre - width * 0.5f, N3DS_STATUS_ZOOM_LABEL_Y, 0,
-            current ? 0xFFFFFF : N3DS_ZOOM_DIM_COLOUR);
-    }
-    r->drawFont = font;
-    r->drawHalign = halign;
-    r->drawColor = color;
-    r->drawAlpha = alpha;
-}
-
-// A tap on the zoom strip: -1 when the point is not on it.
-int32_t N3DSLiveMap_zoomAt(int32_t sx, int32_t sy) {
-    if (sy < (int32_t) N3DS_STATUS_ZOOM_TOP || sy > (int32_t) N3DS_LIVEMAP_H) return -1;
-    if (sx < 0 || sx >= N3DS_LIVEMAP_W) return -1;
-    int32_t slice = N3DS_LIVEMAP_W / N3DS_ZOOM_COUNT;
-    int32_t step = sx / slice;
-    if (step < 0) step = 0;
-    if (step >= N3DS_ZOOM_COUNT) step = N3DS_ZOOM_COUNT - 1;
-    return step;
-}
-
-void N3DSLiveMap_setZoom(int32_t step) {
-    if (step < 0) step = 0;
-    if (step >= N3DS_ZOOM_COUNT) step = N3DS_ZOOM_COUNT - 1;
-    if (step == gLive.zoom) return;
-    gLive.zoom = step;
-    logInfo("Live map: zoom %dpx a cell\n", (int) N3DSLiveMap_cell());
-}
-
-// Drags the map by a screen-space delta. The pan is clamped so the map cannot be flung off the screen: it may move
-// one screenful away from Samus at most in either direction.
-void N3DSLiveMap_panBy(float dx, float dy) {
-    gLive.panX += dx;
-    gLive.panY += dy;
-    if (gLive.panX > (float) N3DS_LIVEMAP_W) gLive.panX = (float) N3DS_LIVEMAP_W;
-    if (gLive.panX < -(float) N3DS_LIVEMAP_W) gLive.panX = -(float) N3DS_LIVEMAP_W;
-    if (gLive.panY > (float) N3DS_LIVEMAP_H) gLive.panY = (float) N3DS_LIVEMAP_H;
-    if (gLive.panY < -(float) N3DS_LIVEMAP_H) gLive.panY = -(float) N3DS_LIVEMAP_H;
-}
-
-// Puts the map back on Samus.
-void N3DSLiveMap_resetPan(void) {
-    gLive.panX = 0.0f;
-    gLive.panY = 0.0f;
-}
-
-// A screen point turned into a map cell, with the pan taken into account. Used by the touch handling.
-void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* outY) {
-    double pxd = 0.0, pyd = 0.0;
-    if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
-    float fx = (float) sx - gLive.panX;
-    float fy = (float) sy - gLive.panY;
-    float cell = (float) N3DSLiveMap_cell();
-    *outX = (int32_t) pxd + (int32_t) floorf((fx - (float) N3DS_LIVEMAP_W * 0.5f) / cell);
-    *outY = (int32_t) pyd + (int32_t) floorf((fy - (float) N3DS_LIVEMAP_H * 0.5f) / cell);
+    *x = (float) (N3DS_LIVEMAP_W / 2 - N3DS_LIVEMAP_CELL / 2 + (cx - px) * N3DS_LIVEMAP_CELL);
+    *y = (float) (N3DS_LIVEMAP_H / 2 - N3DS_LIVEMAP_CELL / 2 + (cy - py) * N3DS_LIVEMAP_CELL);
 }
 
 static void N3DSLiveMap_background(int32_t background, float x, float y, float xscale) {
@@ -351,28 +173,16 @@ static void N3DSLiveMap_background(int32_t background, float x, float y, float x
 }
 
 // draw_text with a black shadow one pixel down-right, as the pause screen does.
-static void N3DSLiveMap_textColoured(const char* text, float x, float y, int32_t halign, uint32_t colour) {
+static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign) {
     if (text == NULL || text[0] == '\0' || gLive.font < 0) return;
     Renderer* r = gLive.renderer;
-    int32_t savedValign = r->drawValign;
     r->drawFont = gLive.font;
     r->drawHalign = halign;
-    // The vertical alignment is whatever the game left behind: with valign = bottom the text is shifted down by its own
-    // height, which put the collection percentage two pixels below everything beside it. The strip always draws from
-    // the top edge, and at whole pixels so a glyph never straddles two rows.
-    r->drawValign = 0;
     r->drawAlpha = 1.0f;
-    float px = floorf(x + 0.5f), py = floorf(y + 0.5f);
     r->drawColor = 0x000000;
-    r->vtable->drawText(r, text, px + 1.0f, py + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
-    r->drawColor = colour;
-    r->vtable->drawText(r, text, px, py, 1.0f, 1.0f, 0.0f, -1.0f);
-    r->drawValign = savedValign;
-}
-
-// The usual white-on-black-shadow line.
-static void N3DSLiveMap_text(const char* text, float x, float y, int32_t halign) {
-    N3DSLiveMap_textColoured(text, x, y, halign, 0xFFFFFF);
+    r->vtable->drawText(r, text, x + 1.0f, y + 1.0f, 1.0f, 1.0f, 0.0f, -1.0f);
+    r->drawColor = 0xFFFFFF;
+    r->vtable->drawText(r, text, x, y, 1.0f, 1.0f, 0.0f, -1.0f);
 }
 
 static char* N3DSLiveMap_callText(int32_t script, RValue* args, int32_t argCount) {
@@ -388,224 +198,15 @@ static void N3DSLiveMap_twoDigits(char* out, size_t size, const char* global) {
     snprintf(out, size, "%02d", (int) value);
 }
 
-// The status strip: energy, missiles, super missiles and power bombs, each as its icon and "value/max".
-//
-// It is laid out from measured widths rather than fixed columns. A counter grows as the game goes on (999/999 is
-// seven characters, not five), and fixed columns would either collide or leave the strip off centre, so the row is
-// built in two passes: measure every entry, then start at (320 - total) / 2 and walk right.
-
-typedef struct {
-    int32_t icon;      // sprite index, or -1 for an entry with no icon
-    int32_t frame;     // which of the sprite's frames: 0 plain, 1 highlighted (the HUD's green "armed" frame)
-    float iconScale;   // the game's icons are drawn at 1:1; the plate is drawn, and uses the plate constants
-    char text[24];
-    float width;       // icon + gap + text, filled in by the measuring pass
-    bool visible;      // false for an item the player does not have yet
-    bool drawn;        // true for the energy plate, which is rectangles rather than a sprite
-} N3DSStatusEntry;
-
-#define N3DS_STATUS_ENTRY_COUNT 4
-
-// Digits in fontGUI2 are 6 wide with shift 7 (the game advances 7), and '/' is the same, so a value's width is
-// simply its length. Anything that is not a digit or a slash (a ten-pixel '%', say) is not used here.
-// How wide a string draws in the map's font. Summed from each glyph's own advance rather than counted per character:
-// in fontGUI2 a digit is 7 pixels wide but '1' and '.' are 3, and the brackets are 5, so a fixed 7 is wrong for any
-// string with those in it - which is every zoom label ("0.75x" came out far too wide and the steps overlapped).
-static float N3DSLiveMap_statusTextWidth(const char* text) {
-    if (text == NULL || gLive.font < 0) return 0.0f;
-    DataWin* dataWin = gLive.runner->dataWin;
-    if (dataWin == NULL || (uint32_t) gLive.font >= dataWin->font.count) return 0.0f;
-    Font* font = &dataWin->font.fonts[gLive.font];
-    float width = 0.0f;
-    for (const char* c = text; *c != '\0'; c++) {
-        // The kerning table's shiftModifier is not applied: the map's own strings are digits and punctuation, and the
-        // game's HUD uses the same plain advance.
-        const FontGlyph* glyph = ((unsigned char) *c) < 128u ? font->glyphLUT[(unsigned char) *c] : NULL;
-        // A glyph with no advance in this font still takes a small step, so text cannot collapse onto itself.
-        width += glyph != NULL && glyph->shift > 0 ? (float) glyph->shift : (float) N3DS_STATUS_DIGIT_W;
-    }
-    return width;
-}
-
-// The drawn size of an entry's icon. Measured from the sprite, not assumed: the ammo icons are 16x12 while the
-// energy plate is drawn rather than looked up, so its size comes from the constants.
-static void N3DSLiveMap_statusIconSize(const N3DSStatusEntry* entry, float* outW, float* outH) {
-    *outW = 0.0f;
-    *outH = 0.0f;
-    if (entry->drawn) {
-        *outW = (float) N3DS_STATUS_ETANK_W;
-        *outH = (float) N3DS_STATUS_ETANK_H;
-        return;
-    }
-    if (entry->icon < 0) return;
-    DataWin* dataWin = gLive.runner->dataWin;
-    if (dataWin == NULL || (uint32_t) entry->icon >= dataWin->sprt.count) return;
-    Sprite* sprite = &dataWin->sprt.sprites[entry->icon];
-    *outW = (float) sprite->width * entry->iconScale;
-    *outH = (float) sprite->height * entry->iconScale;
-}
-
-// The energy plate: a green square with a black "E" cut into it, the way the game's own HUD marks the bar. There is
-// no sprite for it in data.win (the game's plate is a black background coloured at draw time), so it is drawn here
-// from rectangles: the block, then the three strokes of the E.
-static void N3DSLiveMap_drawEnergyPlate(float x, float top) {
+static void N3DSLiveMap_drawFrame(void) {
     Renderer* r = gLive.renderer;
-    const float w = (float) N3DS_STATUS_ETANK_W, h = (float) N3DS_STATUS_ETANK_H;
-    // A black tile with a green E on it. One pixel per feature: top stroke, spine, middle stroke, spine, bottom
-    // stroke, which is exactly the 5 rows the reference plate has.
-    r->vtable->drawRectangle(r, x, top, x + w, top + h, N3DS_STATUS_ETANK_BACK, 1.0f, false);
-    // The spine runs the full height and is two pixels wide, as the reference's is.
-    r->vtable->drawRectangle(r, x, top, x + 2.0f, top + h, N3DS_STATUS_ETANK_MID, 1.0f, false);
-    // Top, middle and bottom arms, each spanning the plate. Drawn after the spine so they cross it.
-    r->vtable->drawRectangle(r, x, top, x + w, top + 1.0f, N3DS_STATUS_ETANK_TOP, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top + 2.0f, x + w, top + 3.0f, N3DS_STATUS_ETANK_MID, 1.0f, false);
-    r->vtable->drawRectangle(r, x, top + h - 1.0f, x + w, top + h, N3DS_STATUS_ETANK_BOT, 1.0f, false);
-}
-
-// value/max. An item whose capacity is still zero (no missiles yet, no power bombs) has not been found, and the
-// strip leaves it out rather than showing "0/0" beside the ones the player does have.
-// Globals are not always numbers: during a room change or a suspend they can be unset, NaN or huge, and casting one of
-// those to int prints INT_MIN/INT_MAX, a 20+ character string that overruns the strip and reads as garbage on the
-// bottom screen. Keep every value inside what the HUD can actually show.
-static int N3DSLiveMap_statusValue(double value) {
-    if (!(value == value)) return 0;      // NaN
-    if (value <= 0.0) return 0;
-    if (value >= 999999.0) return 999999;
-    return (int) value;
-}
-
-static void N3DSLiveMap_statusPair(N3DSStatusEntry* entry, const char* current, const char* maximum) {
-    double now = 0.0, cap = 0.0;
-    if (!N3DSGml_getGlobal(current, -1, &now)) now = 0.0;
-    if (!N3DSGml_getGlobal(maximum, -1, &cap)) cap = 0.0;
-    snprintf(entry->text, sizeof(entry->text), "%d/%d", N3DSLiveMap_statusValue(now), N3DSLiveMap_statusValue(cap));
-    entry->visible = cap > 0.0;
-}
-
-static void N3DSLiveMap_drawStatus(void) {
-    Renderer* r = gLive.renderer;
-    N3DSStatusEntry entries[N3DS_STATUS_ENTRY_COUNT];
-    memset(entries, 0, sizeof(entries));
-    for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) entries[i].visible = true;
-    entries[0].icon = -1;  // drawn as a plate, not a sprite: see N3DS_STATUS_ETANK_*
-    entries[0].drawn = true;
-    entries[0].iconScale = 1.0f;
-    // Which weapon is armed, in the game's own numbering: 1 missiles, 2 super missiles, 3 power bombs. The HUD lights
-    // the armed weapon's icon with the sprite's second frame, so the bottom strip does the same and the two agree.
-    double weapon = 0.0;
-    N3DSGml_getGlobal("currentweapon", -1, &weapon);
-    entries[1].icon = gLive.sprMissile;
-    entries[1].iconScale = 1.0f;
-    entries[1].frame = weapon == 1.0 ? 1 : 0;
-    entries[2].icon = gLive.sprSMissile;
-    entries[2].iconScale = 1.0f;
-    entries[2].frame = weapon == 2.0 ? 1 : 0;
-    entries[3].icon = gLive.sprPBomb;
-    entries[3].iconScale = 1.0f;
-    entries[3].frame = weapon == 3.0 ? 1 : 0;
-    // playerhealth is what the HUD shows (the items page adds maxhealth beside it); maxhealth is not among the
-    // globals the game declares for its HUD, so a build without it falls back to showing the value alone. Energy is
-    // always shown: it cannot be un-found.
-    double health = 0.0, maxHealth = 0.0;
-    N3DSGml_getGlobal("playerhealth", -1, &health);
-    if (N3DSGml_getGlobal("maxhealth", -1, &maxHealth) && maxHealth > 0.0) {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d/%d", N3DSLiveMap_statusValue(health), N3DSLiveMap_statusValue(maxHealth));
-    } else {
-        snprintf(entries[0].text, sizeof(entries[0].text), "%d", N3DSLiveMap_statusValue(health));
-    }
-    N3DSLiveMap_statusPair(&entries[1], "missiles", "maxmissiles");
-    N3DSLiveMap_statusPair(&entries[2], "smissiles", "maxsmissiles");
-    N3DSLiveMap_statusPair(&entries[3], "pbombs", "maxpbombs");
-
-    float total = 0.0f;
-    int32_t shown = 0;
-    for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) {
-        float iconW, iconH;
-        N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
-        (void) iconH;
-        entries[i].width = iconW + (iconW > 0.0f ? (float) N3DS_STATUS_GAP : 0.0f) +
-            N3DSLiveMap_statusTextWidth(entries[i].text);
-        if (entries[i].visible) total += entries[i].width;
-        shown += entries[i].visible ? 1 : 0;
-    }
-    if (shown == 0) return;
-    // The gaps share whatever the entries leave, counting only the ones actually drawn. With every counter at three
-    // digits this is about 25 pixels, which is what separates the groups on the game's own strip.
-    float gap = 0.0f;
-    if (total < (float) N3DS_LIVEMAP_W) gap = ((float) N3DS_LIVEMAP_W - total) / (float) (shown + 1);
-    // The row is centred while the gaps stay at least N3DS_STATUS_MIN_GAP; past that the groups would read as one run
-    // of digits, so the gaps are held at the floor and the row starts at the left edge instead. Holding the floor and
-    // still centring would push the last entry off the screen.
-    float start = gap;
-    if (gap < N3DS_STATUS_MIN_GAP) {
-        start = 0.0f;
-        // Four counters of nine characters each come to 314 of the 320 pixels, and three 4-pixel gaps would push the
-        // last one 6 pixels off the edge. The floor gives way to what actually fits: between them the entries still
-        // leave at least a pixel of space each.
-        float room = (float) N3DS_LIVEMAP_W - total;
-        float fit = shown > 1 ? room / (float) (shown - 1) : 0.0f;
-        gap = fit < N3DS_STATUS_MIN_GAP ? (fit > 0.0f ? fit : 0.0f) : N3DS_STATUS_MIN_GAP;
-    }
-
+    // The game's draw state is left as it was.
     int32_t font = r->drawFont, halign = r->drawHalign;
     uint32_t color = r->drawColor;
     float alpha = r->drawAlpha;
-    r->drawFont = gLive.font;
-    r->drawHalign = 0;
-    r->drawAlpha = 1.0f;
-    r->drawColor = 0xFFFFFF;
-    float x = start;
-    int32_t drawn = 0;
-    for (int32_t i = 0; i < N3DS_STATUS_ENTRY_COUNT; i++) {
-        if (!entries[i].visible) continue;
-        float iconW, iconH;
-        N3DSLiveMap_statusIconSize(&entries[i], &iconW, &iconH);
-        if (iconW > 0.0f) {
-            // The icons keep their own row; the values were lifted two pixels above it, so the two are placed
-            // independently instead of off one shared baseline. Rounded down: the energy plate is 5 pixels tall
-            // against a 12-pixel row, and half a pixel would leave it straddling two rows of the screen.
-            float iconTop = floorf(N3DS_STATUS_Y + (float) (N3DS_STATUS_ICON_H - iconH) * 0.5f);
-            if (entries[i].drawn) {
-                N3DSLiveMap_drawEnergyPlate(x, iconTop);
-            } else {
-                DataWin* dataWin = gLive.runner->dataWin;
-                Sprite* sprite = &dataWin->sprt.sprites[entries[i].icon];
-                // The ammo sprites are opaque rectangles: the icon sits on the black plate the game's own HUD draws it
-                // on (every pixel is alpha 255, and the background is pure black). On the green bar that plate reads as
-                // a black box, and no tint can drop it - black times anything is still black. Drawn additively the
-                // black adds nothing and leaves the bar showing through, while the icon's own pixels light it up, so
-                // the icons sit on the bar the way the energy plate's E does.
-                r->vtable->gpuSetBlendMode(r, bm_add);
-                Renderer_drawSpriteExt(r, entries[i].icon, entries[i].frame,
-                    x + (float) sprite->originX * entries[i].iconScale,
-                    iconTop + (float) sprite->originY * entries[i].iconScale,
-                    entries[i].iconScale, entries[i].iconScale, 0.0f, N3DS_STATUS_ICON_TINT, 1.0f);
-                r->vtable->gpuSetBlendMode(r, bm_normal);
-            }
-            x += iconW + (float) N3DS_STATUS_GAP;
-        }
-        float textW = N3DSLiveMap_statusTextWidth(entries[i].text);
-        N3DSLiveMap_text(entries[i].text, x, N3DS_STATUS_TEXT_Y, 0);
-        x += textW;
-        // The gap goes between the entries that are drawn, not after the last one and not around the hidden ones.
-        drawn++;
-        if (drawn < shown) x += gap;
-    }
-    r->drawFont = font;
-    r->drawHalign = halign;
-    r->drawColor = color;
-    r->drawAlpha = alpha;
-}
-
-// The parts of the frame that only change with the camera or the language: the black bands, both bars, the counters'
-// backing, the title and the zoom steps. Drawn into the cached layer.
-static void N3DSLiveMap_drawStaticFrame(void) {
-    Renderer* r = gLive.renderer;
-    // The green bar keeps its place at y 30; the title moves up into the black margin above it and the counters are
-    // drawn on the bar itself, so the bar carries the live numbers instead of the page's name.
-    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, N3DS_STATUS_BAND_BOTTOM, 0x000000, 1.0f, false);
+    r->vtable->drawRectangle(r, 0.0f, 0.0f, (float) N3DS_LIVEMAP_W, gLive.topBandEnd, 0x000000, 1.0f, false);
     r->vtable->drawRectangle(r, 0.0f, gLive.bottomBandStart, (float) N3DS_LIVEMAP_W, (float) N3DS_LIVEMAP_H, 0x000000, 1.0f, false);
-    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, N3DS_TITLE_BAR_TOP, 10.0f);
+    N3DSLiveMap_background(gLive.bgTopBar, 0.0f, 30.0f, 10.0f);
     N3DSLiveMap_background(gLive.bgBottomBar, 0.0f, 198.0f, 1.0f);
     double language = 0.0;
     N3DSGml_getGlobal("currentlanguage", -1, &language);
@@ -617,23 +218,7 @@ static void N3DSLiveMap_drawStaticFrame(void) {
         gLive.titleLanguage = language;
         gLive.titleFetched = true;
     }
-    // In the black margin above the bar, centred there. Drawn twice, one pixel apart: the page title is the screen's
-    // heading and reads too light at 12px against the black band, so the second pass thickens every stroke by a pixel
-    // (the same trick the game uses for its own outlined text, minus the dark copy).
-    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
-    // The bottom margin's zoom steps. They change with the zoom step, which invalidates the cache, so they belong here.
-    N3DSLiveMap_drawZoomControl();
-}
-
-// The parts that change without the camera moving: the counters, the collection percentage and the clock. Drawn every
-// frame over the cached layer. Their text sits on the bars that layer already drew, so only the glyphs are redrawn.
-static void N3DSLiveMap_drawLiveFrame(void) {
-    Renderer* r = gLive.renderer;
-    // The game's draw state is left as it was.
-    int32_t font = r->drawFont, halign = r->drawHalign;
-    uint32_t color = r->drawColor;
-    float alpha = r->drawAlpha;
-    N3DSLiveMap_drawStatus();
+    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, 29.0f, 1);
     double gameTime = 0.0;
     if (N3DSGml_getGlobal("gametime", -1, &gameTime)) {
         // steps_to_time2(gametime): gametime counts steps (60 a second), shown as HH:MM:SS. Done here, not by calling
@@ -646,66 +231,15 @@ static void N3DSLiveMap_drawLiveFrame(void) {
         }
         N3DSLiveMap_text(gLive.time, 17.0f, 197.0f, 0);
     }
-    char left[8], area[8], collected[8];
+    char left[8], area[8];
     N3DSLiveMap_twoDigits(left, sizeof(left), "monstersleft");
     N3DSLiveMap_twoDigits(area, sizeof(area), "monstersarea");
-    // Items collected, as the percentage the game keeps in global.percent.
-    // There is no global.percent: the game computes the collection rate where it draws it, as the map page and the
-    // IGT screen both do - round(global.itemstaken / 88 * 100). Reading a global that does not exist left this at 0%
-    // for the whole run.
-    double itemsTaken = 0.0;
-    if (!N3DSGml_getGlobal("itemstaken", -1, &itemsTaken)) itemsTaken = 0.0;
-    if (!(itemsTaken == itemsTaken)) itemsTaken = 0.0; // NaN
-    int percent = (int) (itemsTaken / N3DS_LIVEMAP_ITEM_TOTAL * 100.0 + 0.5);
-    if (percent < 0) percent = 0;
-    if (percent > 100) percent = 100;
-    snprintf(collected, sizeof(collected), "%d%%", percent);
-    // One line every so often with what the strip holds; the digits on screen looked doubled and this is the cheapest
-    // way to tell a render problem from the values themselves.
-    static uint32_t statusLogs = 0;
-    if (statusLogs < 6u && (gLive.frame % 600u) == 0u) {
-        statusLogs++;
-        double healthNow = 0.0, maxHealthNow = 0.0;
-        N3DSGml_getGlobal("playerhealth", -1, &healthNow);
-        N3DSGml_getGlobal("maxhealth", -1, &maxHealthNow);
-        logInfo("LiveMap: energy %d/%d percent '%s' left '%s' area '%s'\n",
-            N3DSLiveMap_statusValue(healthNow), N3DSLiveMap_statusValue(maxHealthNow), collected, left, area);
-    }
-    // Two pixels above the row the other counters use: measured on hardware, the percentage sits two pixels lower than
-    // the "18" beside it even though both are drawn at the same y with the same font. Its glyphs carry a taller box than
-    // the plain digits (the % sign), and the extra height lands at the bottom of the line. Lifting the call lines it up.
-    N3DSLiveMap_text(collected, 214.0f, 195.0f, 0);
     N3DSLiveMap_text(left, 259.0f, 197.0f, 0);
     N3DSLiveMap_text(area, 303.0f, 197.0f, 0);
     r->drawFont = font;
     r->drawHalign = halign;
     r->drawColor = color;
     r->drawAlpha = alpha;
-}
-
-// A cheap fingerprint of what the cells would draw: the explored value of every cell in view. Walking the arrays here
-// costs two lookups a cell, which is far cheaper than the sprite draws it saves, and it catches the one change the
-// camera cannot: a cell becoming explored while the map stays put. Callers compare it with the value the cache was
-// built from.
-static uint32_t N3DSLiveMap_cellsFingerprint(int32_t px, int32_t py) {
-    RValue* dmap = N3DSLiveMap_array("dmap");
-    if (dmap == NULL) return 0u;
-    uint32_t hash = 2166136261u;
-    int32_t cell = N3DSLiveMap_cell();
-    int32_t halfW = N3DS_LIVEMAP_W / cell / 2 + 1;
-    int32_t halfH = N3DS_LIVEMAP_H / cell / 2 + 1;
-    for (int32_t cx = px - halfW; cx <= px + halfW; cx++) {
-        if (cx < 0) continue;
-        for (int32_t cy = py - halfH; cy <= py + halfH; cy++) {
-            if (cy < 0) continue;
-            int32_t index = cx * GML_LEGACY_ARRAY_STRIDE + cy;
-            RValue explored = GMLArray_getOnArrayRef(dmap, index);
-            if (explored.type == RVALUE_UNDEFINED || explored.type == RVALUE_STRING) continue;
-            hash = (hash ^ (uint32_t) (int32_t) RValue_toReal(explored)) * 16777619u;
-            hash = (hash ^ (uint32_t) index) * 16777619u;
-        }
-    }
-    return hash;
 }
 
 static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
@@ -722,9 +256,8 @@ static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
                 (float) N3DS_LIVEMAP_H, 0xFFFFFF, 1.0f);
         }
     }
-    int32_t cell = N3DSLiveMap_cell();
-    int32_t halfW = N3DS_LIVEMAP_W / cell / 2 + 1;
-    int32_t halfH = N3DS_LIVEMAP_H / cell / 2 + 1;
+    int32_t halfW = N3DS_LIVEMAP_W / N3DS_LIVEMAP_CELL / 2 + 1;
+    int32_t halfH = N3DS_LIVEMAP_H / N3DS_LIVEMAP_CELL / 2 + 1;
     for (int32_t cx = px - halfW; cx <= px + halfW; cx++) {
         if (cx < 0) continue;
         for (int32_t cy = py - halfH; cy <= py + halfH; cy++) {
@@ -751,6 +284,33 @@ static void N3DSLiveMap_drawCells(int32_t px, int32_t py) {
     }
 }
 
+// What the cells in view show: their explored states and the marker. A change means a redraw.
+static uint32_t N3DSLiveMap_signature(int32_t px, int32_t py) {
+    uint32_t h = 2166136261u;
+    RValue* dmap = N3DSLiveMap_array("dmap");
+    if (dmap != NULL) {
+        int32_t halfW = N3DS_LIVEMAP_W / N3DS_LIVEMAP_CELL / 2 + 1;
+        int32_t halfH = N3DS_LIVEMAP_H / N3DS_LIVEMAP_CELL / 2 + 1;
+        for (int32_t cx = px - halfW; cx <= px + halfW; cx++) {
+            if (cx < 0) continue;
+            for (int32_t cy = py - halfH; cy <= py + halfH; cy++) {
+                if (cy < 0) continue;
+                RValue explored = GMLArray_getOnArrayRef(dmap, cx * GML_LEGACY_ARRAY_STRIDE + cy);
+                int32_t v = explored.type == RVALUE_UNDEFINED || explored.type == RVALUE_STRING ? -1 : (int32_t) RValue_toReal(explored);
+                h = (h ^ (uint32_t) v) * 16777619u;
+            }
+        }
+    }
+    double marker = 0.0, mx = 0.0, my = 0.0;
+    N3DSGml_getGlobal("mapmarker", -1, &marker);
+    N3DSGml_getGlobal("mapmarkerx", -1, &mx);
+    N3DSGml_getGlobal("mapmarkery", -1, &my);
+    h = (h ^ (uint32_t) (int32_t) marker) * 16777619u;
+    h = (h ^ (uint32_t) (int32_t) mx) * 16777619u;
+    h = (h ^ (uint32_t) (int32_t) my) * 16777619u;
+    return h;
+}
+
 static void N3DSLiveMap_drawHighlight(void) {
     if (gLive.sprHilight < 0) return;
     double alpha = -1.0;
@@ -767,50 +327,27 @@ void N3DSLiveMap_draw(void) {
     double pxd = 0.0, pyd = 0.0;
     if (!N3DSGml_getGlobal("mapposx", -1, &pxd) || !N3DSGml_getGlobal("mapposy", -1, &pyd)) return;
     int32_t px = (int32_t) pxd, py = (int32_t) pyd;
-    // The picture is split in two. The cells, the bars, the zoom labels and the title only change when the map is
-    // panned, zoomed or something new is explored, so they live in a cached texture and are redrawn only when that
-    // camera changes - they are thousands of sprite draws, and they used to be redrawn every frame. The counters, the
-    // clock and the pulsing marker change constantly (or every second) and are cheap, so they are drawn per frame on
-    // top of the cached layer.
-    //
-    // The counters sit on the same background bars, so the bars stay in the cached layer and only their text is
-    // redrawn over it.
-    //
-    // Exploration is the one change the camera does not show: a cell can turn explored while the map stays put, and
-    // then the cached layer is stale. The fingerprint below walks the same cells the draw would (two array lookups
-    // each, no drawing) and is compared with the value the cache was built from, so a new room shows up on the frame
-    // it is explored.
-    uint32_t cellsHash = N3DSLiveMap_cellsFingerprint(px, py);
-    bool cameraMoved = px != gLive.lastPx || py != gLive.lastPy || gLive.lastZoom != gLive.zoom ||
-        cellsHash != gLive.lastCellsHash || gLive.panX != gLive.lastPanX || gLive.panY != gLive.lastPanY;
+    // Redraw when Samus changes cell, when what the cells show changes, and after frames this didn't draw (pause
+    // screen, menus): the bottom-screen picture may be something else's then.
+    bool redraw = !gLive.haveSnapshot || px != gLive.lastPx || py != gLive.lastPy || gLive.lastDrawCall + 1 != gLive.frame;
+    if (redraw || gLive.frame - gLive.lastCheck >= N3DS_LIVEMAP_CHECK_FRAMES) {
+        uint32_t signature = N3DSLiveMap_signature(px, py);
+        if (signature != gLive.signature) redraw = true;
+        gLive.signature = signature;
+        gLive.lastCheck = gLive.frame;
+    }
+    gLive.lastDrawCall = gLive.frame;
     gLive.lastPx = px;
     gLive.lastPy = py;
-    gLive.lastZoom = gLive.zoom;
-    gLive.lastCellsHash = cellsHash;
-    gLive.lastPanX = gLive.panX;
-    gLive.lastPanY = gLive.panY;
-    if (cameraMoved) gLive.cacheReady = false;
-    if (!gLive.cacheReady) {
-        // Drawn into the cache with its own 1:1 mapping, then blitted back on the frames that follow.
-        if (N3DSRenderer_beginBottomCacheDraw(gLive.renderer)) {
-            // Only the cells go into the cache: they are the thousands of sprite draws worth caching. The bars, the
-            // title and the zoom steps are a handful of draws, and they are repainted every frame further down - which
-            // is also what keeps a changing number from leaving the previous one underneath it.
-            N3DSLiveMap_drawCells(px, py);
-            N3DSRenderer_endBottomCacheDraw(gLive.renderer);
-            gLive.cacheReady = true;
-        }
-    }
+
+    if (!redraw) N3DSRenderer_drawBottomSnapshot(gLive.renderer);
     N3DSRenderer_beginBottomScreenGUI(gLive.renderer, N3DS_LIVEMAP_W, N3DS_LIVEMAP_H);
-    // The cached layer can be missing (the first frame, or the cache could not be allocated); then the static layer
-    // is drawn directly so the bottom screen is never left black.
-    if (gLive.cacheReady) {
-        N3DSRenderer_blitBottomCache(gLive.renderer);
-    } else {
+    if (redraw) {
         N3DSLiveMap_drawCells(px, py);
+        // Kept as the picture from the next frame on, without the highlight (drawn live on top of it).
+        gLive.pendingCapture = true;
     }
-    N3DSLiveMap_drawStaticFrame();
-    N3DSLiveMap_drawLiveFrame();
-    N3DSLiveMap_drawHighlight();
+    N3DSLiveMap_drawFrame();
+    if (!redraw) N3DSLiveMap_drawHighlight();
     N3DSRenderer_endBottomScreenGUI(gLive.renderer);
 }

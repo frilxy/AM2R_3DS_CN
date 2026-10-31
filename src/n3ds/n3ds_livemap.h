@@ -11,15 +11,7 @@
 void N3DSLiveMap_init(Runner* runner, Renderer* renderer);
 // The game has the map sprites and map arrays this needs.
 bool N3DSLiveMap_available(void);
-// Once a frame, before the draw: advances the frame counter the marker's pulse is timed from.
+// Call right after C3D_FrameBegin: keeps last frame's map drawing as the bottom-screen picture when it was redrawn.
 void N3DSLiveMap_beginFrame(void);
 // Draws the map on the bottom screen (call after the game's frame, during play).
 void N3DSLiveMap_draw(void);
-// Touch: drag moves the map away from Samus, a tap turns a screen point into the cell under it.
-void N3DSLiveMap_panBy(float dx, float dy);
-void N3DSLiveMap_resetPan(void);
-void N3DSLiveMap_screenToCell(int32_t sx, int32_t sy, int32_t* outX, int32_t* outY);
-// The zoom steps along the bottom margin: which one a screen point falls on (-1 if not on the control), and
-// selecting one. The map's cell size follows the selection.
-int32_t N3DSLiveMap_zoomAt(int32_t sx, int32_t sy);
-void N3DSLiveMap_setZoom(int32_t step);

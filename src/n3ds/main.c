@@ -16,7 +16,6 @@
 #include "n3ds_cached_file_system.h"
 #include "n3ds_input.h"
 #include "n3ds_am2r.h"
-#include "n3ds_font_replace.h"
 #include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
@@ -27,8 +26,6 @@
 
 #include <3ds.h>
 #include <citro2d.h>
-
-#include "stb_image.h"
 
 #include <ctype.h>
 #include <malloc.h>
@@ -61,26 +58,7 @@ typedef struct {
     char statusLine[128];
     int chunkIndex;
     int totalChunks;
-    // The bottom screen shows the same art the game uses after boot (gfx/bottom.png), so the two halves of the console
-    // do not disagree about what is being loaded.
-    C3D_RenderTarget* bottomTarget;
-    C3D_Tex artTexture;
-    Tex3DS_SubTexture artSubtex;
-    C2D_Image artImage;
-    bool artReady;
-    bool bottomPainted;      // the art is static: painting it once is enough, and twice costs a second scene a frame
-    u64 drawMicros;          // total time spent drawing this screen, logged once the data is in
-    int32_t drawCount;
 } N3DSLoadingScreen;
-
-// The port's palette, taken from the bottom screen's own drawing (see n3ds_livemap.c) plus the black it sits on.
-#define N3DS_LOAD_BG C2D_Color32(0, 0, 0, 255)
-#define N3DS_LOAD_FRAME C2D_Color32(0, 77, 0, 255)      // #004D00, the frame on the bottom art
-#define N3DS_LOAD_TITLE C2D_Color32(123, 230, 99, 255)  // RGB 0x7be663, the light green of the energy plate
-#define N3DS_LOAD_TEXT C2D_Color32(99, 230, 123, 255)   // RGB 0x63e67b
-#define N3DS_LOAD_BAR C2D_Color32(41, 214, 0, 255)      // RGB 0x29d600, the mid green
-#define N3DS_LOAD_DIM C2D_Color32(90, 90, 90, 255)      // the grey the menus use for inactive text
-#define N3DS_LOAD_LOG C2D_Color32(74, 110, 74, 255)     // dim green, so the boot log stays background
 
 static char gN3DSBootLogLines[N3DS_BOOT_LOG_MAX_LINES][N3DS_BOOT_LOG_LINE_CHARS];
 static int gN3DSBootLogLineCount = 0;
@@ -227,8 +205,14 @@ static void N3DSDebugMonitor_tickFrame(N3DSDebugMonitor* monitor, const double* 
     monitor->sampleStartMs = nowMs;
 }
 
-// Drawn on the top screen, the only screen the game uses.
-static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Renderer* renderer) {
+// On the bottom screen, or on the top one while the bottom one shows the game's pause screen.
+static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Renderer* renderer, bool onTop) {
+#ifdef N3DS_DISABLE_BOTTOM_SCREEN
+    (void) monitor;
+    (void) runner;
+    (void) renderer;
+    return;
+#endif
     if (monitor == NULL || runner == NULL || renderer == NULL || monitor->textBuf == NULL) return;
 
     const char* roomName = "(none)";
@@ -259,8 +243,8 @@ static void N3DSDebugMonitor_draw(N3DSDebugMonitor* monitor, Runner* runner, Ren
     snprintf(unimplLine, sizeof(unimplLine), "UNIMPL %lu", (unsigned long) N3DS_unimplCount());
     snprintf(roomLine, sizeof(roomLine), "R %.28s", roomName);
 
-    N3DSRenderer_beginScreenOverlay(renderer);
-    const float boxX = 172.0f;
+    N3DSRenderer_beginScreenOverlay(renderer, onTop);
+    const float boxX = onTop ? 172.0f : 92.0f;
     const float boxY = 8.0f;
     const float boxW = 220.0f;
     const float boxH = 127.0f;
@@ -322,7 +306,7 @@ static void N3DSFpsCounter_draw(N3DSFpsCounter* counter, Renderer* renderer, dou
     float w = 0.0f, h = 0.0f;
     C2D_TextGetDimensions(&counter->text, scale, scale, &w, &h);
     float x = 4.0f, y = (float) N3DS_TOP_SCREEN_H - h - 3.0f;
-    N3DSRenderer_beginScreenOverlay(renderer);
+    N3DSRenderer_beginScreenOverlay(renderer, true);
     C2D_DrawText(&counter->text, C2D_WithColor, x + 1.0f, y + 1.0f, N3DS_OVERLAY_DEPTH, scale, scale, C2D_Color32(0, 0, 0, 150));
     C2D_DrawText(&counter->text, C2D_WithColor, x, y, N3DS_OVERLAY_DEPTH, scale, scale, C2D_Color32(255, 255, 255, 190));
     N3DSRenderer_endScreenOverlay(renderer);
@@ -360,68 +344,6 @@ static void N3DSLoadingScreen_free(N3DSLoadingScreen* screen) {
         C3D_RenderTargetDelete(screen->target);
         screen->target = NULL;
     }
-    if (screen->artReady) {
-        C3D_TexDelete(&screen->artTexture);
-        screen->artReady = false;
-    }
-    // Same rule as the top target: a screen target has to go before the renderer makes its own for that screen.
-    if (screen->bottomTarget != NULL) {
-        C3D_RenderTargetDelete(screen->bottomTarget);
-        screen->bottomTarget = NULL;
-    }
-}
-
-// 8x8 Morton order, the layout citro3d's textures use (same helper the renderer uploads with).
-static inline uint32_t N3DSLoadingMorton(uint32_t x, uint32_t y) {
-    return (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) | ((y & 4u) << 3);
-}
-
-// Loads gfx/bottom.png (SD first, then the copy in romfs) into a texture of its own, so the boot screen can show the
-// bottom art before the renderer exists. Failure is silent: the bottom screen then stays black, as it used to.
-static void N3DSLoadingScreen_loadArt(N3DSLoadingScreen* screen) {
-    if (screen == NULL || !screen->useCitro2D) return;
-
-    int width = 0, height = 0, channels = 0;
-    stbi_uc* pixels = stbi_load(N3DS_SD_DIR "gfx/bottom.png", &width, &height, &channels, 4);
-    if (pixels == NULL) pixels = stbi_load("romfs:/gfx/bottom.png", &width, &height, &channels, 4);
-    if (pixels == NULL || width <= 0 || height <= 0 || width > 1024 || height > 1024) {
-        if (pixels != NULL) stbi_image_free(pixels);
-        return;
-    }
-
-    uint32_t texW = 8u, texH = 8u;
-    while (texW < (uint32_t) width) texW <<= 1;
-    while (texH < (uint32_t) height) texH <<= 1;
-    if (!C3D_TexInit(&screen->artTexture, (u16) texW, (u16) texH, GPU_RGBA8)) {
-        stbi_image_free(pixels);
-        return;
-    }
-    C3D_TexSetFilter(&screen->artTexture, GPU_NEAREST, GPU_NEAREST);
-    C3D_TexSetWrap(&screen->artTexture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
-    screen->artTexture.border = 0x00000000u;
-
-    uint32_t* destination = (uint32_t*) screen->artTexture.data;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            const stbi_uc* pixel = pixels + ((size_t) y * (size_t) width + (size_t) x) * 4u;
-            uint32_t rgba = ((uint32_t) pixel[0] << 24) | ((uint32_t) pixel[1] << 16) |
-                ((uint32_t) pixel[2] << 8) | (uint32_t) pixel[3];
-            destination[((size_t) ((uint32_t) y >> 3) * (size_t) (texW >> 3) + (size_t) ((uint32_t) x >> 3)) * 64u +
-                (size_t) N3DSLoadingMorton((uint32_t) x & 7u, (uint32_t) y & 7u)] = rgba;
-        }
-    }
-    GSPGPU_FlushDataCache(screen->artTexture.data, screen->artTexture.size);
-    stbi_image_free(pixels);
-
-    screen->artSubtex.width = (u16) width;
-    screen->artSubtex.height = (u16) height;
-    screen->artSubtex.left = 0.0f;
-    screen->artSubtex.top = 1.0f;
-    screen->artSubtex.right = (float) width / (float) texW;
-    screen->artSubtex.bottom = 1.0f - (float) height / (float) texH;
-    screen->artImage.tex = &screen->artTexture;
-    screen->artImage.subtex = &screen->artSubtex;
-    screen->artReady = true;
 }
 
 static void N3DS_appendBootLog(const char* message) {
@@ -465,42 +387,25 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
     }
 
     if (screen->useCitro2D && screen->target != NULL && screen->textBuf != NULL) {
-        u64 drawStart = svcGetSystemTick();
-        const float barX = 28.0f;
+        const float barX = 36.0f;
         const float barY = 146.0f;
-        const float barW = 344.0f;
-        const float barH = 14.0f;
+        const float barW = 328.0f;
+        const float barH = 18.0f;
         const float fillW = (barW - 4.0f) * progress;
 
         C2D_Text title;
         C2D_Text status;
         C2D_Text detail;
         char detailLine[64];
-        snprintf(detailLine, sizeof(detailLine), "%d / %d", screen->chunkIndex, screen->totalChunks);
+        snprintf(detailLine, sizeof(detailLine), "%d / %d chunks", screen->chunkIndex, screen->totalChunks);
 
         N3DSRenderer_frameGate();
-        C2D_TargetClear(screen->target, N3DS_LOAD_BG);
+        C2D_TargetClear(screen->target, C2D_Color32(8, 10, 14, 255));
         C2D_SceneBegin(screen->target);
 
-        // A one-pixel frame six pixels in, the same shape as the bottom screen's art, so the two screens read as one
-        // console rather than as a port with its own idea of style.
-        const float frameX = 6.0f;
-        const float frameY = 6.0f;
-        const float frameW = 400.0f - 12.0f;
-        const float frameH = 240.0f - 12.0f;
-        C2D_DrawRectSolid(frameX, frameY, 0.5f, frameW, 1.0f, N3DS_LOAD_FRAME);
-        C2D_DrawRectSolid(frameX, frameY + frameH - 1.0f, 0.5f, frameW, 1.0f, N3DS_LOAD_FRAME);
-        C2D_DrawRectSolid(frameX, frameY, 0.5f, 1.0f, frameH, N3DS_LOAD_FRAME);
-        C2D_DrawRectSolid(frameX + frameW - 1.0f, frameY, 0.5f, 1.0f, frameH, N3DS_LOAD_FRAME);
-
-        // The bar itself: dark green frame, black track, mid green fill - the colours of the bottom screen's energy
-        // plate, which is the one place the game shows a bar of its own.
-        C2D_DrawRectSolid(barX, barY, 0.5f, barW, barH, N3DS_LOAD_FRAME);
-        C2D_DrawRectSolid(barX + 1.0f, barY + 1.0f, 0.5f, barW - 2.0f, barH - 2.0f, N3DS_LOAD_BG);
-        if (fillW > 0.0f) {
-            C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, barH - 4.0f, N3DS_LOAD_BAR);
-            C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, 1.0f, N3DS_LOAD_TITLE);
-        }
+        C2D_DrawRectSolid(0.0f, 0.0f, 0.5f, 400.0f, 240.0f, C2D_Color32(8, 10, 14, 255));
+        C2D_DrawRectSolid(barX, barY, 0.5f, barW, barH, C2D_Color32(42, 48, 60, 255));
+        C2D_DrawRectSolid(barX + 2.0f, barY + 2.0f, 0.5f, fillW, barH - 4.0f, C2D_Color32(110, 224, 160, 255));
 
         C2D_TextBufClear(screen->textBuf);
         C2D_TextParse(&title, screen->textBuf, "Loading Game Data");
@@ -510,9 +415,9 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
         C2D_TextOptimize(&status);
         C2D_TextOptimize(&detail);
 
-        C2D_DrawText(&title, C2D_WithColor, 28.0f, 62.0f, 0.5f, 0.70f, 0.70f, N3DS_LOAD_TITLE);
-        C2D_DrawText(&status, C2D_WithColor, 28.0f, 100.0f, 0.5f, N3DS_LOADING_TEXT_SCALE, N3DS_LOADING_TEXT_SCALE, N3DS_LOAD_TEXT);
-        C2D_DrawText(&detail, C2D_WithColor, 28.0f, 166.0f, 0.5f, 0.32f, 0.32f, N3DS_LOAD_DIM);
+        C2D_DrawText(&title, C2D_WithColor, 36.0f, 74.0f, 0.5f, 0.60f, 0.60f, C2D_Color32(255, 255, 255, 255));
+        C2D_DrawText(&status, C2D_WithColor, 36.0f, 104.0f, 0.5f, N3DS_LOADING_TEXT_SCALE, N3DS_LOADING_TEXT_SCALE, C2D_Color32(210, 214, 224, 255));
+        C2D_DrawText(&detail, C2D_WithColor, 36.0f, 172.0f, 0.5f, 0.34f, 0.34f, C2D_Color32(146, 153, 168, 255));
 
         int firstLogLine = gN3DSBootLogLineCount > 3 ? gN3DSBootLogLineCount - 3 : 0;
         float logY = 188.0f;
@@ -520,26 +425,12 @@ static void N3DSLoadingScreen_draw(N3DSLoadingScreen* screen) {
             C2D_Text logLine;
             C2D_TextParse(&logLine, screen->textBuf, gN3DSBootLogLines[i]);
             C2D_TextOptimize(&logLine);
-            C2D_DrawText(&logLine, C2D_WithColor, 28.0f, logY, 0.5f, 0.25f, 0.25f, N3DS_LOAD_LOG);
+            C2D_DrawText(&logLine, C2D_WithColor, 36.0f, logY, 0.5f, 0.25f, 0.25f, C2D_Color32(164, 176, 192, 255));
             logY += 12.0f;
-        }
-
-        // The bottom screen: the same art the game shows once it is running, so the console does not go black for the
-        // nine seconds the data takes to load.
-        if (screen->bottomTarget != NULL && !screen->bottomPainted) {
-            screen->bottomPainted = true;
-            C2D_TargetClear(screen->bottomTarget, N3DS_LOAD_BG);
-            C2D_SceneBegin(screen->bottomTarget);
-            if (screen->artReady) {
-                C2D_DrawImageAt(screen->artImage, 0.0f, 0.0f, 0.5f, NULL,
-                    320.0f / (float) screen->artSubtex.width, 240.0f / (float) screen->artSubtex.height);
-            }
         }
 
         N3DSRenderer_frameEnd();
         gspWaitForVBlank();
-        screen->drawMicros += (svcGetSystemTick() - drawStart) * 1000000ull / SYSCLOCK_ARM11;
-        screen->drawCount++;
         return;
     }
 
@@ -591,14 +482,6 @@ static void N3DSDataWinProgressCallback(const char* chunkName, int chunkIndex, i
     N3DSLoadingScreen* screen = (N3DSLoadingScreen*) userData;
     if (screen == NULL) return;
 
-    // A repaint costs a frame plus the bottom screen's first paint, while some chunks parse in a millisecond: without
-    // this the progress display can cost more than the parsing it is reporting. The final state is always drawn by
-    // the explicit N3DSLoadingScreen_set calls that follow.
-    static u64 lastRepaintMs;
-    u64 nowMs = osGetTime();
-    if (lastRepaintMs != 0 && nowMs - lastRepaintMs < 80) return;
-    lastRepaintMs = nowMs;
-
     char status[128];
     snprintf(status, sizeof(status), "Parsing chunk %.4s", chunkName != NULL ? chunkName : "----");
     N3DSLoadingScreen_set(screen, status, chunkIndex + 1, totalChunks);
@@ -607,7 +490,7 @@ static void N3DSDataWinProgressCallback(const char* chunkName, int chunkIndex, i
 static void N3DS_noopSetWindowTitle(MAYBE_UNUSED const char* title) {}
 static void N3DS_noopSetWindowSize(MAYBE_UNUSED int32_t width, MAYBE_UNUSED int32_t height) {}
 #ifndef N3DS_DEFAULT_SCREEN_MODE
-#define N3DS_DEFAULT_SCREEN_MODE N3DS_SCREEN_1X
+#define N3DS_DEFAULT_SCREEN_MODE N3DS_SCREEN_WIDE
 #endif
 static N3DSScreenMode gScreenMode = N3DS_DEFAULT_SCREEN_MODE;
 static bool gFrameskip = false;
@@ -616,9 +499,10 @@ static int32_t gWindowH = N3DS_TOP_SCREEN_H;
 
 static const char* N3DS_screenModeName(N3DSScreenMode mode) {
     switch (mode) {
-        case N3DS_SCREEN_WIDE: return "wide (1:1, fills the screen)";
-        case N3DS_SCREEN_STRETCH: return "stretch (fills the screen, squashed)";
-        case N3DS_SCREEN_1X: return "point-for-point (320x240, 1:1, side bars)";
+        case N3DS_SCREEN_WIDE: return "wide (more of the room, 1:1)";
+        case N3DS_SCREEN_STRETCH: return "stretch";
+        case N3DS_SCREEN_1X: return "1x";
+        case N3DS_SCREEN_2X: return "2x";
         default: return "pillarbox (1:1)";
     }
 }
@@ -660,35 +544,25 @@ static bool N3DS_getWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 static void N3DS_logMemory(const char* when) {
-    // osGetMemRegionFree(APPLICATION) is 0 from the moment libctru takes the region, so it says nothing; the arena and
-    // its free blocks come from mallinfo instead, which is what a failing malloc is really measuring.
-    struct mallinfo mi = mallinfo();
-    logInfo("Memory (%s): app free %lu KB of %lu KB, heap used %lu KB, heap free %lu KB, heap arena %lu KB, "
-        "linear free %lu KB, vram free %lu KB\n", when,
+    logInfo("Memory (%s): app free %lu KB of %lu KB, linear free %lu KB, vram free %lu KB\n", when,
         (unsigned long) (osGetMemRegionFree(MEMREGION_APPLICATION) / 1024u),
         (unsigned long) (osGetMemRegionSize(MEMREGION_APPLICATION) / 1024u),
-        (unsigned long) (mi.uordblks / 1024u), (unsigned long) (mi.fordblks / 1024u),
-        (unsigned long) (mi.arena / 1024u),
         (unsigned long) (linearSpaceFree() / 1024u),
         (unsigned long) (vramSpaceFree() / 1024u));
 }
 
-// 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest.
-// GameMaker games' movement and collision code leans on exact double arithmetic (fractional speeds, floor() of
-// positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game expects her (47.9999
-// instead of 48) and she can slip into or through blocks while moving vertically. The game runs on this thread only.
-//
-// Flush-to-zero stays ON, and that is not a detail: ARM11's VFPv2 has no denormal support code on the 3DS (nothing
-// installs one), so a denormal *result* raises a VFP exception (FPEXC.EX with the UFC flag) that nothing handles, and
-// the process dies. That is how a decaying speed (hspeed *= 0.95 until it is ~1e-20) killed the game inside
-// Instance_computeSpeedFromComponents: `vmul.f32 s16, s16, s16` squared the tiny hspeed, got a denormal, and the
-// console closed the app (crash_dump: pc in that function, FPEXC 0xC0000708, FPINST the vmul). Clearing bit 24 with
-// the rounding mode turned denormals on; the console's own default is FZ=1 and the game was built to run that way.
-// Returns the FPSCR found, for the log.
+// 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest
+// (flush-to-zero stays on, see below). GameMaker games' movement and collision code leans on exact double arithmetic (fractional
+// speeds, floor() of positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game
+// expects her (47.9999 instead of 48) and she can slip into or through blocks while moving vertically. The game
+// runs on this thread only. Returns the FPSCR found, for the log.
 static uint32_t N3DS_useIeeeRounding(void) {
     uint32_t fpscr;
     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
-    uint32_t ieee = (fpscr & ~(3u << 22)) | (1u << 24); // round to nearest; flush-to-zero on (bit 24)
+    // Round to nearest. Flush-to-zero stays on: the VFP11 can't compute with denormals in hardware (it needs support
+    // code the 3DS doesn't have), so a denormal in Instance_computeSpeedFromComponents ended in an undefined
+    // instruction exception (Omega and Zeta Metroid fights).
+    uint32_t ieee = fpscr & ~(3u << 22);
     __asm__ volatile("vmsr fpscr, %0" : : "r"(ieee));
     return fpscr;
 }
@@ -704,6 +578,7 @@ static void N3DS_aptHook(APT_HookType hook, MAYBE_UNUSED void* param) {
 }
 
 int main(int argc, char** argv) {
+    uint32_t startFpscr = N3DS_useIeeeRounding();
     gfxInitDefault();
     romfsInit();
     osSetSpeedupEnable(true);
@@ -718,16 +593,13 @@ int main(int argc, char** argv) {
     bool isNew3DS = false;
     APT_CheckNew3DS(&isNew3DS);
     logInfo("Console: %s, speedup %s\n", isNew3DS ? "New 3DS" : "Old 3DS", isNew3DS ? "on" : "n/a");
-    // Landmark for crash dumps: dumps only carry SP, so each thread says where its stack lives.
-    logInfo("N3DS: main thread stack near 0x%08x\n", (unsigned) (uintptr_t) &argc);
-    uint32_t startFpscr = N3DS_useIeeeRounding();
     {
         uint32_t fpscr;
         __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
         volatile double third = 1.0 / 3.0, tenth = 0.1;
-        logInfo("FPU: FPSCR was %08lx, now %08lx (round to nearest, flush-to-zero %s); 1/3*3 %s 1, 0.1+0.2 %s 0.3\n",
-            (unsigned long) startFpscr, (unsigned long) fpscr, (fpscr & (1u << 24)) ? "on" : "OFF",
-            third * 3.0 == 1.0 ? "==" : "!=", tenth + 0.2 == 0.3 ? "==" : "!=");
+        logInfo("FPU: FPSCR was %08lx, now %08lx (round to nearest); 1/3*3 %s 1, 0.1+0.2 %s 0.3 as on a PC\n",
+            (unsigned long) startFpscr, (unsigned long) fpscr, third * 3.0 == 1.0 ? "==" : "!=",
+            tenth + 0.2 == 0.3 ? "==" : "!=");
     }
     N3DS_logMemory("startup");
 
@@ -751,11 +623,6 @@ int main(int argc, char** argv) {
         if (loadingScreen.target == NULL || loadingScreen.textBuf == NULL) {
             N3DSLoadingScreen_free(&loadingScreen);
             loadingScreen.useCitro2D = false;
-        } else {
-            // The bottom screen gets the same art the game uses, and its own target: the renderer only exists from
-            // about nine seconds in, and until then nothing else would draw there.
-            loadingScreen.bottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-            N3DSLoadingScreen_loadArt(&loadingScreen);
         }
     } else {
         consoleInit(GFX_TOP, &loadingScreen.console);
@@ -826,8 +693,6 @@ int main(int argc, char** argv) {
         dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build,
         (int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight);
     N3DS_logMemory("data.win parsed");
-    logInfo("Loading screen: %d draws, %.0f ms total\n", (int) loadingScreen.drawCount,
-        (double) loadingScreen.drawMicros / 1000.0);
 
     // Game files next to data.win (romfs or the SD folder), saves in the SD folder: upstream's overlay file system.
     char* dataWinDir = safeStrdup(dataWinPath);
@@ -856,8 +721,7 @@ int main(int argc, char** argv) {
     if (!N3DSRenderer_isReady(renderer)) {
         const char* error = N3DSRenderer_getStartupError(renderer);
         logError("Renderer: %s\n", error != NULL ? error : "init failed");
-        // This build only uses the top screen, so a failure to start has to be readable there.
-        consoleInit(GFX_TOP, NULL);
+        consoleInit(GFX_BOTTOM, NULL);
         printf("%s\nPress START to exit.\n", error != NULL ? error : "Renderer init failed");
         while (aptMainLoop()) {
             hidScanInput();
@@ -881,29 +745,7 @@ int main(int argc, char** argv) {
     N3DSInput_init(runner);
     N3DSPause_init(runner, renderer);
     N3DSLiveMap_init(runner, renderer);
-    N3DSAm2r_init(runner); // loads the font cache itself, once the port's characters are in the glyph set
-    // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
-    // that will not decode) the screen keeps the plain black it always had.
-    {
-        int bottomW = 0, bottomH = 0, bottomChannels = 0;
-        // The SD card copy wins, so the art can be replaced without rebuilding; otherwise the one packaged into
-        // the title is used, and a build without either keeps the plain black.
-        const char* bottomPath = N3DS_SD_DIR "gfx/bottom.png";
-        stbi_uc* bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
-        if (bottomPixels == NULL) {
-            bottomPath = "romfs:/gfx/bottom.png";
-            bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
-        }
-        if (bottomPixels != NULL) {
-            if (!N3DSRenderer_setBottomBackground(renderer, bottomPixels, (uint32_t) bottomW, (uint32_t) bottomH)) {
-                logWarn("N3DS: %s (%dx%d) could not be uploaded; the bottom screen stays black\n", bottomPath,
-                    bottomW, bottomH);
-            } else {
-                logInfo("N3DS: bottom screen art %dx%d from %s\n", bottomW, bottomH, bottomPath);
-            }
-            stbi_image_free(bottomPixels);
-        }
-    }
+    N3DSAm2r_init(runner);
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));
     N3DSFpsCounter fpsCounter = {0};
 #ifdef ENABLE_VM_GML_PROFILER
@@ -914,30 +756,9 @@ int main(int argc, char** argv) {
     int32_t inputFrame = 0;
     if (fileExists(N3DS_SD_DIR "inputs.json")) inputPlayback = InputRecording_createPlayer(N3DS_SD_DIR "inputs.json", NULL);
 
-    // The game's startup rooms draw a collage of unrelated menu artwork (the boot screenshots show the title's UI pieces
-    // tiled across the screen), and the title's first frames draw its artwork from an atlas page whose texture does not
-    // hold that artwork yet - the same frame a moment later is right. Neither is worth showing: the screens stay black
-    // until the first real room has drawn a few frames, and the title fades in from black as it does on its own.
-    bool bootBlackout = true;
-    int32_t framesSinceRoom = 1000;
-
     N3DSRenderer_frameGate();
     Runner_initFirstRoom(runner);
-    // The first frame is drawn straight after this, and the loading screen has already gone: without warming the room
-    // here that frame reads its artwork from the card while drawing (the log showed io 33 ms in it), so it showed the
-    // textures' previous contents. Every later room is warmed at the end of its transition frame; the first one gets
-    // the same treatment, while the blackened startup frame below is all that is on screen.
-    {
-        u64 prewarmStart = N3DSProf_begin();
-        N3DSRenderer_prewarmRoom(renderer, runner);
-        N3DSProf_end(N3DS_PROF_PREWARM, prewarmStart);
-    }
-    // The game has now run oControl's font_replace calls, so every strip is in the atlas: keep them for the next boot.
-    N3DSFontReplace_saveCache(runner);
     renderer->vtable->flush(renderer);
-    // Nothing has been drawn for either screen yet in this frame, so clear them: an opened frame presents whatever the
-    // buffers hold, which was leftover from before the loading screen's target was released.
-    N3DSRenderer_clearScreens(renderer);
     N3DSRenderer_frameEnd();
     N3DSRenderer_collectGarbage(renderer, false);
     N3DS_logMemory("first room");
@@ -947,9 +768,7 @@ int main(int argc, char** argv) {
     uint64_t lastFrameStartTime = nowNanos();
     u64 statsStartMs = osGetTime();
     uint32_t statsFrames = 0;
-    uint32_t gStackLowest = 0;
     double statsStepMs = 0.0, statsDrawMs = 0.0, statsWaitMs = 0.0;
-    uint32_t statsSprites = 0, statsParts = 0, statsFrags = 0, statsGlyphs = 0, statsFlushes = 0;
     double pacedSpeed = 0.0;
     uint32_t lastUnimplCount = 0;
     u64 lastSlowLogMs = 0;
@@ -997,9 +816,8 @@ int main(int argc, char** argv) {
         // captures here open it themselves when they run.)
         N3DSScreenshot_captureIfRequested(renderer);
         N3DSLiveMap_beginFrame();
-        // Before the step: follows the pause state. The pause menu itself is drawn by the game on the top screen and
-        // is operated with its own buttons.
-        (void) N3DSPause_update();
+        // Before the step: freezes the top screen when the pause screen opens and turns touches into its presses.
+        bool paused = N3DSPause_update();
         bool frameOpenBeforeStep = N3DSRenderer_frameIsOpen();
         u64 stepStartTick = svcGetSystemTick();
         {
@@ -1046,7 +864,6 @@ int main(int argc, char** argv) {
         N3DSRenderer_importReadAhead(renderer);
 
         bool roomChanged = runner->currentRoom != lastRoom;
-        if (roomChanged) framesSinceRoom = 0; else if (framesSinceRoom < 1000) framesSinceRoom++;
         if (roomChanged) {
             // How the room just left ran, as a whole (the Perf line is per 5 s and mixes rooms).
             if (lastRoom != NULL && roomStats.frames > 0) {
@@ -1087,39 +904,29 @@ int main(int argc, char** argv) {
         int32_t gameW = runner->applicationWidth;
         int32_t gameH = runner->applicationHeight;
 
-        // Screen mode (N3DS_DEFAULT_SCREEN_MODE). AM2R draws its own picture (a 426x240 widescreen view) into a
-        // window it is told about, scaling and centring it itself, so the mode decides what window the game gets and
-        // how the port then presents it:
-        //   Wide:     the screen's window (400x240). The game fits its 426-wide view into that by itself (0.939) and
-        //             centres it, and N3DSAm2r_applyScreenMode overrides that to 1:1 with the picture centred, so the
-        //             426x240 picture is shown pixel-for-pixel with the 13 columns at each edge given up. No bars.
-        //   1x:      the same window (400x240) with no override: the game's own 0.939 fit and centring stand, so the
-        //             whole 426x240 view is shown at 400x225 with ~7px bars top and bottom. Slightly soft.
-        //   2x:      the game's own window at 2x, centred: the middle of the picture, the rest off screen.
-        //   Stretch: the game's own window (426), and the screen stretches that onto 400x240. The whole view, with the
-        //             426 columns squeezed into 400 (a 0.939 horizontal squash).
+        // Screen mode (N3DS_DEFAULT_SCREEN_MODE; the touch screen belongs to the pause screen). Wide: upstream's
+        // widescreen hack (views grow to the 5:3 top screen, 1:1 pixels). Stretch: the native size scaled to
+        // 400x240. Pillarbox: native size 1:1, centred.
         runner->widescreenExtraWidth = 0;
         runner->widescreenExtraHeight = 0;
-        int32_t ownGameW = N3DSAm2r_gameWidth();
-        bool wide = gScreenMode == N3DS_SCREEN_WIDE;
-        if (wide && ownGameW == 0 && runner->usingAppSurface && gameW > 0 && gameH > 0) {
+        // AM2R 1.5's own widescreen (a 426x240 picture): the game's width instead of the upstream hack.
+        // (Not on the pause screen: it goes to the 320-wide bottom screen 1:1, where the game, told the window is 320,
+        // centres its widescreen pause picture and the side margins fall off; 426 would be shrunk to fit.)
+        int32_t ownGameW = N3DSPause_isPaused() ? 0 : N3DSAm2r_gameWidth();
+        if (gScreenMode == N3DS_SCREEN_WIDE && ownGameW == 0 && runner->usingAppSurface && gameW > 0 && gameH > 0) {
             int32_t targetW = (int32_t) ((float) gameH * ((float) N3DS_TOP_SCREEN_W / (float) N3DS_TOP_SCREEN_H) + 0.5f);
             if (targetW > gameW) {
                 runner->widescreenExtraWidth = targetW - gameW;
                 gameW = targetW;
             }
         }
-        // The "window" the game sees. Stretch gives it a window as wide as its own picture, so it draws 1:1 and the
-        // port squashes that onto the screen. Wide and point-for-point give it the screen instead, so it scales and
-        // centres its picture itself (both then override that, see N3DSAm2r_applyScreenMode).
+        // The "window" the game sees: the screen, except in Stretch, 1x and 2x where it is the game's own size (and the
+        // renderer stretches that to the screen, or scales it by 1 or 2, centred).
         bool stretch = gScreenMode == N3DS_SCREEN_STRETCH;
-        int32_t fixedScale = 0;
-        bool gameSizedWindow = stretch;
+        int32_t fixedScale = gScreenMode == N3DS_SCREEN_1X ? 1 : gScreenMode == N3DS_SCREEN_2X ? 2 : 0;
+        bool gameSizedWindow = stretch || fixedScale > 0;
         gWindowW = gameSizedWindow ? (ownGameW > 0 ? ownGameW : runner->usingAppSurface ? runner->applicationWidth : (int32_t) gen8->defaultWindowWidth) : N3DS_TOP_SCREEN_W;
         gWindowH = gameSizedWindow ? (runner->usingAppSurface ? runner->applicationHeight : (int32_t) gen8->defaultWindowHeight) : N3DS_TOP_SCREEN_H;
-        // The pause screen (rm_options) lays itself out for a 320x568 surface. In a game-sized window (stretch, 2x)
-        // that would make the window 568 tall and letterbox the picture away, so the height is pinned to the screen.
-        if (N3DSPause_isPaused()) gWindowH = N3DS_TOP_SCREEN_H;
         N3DSRenderer_setStretchToScreen(renderer, stretch);
         N3DSRenderer_setFixedScale(renderer, fixedScale);
 
@@ -1149,15 +956,13 @@ int main(int argc, char** argv) {
 #endif
         {
             N3DS_ZONE(N3DS_ZONE_OVERLAYS);
-            // The bottom screen: AM2R's map while a save is being played, otherwise it stays the black the frame
-            // opened with. Drawn before the top screen's overlays so those keep the top screen's mapping.
-            if (N3DSPause_inPlay() && N3DSLiveMap_available()) {
-                N3DSLiveMap_draw();
-                // After the draw, so the map this touch moves is the one just drawn: dragging pans it, a tap sets or
-                // lifts the marker.
-                N3DSPause_updateMapTouch();
+            if (paused) {
+                N3DSRenderer_drawFrozenTop(renderer);
+                N3DSAm2r_drawPausedBanner(renderer);
             }
-            if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer);
+            if (N3DSPause_inPlay() && N3DSLiveMap_available()) N3DSLiveMap_draw();
+            else if (N3DSPause_showMapOnBottom()) N3DSRenderer_drawBottomSnapshot(renderer);
+            if (debugMonitorVisible) N3DSDebugMonitor_draw(&debugMonitor, runner, renderer, paused);
             if (gFpsCounter) N3DSFpsCounter_draw(&fpsCounter, renderer, debugMonitor.displayedFps);
             renderer->vtable->flush(renderer);
         }
@@ -1166,25 +971,10 @@ int main(int argc, char** argv) {
         u64 roomChangeStartTick = svcGetSystemTick();
         {
             N3DS_ZONE(N3DS_ZONE_ROOM_CHANGE);
-            N3DSAm2r_prepareRoomChange(); // before the new room's Create events read widescreen_space
             Runner_handlePendingRoomChange(runner);
             renderer->vtable->flush(renderer);
         }
         double roomChangeMs = N3DSProf_ms(svcGetSystemTick() - roomChangeStartTick);
-        if (bootBlackout) {
-            const char* bootRoom = runner->currentRoom != NULL ? runner->currentRoom->name : NULL;
-            bool bootRoomStill = bootRoom == NULL || strcmp(bootRoom, "initroom") == 0 || strcmp(bootRoom, "rm_transition") == 0;
-            // The first frames of the first real room (the title) came out wrong; a handful of frames is enough for it
-            // to have drawn again with its artwork settled, and the room fades in from black anyway, so nothing visible
-            // is lost.
-            if (bootRoomStill || framesSinceRoom < 10) {
-                // After the game's own drawing, so it covers whatever it drew on the top screen this frame.
-                N3DSRenderer_clearScreens(renderer);
-            } else {
-                bootBlackout = false;
-                logInfo("N3DS: boot blackout ends in %s after %d frames\n", bootRoom, (int) framesSinceRoom);
-            }
-        }
         N3DSRenderer_frameEnd();
         u64 gcStartTick = svcGetSystemTick();
 #ifdef N3DS_FRAME_PROFILER
@@ -1249,24 +1039,10 @@ int main(int argc, char** argv) {
 
         N3DSLog_tick();
 
-        // Deepest stack pointer seen this session. A crash dump caught the main thread storing to the stack with SP at
-        // 0x080070d0 and the faulting address nowhere near it; if the stack really is the problem, this number walks
-        // towards that value first, and the Perf line shows it before the crash.
-        {
-            uint32_t frameSp;
-            __asm__ volatile("mov %0, sp" : "=r"(frameSp));
-            if (gStackLowest == 0u || frameSp < gStackLowest) gStackLowest = frameSp;
-        }
-
         statsFrames++;
         statsStepMs += stepMs;
         statsDrawMs += drawMs;
         statsWaitMs += waitMs;
-        statsSprites += N3DSRenderer_getFrameSpriteDrawCalls(renderer);
-        statsParts += N3DSRenderer_getFrameSpritePartDrawCalls(renderer);
-        statsFrags += N3DSRenderer_getFrameFragmentDraws(renderer);
-        statsGlyphs += N3DSRenderer_getFrameTextGlyphDraws(renderer);
-        statsFlushes += gN3DSProfFlushes;
         u64 nowMs = osGetTime();
         if (nowMs - statsStartMs >= 5000u) {
             double seconds = (double) (nowMs - statsStartMs) / 1000.0;
@@ -1276,23 +1052,15 @@ int main(int argc, char** argv) {
 #ifdef N3DS_ENABLE_AUDIO
             effects = N3DSAudio_effectsStarted(runner->audioSystem);
 #endif
-            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, heap free %lu KB, heap arena %lu KB, linear free %lu KB, stack low 0x%08lx, sfx %lu, draw sprites %.1f parts %.1f frags %.1f glyphs %.1f flushes %.1f\n",
+            logInfo("Perf: %.1f fps, step %.2f ms, draw %.2f ms, gpu/vblank wait %.2f ms (avg over %u frames, worst %.0f ms), room %s, heap used %lu KB, linear free %lu KB, sfx %lu\n",
                 (double) statsFrames / seconds, statsStepMs / statsFrames, statsDrawMs / statsFrames, statsWaitMs / statsFrames, (unsigned) statsFrames, statsMaxFrameMs,
                 runner->currentRoom != NULL ? runner->currentRoom->name : "-",
-                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (mi.fordblks / 1024u),
-                (unsigned long) (mi.arena / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) gStackLowest, (unsigned long) effects,
-                (double) statsSprites / statsFrames, (double) statsParts / statsFrames, (double) statsFrags / statsFrames,
-                (double) statsGlyphs / statsFrames, (double) statsFlushes / statsFrames);
+                (unsigned long) (mi.uordblks / 1024u), (unsigned long) (linearSpaceFree() / 1024u), (unsigned long) effects);
             statsStartMs = nowMs;
             statsFrames = 0;
             statsStepMs = 0.0;
             statsDrawMs = 0.0;
             statsWaitMs = 0.0;
-            statsSprites = 0;
-            statsParts = 0;
-            statsFrags = 0;
-            statsGlyphs = 0;
-            statsFlushes = 0;
             statsMaxFrameMs = 0.0;
             if (N3DS_unimplCount() != lastUnimplCount) {
                 lastUnimplCount = N3DS_unimplCount();

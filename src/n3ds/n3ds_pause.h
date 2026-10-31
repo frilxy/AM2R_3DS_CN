@@ -1,10 +1,12 @@
 #pragma once
 
-// AM2R's pause screen (rm_subscreen), on the top screen.
+// AM2R's pause screen on the bottom screen, driven by touch.
 //
-// The game draws and runs its own pause menu (map, inventory, logs, options) on the top screen, operated with its
-// own buttons (Menu1/Menu2 and the D-pad). This module draws nothing and injects no input: it only tracks whether
-// the game is in its pause room, so the rest of the front end (main.c's window height) can follow.
+// While the game is in its pause screen (rm_subscreen, or the transition into it) the game's screen is routed to
+// the bottom screen (320x240, AM2R's own size, 1:1) and the top screen keeps the last frame of play. Touches are
+// turned into the presses the pause screen already understands (its own Menu1/Menu2 bindings and the D-pad), plus a
+// few variable writes where a press can't express the gesture (dragging the map, putting the marker on a cell,
+// picking an inventory row). The buttons keep working as before.
 
 #include <stdbool.h>
 
@@ -15,10 +17,11 @@ typedef struct Runner Runner;
 typedef struct Renderer Renderer;
 
 void N3DSPause_init(Runner* runner, Renderer* renderer);
-// Once a frame, before the game's step: follows the pause state. Returns whether the game is paused.
+// Once a frame, right after C3D_FrameBegin and before the game's step: follows the pause state (freezes the top
+// screen, routes the game's screen) and turns this frame's touch into presses. Returns whether the game is paused.
 bool N3DSPause_update(void);
 bool N3DSPause_isPaused(void);
-// In a game (global.ingame) and not on the pause screen: when the bottom screen shows the map.
+// Whether the bottom screen should show the pause screen's map page as it last was (during play).
+bool N3DSPause_showMapOnBottom(void);
+// In a game (global.ingame) and not on the pause screen.
 bool N3DSPause_inPlay(void);
-// Once a frame while the map is on the bottom screen: dragging pans it, a tap puts the marker down or lifts it.
-void N3DSPause_updateMapTouch(void);

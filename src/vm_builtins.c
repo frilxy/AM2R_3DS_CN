@@ -428,8 +428,6 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "path_speed", BUILTIN_VAR_PATH_SPEED },
     { "persistent", BUILTIN_VAR_PERSISTENT },
     { "pi", BUILTIN_VAR_PI },
-    // this list is bsearched: keep it sorted
-    { "program_directory", BUILTIN_VAR_PROGRAM_DIRECTORY },
     { "room", BUILTIN_VAR_ROOM },
     { "room_first", BUILTIN_VAR_ROOM_FIRST },
     { "room_height", BUILTIN_VAR_ROOM_HEIGHT },
@@ -623,8 +621,6 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
     // So that's why this (and setVariable) are a jump table
     switch (builtinVarId) {
         // File system
-        // This port keeps the game's files in one directory, so program_directory and working_directory are the same.
-        case BUILTIN_VAR_PROGRAM_DIRECTORY:
         case BUILTIN_VAR_WORKING_DIRECTORY: {
             FileSystem* fs = runner->fileSystem;
             return RValue_makeOwnedString(fs->vtable->resolvePath(fs, ""));
@@ -11716,36 +11712,12 @@ static RValue builtin_draw_text_transformed(VMContext* ctx, RValue* args, MAYBE_
 // Drives draw_text_ext / draw_text_ext_transformed by wrapping the (preprocessed) text and forwarding to drawText.
 // Disable wrapping with 0 > "width", keep the font default line stride with 0 > "separation".
 static void drawTextExtCommonColor(Runner* runner, const char* str, float x, float y, float xscale, float yscale, float angle, int32_t separation, int32_t width, uint32_t c1, uint32_t c2, uint32_t c3, uint32_t c4) {
-    // Diagnostic (diag/logpopup): the new-log popup is drawn straight to the screen, so the only way to identify it is
-    // by who draws it and with what layout. Logs the caller's object name, not a guessed one, plus the parameters.
-    {
-        static int budget = 300;
-        VMContext* ctx = runner->vmContext;
-        if (budget > 0 && ctx != NULL && ctx->currentInstance != NULL) {
-            budget--;
-            const char* owner = ctx->runner->dataWin->objt.objects[ctx->currentInstance->objectIndex].name;
-            logInfo("TextExt: obj=%d=%s x=%.0f y=%.0f sep=%d wrap=%d len=%d font=%d <<%.60s>>\n",
-                (int) ctx->currentInstance->objectIndex, owner != NULL ? owner : "?", (double) x, (double) y,
-                (int) separation, (int) width, (int) (str != NULL ? strlen(str) : 0), (int) runner->renderer->drawFont,
-                str != NULL ? str : "");
-        }
-    }
     int32_t fontIndex = runner->renderer->drawFont;
     if (0 > fontIndex || (uint32_t) fontIndex >= runner->dataWin->font.count) return;
     Font* font = &runner->dataWin->font.fonts[fontIndex];
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
-    // The wrap limit is in pixels, but TextUtils_measureLineWidth works in the font's own units: with a horizontal
-    // scale the two differ, and the page broke its lines at 228 "units" while drawing them at half that width - the
-    // text filled only the left half of its 229-wide box. Convert once, here, so wrapping and drawing agree.
-    // The log page wraps its text at 148 + widescreen_space. That variable reads 0 in the pause room on this build (the
-    // same page has been seen asking for 228 and for 148), so the text broke at 148 while its box is 229 wide - the
-    // right of the box stayed black. The box is what the text has to fill, so wrap to the box instead of to the variable.
-    int32_t wrapWidth = width;
-    if (width == 148 || width == 228) {
-        wrapWidth = 225; // the page's box is 229 wide, text starts at x=2
-    }
-    PreprocessedText wrappedText = TextUtils_wrapText(font, processedText.text, wrapWidth);
+    PreprocessedText wrappedText = TextUtils_wrapText(font, processedText.text, width);
     if (c1 == c2 && c2 == c3 && c3 == c4 && c4 == runner->renderer->drawColor) {
         // using the ordinary drawText is safe
         runner->renderer->vtable->drawText(runner->renderer, wrappedText.text, x, y, xscale, yscale, angle, (float) separation);
@@ -12521,13 +12493,6 @@ static RValue builtin_surface_create(VMContext* ctx, RValue* args, MAYBE_UNUSED 
     int32_t width = (int32_t) RValue_toReal(args[0]);
     int32_t height = (int32_t) RValue_toReal(args[1]);
     Runner* runner = ctx->runner;
-    // The log page builds its text box as 149 + widescreen_space, and that variable can still be 0 when the page's
-    // Create runs (the game resets it on room entry; the port's own value lands a frame later). The page then wraps its
-    // text at 148 + widescreen_space (228) into a 149-wide surface, so the right half of the screen stays black and the
-    // text is clipped. Widening exactly this one surface to match the wrap fixes both, with no timing dependence.
-    if (width == 149 && height == 137) {
-        width = 149 + 80;
-    }
     if (runner->renderer != nullptr) {
         int32_t surfaceId = Renderer_createSurface(runner->renderer, width,height);
         return RValue_makeReal(surfaceId);
