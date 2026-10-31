@@ -2456,6 +2456,84 @@ static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer) {
     return (int32_t) (newTPAGCount - 1u);
 }
 
+// A texture page built from data the game did not ship: the CJK font atlas (see n3ds_cjk_font.c). It uses the same
+// pool as the surfaces' capture pages, so the draw paths that already know how to sample a runtime texture (the
+// dynamic capture branch of drawSprite/drawSpritePart) handle it without a second mechanism. The page is zero-filled:
+// whatever the caller does not paint stays transparent black, which for a glyph atlas means "no ink".
+int32_t N3DSRenderer_allocImagePage(Renderer* base, uint32_t width, uint32_t height, uint16_t** outPixels) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL || renderer->base.dataWin == NULL || outPixels == NULL) return -1;
+    // citro3d only takes power-of-two textures between 8 and 1024.
+    if (width < 8u || height < 8u || width > 1024u || height > 1024u) return -1;
+
+    int32_t tpagIndex = N3DSRenderer_allocDynamicCaptureTPAG(renderer);
+    if (tpagIndex < 0) return -1;
+    // The pool may have moved under the array (allocDynamicCaptureTPAG can realloc it), so it is looked up by index.
+    N3DSDynamicCaptureTPAG* capture = &renderer->dynamicCaptureTPAGs[(uint32_t) tpagIndex - renderer->baseTPAGCount];
+
+    if (!C3D_TexInit(&capture->texture, (u16) width, (u16) height, GPU_RGBA5551)) {
+        // logInfo, not fprintf: this file compiles its own fprintf calls away (N3DS_ENABLE_LOGGING).
+        logInfo("N3DS: could not allocate the %ux%u image page\n", (unsigned) width, (unsigned) height);
+        return -1;
+    }
+    C3D_TexSetFilter(&capture->texture, GPU_NEAREST, GPU_NEAREST);
+    C3D_TexSetWrap(&capture->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    capture->texture.border = 0x00000000u;
+    if (capture->texture.data != NULL) {
+        memset(capture->texture.data, 0, capture->texture.size);
+        // The whole page is written through *outPixels; flushing here costs nothing and keeps a failed/partial write
+        // from showing stale memory.
+        GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
+    }
+
+    capture->subtex = (Tex3DS_SubTexture) {
+        .width = (u16) width, .height = (u16) height,
+        .left = 0.0f, .top = 1.0f, .right = 1.0f, .bottom = 0.0f,
+    };
+    capture->image.tex = &capture->texture;
+    capture->image.subtex = &capture->subtex;
+    capture->used = true;
+    capture->ownerSpriteIndex = -1;
+    capture->logicalWidth = (uint16_t) width;
+    capture->logicalHeight = (uint16_t) height;
+
+    // The item covers the whole page. A font's glyphs are addressed by their own sourceX/sourceY inside it, and the
+    // page size is what drawSpritePart divides by to turn those into UVs, so it has to be the real texture size.
+    TexturePageItem* tpag = &renderer->base.dataWin->tpag.items[tpagIndex];
+    tpag->texturePageId = -1;
+    tpag->sourceX = 0;
+    tpag->sourceY = 0;
+    tpag->sourceWidth = (uint16_t) width;
+    tpag->sourceHeight = (uint16_t) height;
+    tpag->targetX = 0;
+    tpag->targetY = 0;
+    tpag->targetWidth = (uint16_t) width;
+    tpag->targetHeight = (uint16_t) height;
+    tpag->boundingWidth = (uint16_t) width;
+    tpag->boundingHeight = (uint16_t) height;
+
+    *outPixels = (uint16_t*) capture->texture.data;
+    return tpagIndex;
+}
+
+// Makes the pixels written through allocImagePage's pointer visible to the GPU. Call once, after the last write.
+void N3DSRenderer_flushImagePage(Renderer* base, int32_t tpagIndex) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    N3DSDynamicCaptureTPAG* capture = N3DSRenderer_getDynamicCaptureTPAG(renderer, tpagIndex);
+    if (capture == NULL || capture->texture.data == NULL) return;
+    GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
+}
+
+// A font swap replaces the whole glyph array; a layout cached before it still holds the old rectangles, so strings laid
+// out early (before oControl replaced the fonts) would keep drawing the old shapes.
+void N3DSRenderer_invalidateTextLayoutCache(Renderer* base) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL) return;
+    N3DSRenderer_freeCachedTextLayout(&renderer->cachedTextLayout);
+    renderer->lastDirectTPAGImage = NULL;
+    renderer->lastDirectTPAGIndex = -1;
+}
+
 static bool N3DSRenderer_tryLoadDirectSpriteImage(N3DSRenderer* renderer, int32_t spriteIndex, int32_t frameIndex, C2D_Image** outImage) {
     if (renderer == NULL || outImage == NULL) return false;
     if (spriteIndex < 0 || (uint32_t) spriteIndex >= renderer->directSpriteAssetCount) return false;
@@ -2572,6 +2650,14 @@ static bool N3DSRenderer_tryResolveDirectFontImage(N3DSRenderer* renderer, int32
 #endif
     if (renderer == NULL || outImage == NULL || outSubtex == NULL) return false;
     if (fontIndex < 0 || (uint32_t) fontIndex >= renderer->directFontAssetCount) return false;
+    // A font replaced at runtime (the CJK pack: see allocImagePage) has glyph rectangles that index the page that was
+    // just built, not the preprocessed fonts/font_NNNNN.t3x. Drawing it through the direct asset would sample the wrong
+    // ink, so a font pointing at a runtime page always takes the atlas path.
+    DataWin* dw = renderer->base.dataWin;
+    if (dw != NULL && (uint32_t) fontIndex < dw->font.count) {
+        int32_t tpagIndex = dw->font.fonts[fontIndex].tpagIndex;
+        if (tpagIndex >= 0 && (uint32_t) tpagIndex >= renderer->baseTPAGCount) return false;
+    }
 
     N3DSDirectTextureAsset* asset = &renderer->directFontAssets[fontIndex];
     char path[256];

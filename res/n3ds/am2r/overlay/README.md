@@ -1,8 +1,8 @@
 # Language assets this port replaces
 
 Everything under `overlay/` is copied over the game folder **after** the game's own files (`tools/n3ds/make_sd.sh`),
-because AM2R's shipped language pack targets outline fonts and this port renders the fonts from their 1-bit bitmap
-strikes instead (see `docs/localization.md`).
+because AM2R's shipped language pack targets outline fonts while this port draws from the pixel fonts' 1-bit bitmap
+strikes, baked offline into `lang/fonts/cjk-font.bin` (see `docs/font-plan.md`).
 
 ## `lang/fonts/*.ttf`
 
@@ -30,6 +30,14 @@ The files are **fusion-pixel-font** 2026.09.25, `proportional` / `zh_hans` / `.m
 The sizes are forced by the game's layout, not chosen for looks: `fontMenuTiny` draws item names on a 9px stride, so
 its ink has to fit in the 8px strike, and `fontMenuSmall` draws at `y = 228` on a 240px screen, which the 10px strike
 fills exactly.
+
+## `lang/fonts/cjk-font.bin`
+
+The glyphs the port's `font_replace` loads: every character the language files use, the port's own front-end strings and
+ASCII, rasterized from the same five files above and packed into one 1024x1024 page by
+`tools/n3ds/fontgen/make_cjk_font.py`. Regenerate it whenever the translation, `sizes.ini` or the fonts change;
+`cjk-font.png` next to it is the same page as a picture, for review. `tools/n3ds/fontgen/verify_cjk_font.py` re-reads
+the pack like the 3DS does and draws a sample string out of it.
 
 ## `lang/languages.txt`
 

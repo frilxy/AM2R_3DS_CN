@@ -76,3 +76,12 @@ void N3DSRenderer_drawBottomSnapshot(Renderer* renderer);
 #define N3DS_OVERLAY_DEPTH 1.0f
 void N3DSRenderer_beginScreenOverlay(Renderer* renderer, bool top);
 void N3DSRenderer_endScreenOverlay(Renderer* renderer);
+
+// A texture page built at runtime from data the game did not ship (the CJK font atlas). Allocates a zero-filled
+// RGBA5551 texture of width x height (both powers of two, 8..1024), adds a TPAG item covering it and returns that
+// item's index, or -1. *outPixels is the texture's own memory, to be written as 8x8 Morton tiles of uint16_t
+// RGBA5551, first tile row at the top; call N3DSRenderer_flushImagePage once the last pixel is in.
+int32_t N3DSRenderer_allocImagePage(Renderer* renderer, uint32_t width, uint32_t height, uint16_t** outPixels);
+void N3DSRenderer_flushImagePage(Renderer* renderer, int32_t tpagIndex);
+// Drops the cached text layout: a font's glyph rectangles changed, so strings laid out earlier are stale.
+void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);

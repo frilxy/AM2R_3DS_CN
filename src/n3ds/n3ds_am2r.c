@@ -1,6 +1,7 @@
 #include "n3ds_am2r.h"
 #include "n3ds_am2r_native.h"
 
+#include "n3ds_cjk_font.h"
 #include "n3ds_gml.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
@@ -128,6 +129,7 @@ static RValue hookDamageSamus(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDamageSamusKnockdown(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDamageSamusPush(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookFontReplace(VMContext* ctx, RValue* args, int32_t argCount);
 
 static N3DSAm2rHook gHooks[] = {
     { "get_text", hookGetText, -1 },
@@ -245,6 +247,25 @@ static RValue hookRoomChange(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t 
         args[0] = RValue_makeReal((GMLReal) gAm2r.roomTitle);
     }
     return N3DSAm2r_callOriginal(hookRoomChange, args, argCount);
+}
+
+// ===[ Language packs: font_replace ]===
+
+// font_replace(font, ttf, size, bold, italic, first, last): the language packs swap whole fonts at runtime, because
+// data.win itself carries no CJK glyphs. The game passes more arguments than GameMaker documents and only the first
+// three matter here. No script implements it (the port is the only implementation), so it is installed by name below
+// rather than through gHooks, which only wraps functions the game defines too.
+//
+// The glyphs come from the pack the offline generator baked (see n3ds_cjk_font.h): the TTF is never opened at runtime.
+static RValue hookFontReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount < 3 || args[1].type != RVALUE_STRING || args[1].string == NULL) return RValue_makeUndefined();
+    if (gAm2r.runner == NULL) return RValue_makeUndefined();
+    int32_t fontIndex = RValue_toInt32(args[0]);
+    float emSize = (float) RValue_toReal(args[2]);
+    if (!N3DSCjkFont_apply(gAm2r.runner, fontIndex, args[1].string, emSize)) {
+        logInfo("AM2R: font_replace(%d, %s, %g) was not applied\n", (int) fontIndex, args[1].string, (double) emSize);
+    }
+    return RValue_makeUndefined();
 }
 
 // ===[ Unlimited health ]===
@@ -409,6 +430,15 @@ void N3DSAm2r_init(Runner* runner) {
             vm->funcCallCache[i].builtin = (void*) gHooks[h].hook;
             logInfo("AM2R: %s goes through the 3DS front end\n", name);
         }
+    }
+    // font_replace has no game script behind it (the loop above only wraps functions the game also defines), so its
+    // cached builtin is replaced by name. This has to happen before oControl's Create event, which is where the
+    // language pack calls it.
+    for (uint32_t i = 0; i < vm->funcCallCacheCount; i++) {
+        const char* name = dataWin->func.functions[i].name;
+        if (name == NULL || strcmp(name, "font_replace") != 0) continue;
+        vm->funcCallCache[i].builtin = (void*) hookFontReplace;
+        logInfo("AM2R: font_replace goes through the 3DS front end\n");
     }
     // Fast scripts default to on; cheats.ini can turn them off.
     N3DSAm2rNative_setEnabled(true);
