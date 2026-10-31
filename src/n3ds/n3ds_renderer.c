@@ -5429,14 +5429,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         static int budget = 60;
         if (budget > 0 && text != NULL && strlen(text) > 100) {
             budget--;
-            logInfo("TextPos: game %.1f,%.1f -> screen %.1f,%.1f (frameOff %.1f,%.1f portOff %.1f,%.1f view %d,%d scale %.3f,%.3f) target=%d [%.16s]\n",
+            int tw = -1, th = -1;
+            if (renderer->currentTargetSurface >= 0) {
+                N3DSSurface* t = &renderer->surfaces[renderer->currentTargetSurface];
+                tw = (int) t->width; th = (int) t->height;
+            }
+            logInfo("TextPos: game %.1f,%.1f -> screen %.1f,%.1f target=%d surf=%dx%d [%.16s]\n",
                 (double) x, (double) y,
                 (double) N3DSRenderer_transformScreenX(renderer, x), (double) N3DSRenderer_transformScreenY(renderer, y),
-                (double) renderer->frameOffsetX, (double) renderer->frameOffsetY,
-                (double) renderer->portOffsetX, (double) renderer->portOffsetY,
-                (int) renderer->viewX, (int) renderer->viewY,
-                (double) renderer->viewScaleX, (double) renderer->viewScaleY,
-                (int) renderer->currentTargetSurface, text);
+                (int) renderer->currentTargetSurface, tw, th, text);
         }
     }
     if (!font->isSpriteFont && font->tpagIndex >= 0) {
