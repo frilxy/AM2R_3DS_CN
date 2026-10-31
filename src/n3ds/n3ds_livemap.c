@@ -396,6 +396,7 @@ static void N3DSLiveMap_twoDigits(char* out, size_t size, const char* global) {
 
 typedef struct {
     int32_t icon;      // sprite index, or -1 for an entry with no icon
+    int32_t frame;     // which of the sprite's frames: 0 plain, 1 highlighted (the HUD's green "armed" frame)
     float iconScale;   // the game's icons are drawn at 1:1; the plate is drawn, and uses the plate constants
     char text[24];
     float width;       // icon + gap + text, filled in by the measuring pass
@@ -489,12 +490,19 @@ static void N3DSLiveMap_drawStatus(void) {
     entries[0].icon = -1;  // drawn as a plate, not a sprite: see N3DS_STATUS_ETANK_*
     entries[0].drawn = true;
     entries[0].iconScale = 1.0f;
+    // Which weapon is armed, in the game's own numbering: 1 missiles, 2 super missiles, 3 power bombs. The HUD lights
+    // the armed weapon's icon with the sprite's second frame, so the bottom strip does the same and the two agree.
+    double weapon = 0.0;
+    N3DSGml_getGlobal("currentweapon", -1, &weapon);
     entries[1].icon = gLive.sprMissile;
     entries[1].iconScale = 1.0f;
+    entries[1].frame = weapon == 1.0 ? 1 : 0;
     entries[2].icon = gLive.sprSMissile;
     entries[2].iconScale = 1.0f;
+    entries[2].frame = weapon == 2.0 ? 1 : 0;
     entries[3].icon = gLive.sprPBomb;
     entries[3].iconScale = 1.0f;
+    entries[3].frame = weapon == 3.0 ? 1 : 0;
     // playerhealth is what the HUD shows (the items page adds maxhealth beside it); maxhealth is not among the
     // globals the game declares for its HUD, so a build without it falls back to showing the value alone. Energy is
     // always shown: it cannot be un-found.
@@ -568,7 +576,7 @@ static void N3DSLiveMap_drawStatus(void) {
                 // black adds nothing and leaves the bar showing through, while the icon's own pixels light it up, so
                 // the icons sit on the bar the way the energy plate's E does.
                 r->vtable->gpuSetBlendMode(r, bm_add);
-                Renderer_drawSpriteExt(r, entries[i].icon, 0,
+                Renderer_drawSpriteExt(r, entries[i].icon, entries[i].frame,
                     x + (float) sprite->originX * entries[i].iconScale,
                     iconTop + (float) sprite->originY * entries[i].iconScale,
                     entries[i].iconScale, entries[i].iconScale, 0.0f, N3DS_STATUS_ICON_TINT, 1.0f);
