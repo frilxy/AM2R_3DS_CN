@@ -5624,7 +5624,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
                 // Diagnostic (scan prompt): the anchor said 11 and the transform said 24, but the glyph lands off the
                 // left edge - this prints the position the glyph is actually handed to the renderer, and where that
                 // ends up on screen.
-                if (cursorY < 30.0f) {
+                if (cursorY > 200.0f) { // the bottom strip: the scan prompt, not the HUD
                     static int budget = 12;
                     if (budget > 0) {
                         budget--;
