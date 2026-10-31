@@ -1,0 +1,81 @@
+From 56c394b6ca2195f903fbf878f5f49ac2f0a4e8cb Mon Sep 17 00:00:00 2001
+From: NattensMadrigal <henrik.duarte@gmail.com>
+Date: Wed, 14 Oct 2026 16:51:21 +0100
+Subject: [PATCH] View surface: clear only what is outside the room, not the
+ whole surface
+
+Clearing the whole surface every frame blanked the frozen frame the item screens draw from it (energy and missile tanks went black). The margin outside the room is the only part nothing redraws.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/runner.c                        | 21 +++++++++++++++++----
+ tools/n3ds/harness/cuenergytank.txt | 23 +++++++++++++++++++++++
+ 2 files changed, 40 insertions(+), 4 deletions(-)
+ create mode 100644 tools/n3ds/harness/cuenergytank.txt
+
+diff --git a/src/runner.c b/src/runner.c
+index 044b9cb..f7b28bb 100644
+--- a/src/runner.c
++++ b/src/runner.c
+@@ -1636,15 +1636,28 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
+ 
+                 Runner_surfaceSetTarget(runner, view->surfaceId);
+ 
+-                // Cleared every frame, as the screen is (black if the room doesn't draw its colour): a surface keeps its
+-                // pixels, and whatever the room doesn't cover stayed on it. AM2R 1.5's widescreen surface is wider than
+-                // the room, and the margins at an exit showed the tiles there smeared as the view scrolled.
+-                renderer->vtable->clearScreen(renderer, runner->drawBackgroundColor ? runner->currentRoom->backgroundColor : 0, 1.0f);
++                if (runner->drawBackgroundColor)
++                    renderer->vtable->clearScreen(renderer, runner->currentRoom->backgroundColor, 1.0f);
+ 
+                 runner->viewCurrent = (int32_t) vi;
+                 runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
+                 runner->renderer->vtable->applyProjection(runner->renderer, &camera->viewMatrix, &camera->projectionMatrix);
+ 
++                // A surface keeps its pixels, and nothing redraws what is outside the room. AM2R 1.5's widescreen
++                // surface is wider than the room, so at an exit the margin kept old pixels and the tiles there smeared
++                // as the view scrolled. Only that part is cleared (black, like the screen): the rest stays as the game
++                // left it, which its item screen relies on (it draws this surface onto itself as the frozen frame).
++                {
++                    float vx = camera->viewX, vy = camera->viewY;
++                    float vw = (float) camera->viewWidth, vh = (float) camera->viewHeight;
++                    float rw = (float) runner->currentRoom->width, rh = (float) runner->currentRoom->height;
++                    const float pad = 64.0f;
++                    if (vx < 0.0f) renderer->vtable->drawRectangle(renderer, vx - pad, vy - pad, 0.0f, vy + vh + pad, 0, 1.0f, false);
++                    if (vx + vw > rw) renderer->vtable->drawRectangle(renderer, rw, vy - pad, vx + vw + pad, vy + vh + pad, 0, 1.0f, false);
++                    if (vy < 0.0f) renderer->vtable->drawRectangle(renderer, vx - pad, vy - pad, vx + vw + pad, 0.0f, 0, 1.0f, false);
++                    if (vy + vh > rh) renderer->vtable->drawRectangle(renderer, vx - pad, rh, vx + vw + pad, vy + vh + pad, 0, 1.0f, false);
++                }
++
+                 Runner_draw(runner);
+ 
+                 renderer->vtable->flush(renderer);
+diff --git a/tools/n3ds/harness/cuenergytank.txt b/tools/n3ds/harness/cuenergytank.txt
+new file mode 100644
+index 0000000..0369799
+--- /dev/null
++++ b/tools/n3ds/harness/cuenergytank.txt
+@@ -0,0 +1,23 @@
++# AM2R 1.5.5: Samus onto the energy tank in rm_a1a07 (776,128); screenshots of the item screen (must not go black).
++seed 12345
++after_room titleroom
++press 800 START 4
++press 900 START 4
++press 1000 A 4
++press 1100 A 4
++press 1200 A 4
++after_room gameintroroom
++press 60 START 4
++press 120 START 4
++press 180 A 4
++after_room rm_a0h01
++goto 200 rm_a1a07
++after_room rm_a1a07
++place 5 776 136
++screenshot 12
++after_room itemroom
++screenshot 10
++screenshot 60
++screenshot 120
++screenshot 200
++exit 260

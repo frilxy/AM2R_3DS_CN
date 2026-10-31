@@ -1,0 +1,63 @@
+From e11eea27bcfa80742264b8fbe1c537eb83472c0d Mon Sep 17 00:00:00 2001
+From: NattensMadrigal <henrik.duarte@gmail.com>
+Date: Wed, 14 Oct 2026 16:51:21 +0100
+Subject: [PATCH] Clear a view surface every frame: the widescreen margins no
+ longer smear
+
+A view drawn to a surface only cleared it when the room drew its background colour; the surface kept the rest. AM2R 1.5 draws its world to a surface wider than the room, so at an exit the margin outside the room (covered only by a few stray tiles) kept old pixels and the tiles smeared vertically as the view scrolled (rm_a1h03, Codeberg issue 3).
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/runner.c                   |  6 ++++--
+ tools/n3ds/harness/cua1h03.txt | 25 +++++++++++++++++++++++++
+ 2 files changed, 29 insertions(+), 2 deletions(-)
+ create mode 100644 tools/n3ds/harness/cua1h03.txt
+
+diff --git a/src/runner.c b/src/runner.c
+index 10e69cc..044b9cb 100644
+--- a/src/runner.c
++++ b/src/runner.c
+@@ -1636,8 +1636,10 @@ void Runner_drawViews(Runner* runner, int32_t gameW, int32_t gameH, bool debugSh
+ 
+                 Runner_surfaceSetTarget(runner, view->surfaceId);
+ 
+-                if (runner->drawBackgroundColor)
+-                    renderer->vtable->clearScreen(renderer, runner->currentRoom->backgroundColor, 1.0f);
++                // Cleared every frame, as the screen is (black if the room doesn't draw its colour): a surface keeps its
++                // pixels, and whatever the room doesn't cover stayed on it. AM2R 1.5's widescreen surface is wider than
++                // the room, and the margins at an exit showed the tiles there smeared as the view scrolled.
++                renderer->vtable->clearScreen(renderer, runner->drawBackgroundColor ? runner->currentRoom->backgroundColor : 0, 1.0f);
+ 
+                 runner->viewCurrent = (int32_t) vi;
+                 runner->renderer->cameraCurrent = runner->views[runner->viewCurrent].cameraId;
+diff --git a/tools/n3ds/harness/cua1h03.txt b/tools/n3ds/harness/cua1h03.txt
+new file mode 100644
+index 0000000..d4c4d01
+--- /dev/null
++++ b/tools/n3ds/harness/cua1h03.txt
+@@ -0,0 +1,25 @@
++# AM2R 1.5.5 (issue 3): rm_a1h03 (the shaft) left side, Samus jumping up and down next to the left exit; the exit area must stay black.
++seed 12345
++after_room titleroom
++press 800 START 4
++press 900 START 4
++press 1000 A 4
++press 1100 A 4
++press 1200 A 4
++after_room gameintroroom
++press 60 START 4
++press 120 START 4
++press 180 A 4
++after_room rm_a0h01
++goto 200 rm_a1h03
++after_room rm_a1h03
++place 5 47 625
++screenshot 40
++press 50 B 30
++screenshot 60
++screenshot 75
++press 110 B 30
++screenshot 120
++screenshot 135
++screenshot 200
++exit 240

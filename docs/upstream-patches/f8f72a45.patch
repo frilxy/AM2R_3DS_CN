@@ -1,0 +1,96 @@
+From f8f72a45c9891e97e48aa53ada9dd1775e0258cf Mon Sep 17 00:00:00 2001
+From: Henrik Duarte <henrik.duarte@gmail.com>
+Date: Thu, 8 Oct 2026 09:27:40 +0100
+Subject: [PATCH] n3ds: draw_surface of the surface being drawn to draws a copy
+ of it
+
+AM2R 1.5 draws its widescreen surface, the target of the item screen's view, onto itself to show the frozen game frame; the renderer skipped the draw (the GPU cannot sample a target while drawing to it) and a missile tank's screen came out blue. The surface is now copied to a scratch surface first (a draw in command order, once a frame per surface) and the copy is drawn.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/n3ds/n3ds_renderer.c | 51 ++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/src/n3ds/n3ds_renderer.c b/src/n3ds/n3ds_renderer.c
+index 782e52a..2e8e10e 100644
+--- a/src/n3ds/n3ds_renderer.c
++++ b/src/n3ds/n3ds_renderer.c
+@@ -455,6 +455,10 @@ typedef struct {
+     uint32_t perfWindowSpriteDrawCalls;
+     uint32_t perfWindowSpritePartDrawCalls;
+     uint32_t frameSequence;
++    // draw_surface of the surface being drawn to: a copy of it (made once a frame), drawn instead.
++    int32_t feedbackCopyId;
++    int32_t feedbackSourceId;
++    uint32_t feedbackFrame;
+     const Room* lastPrewarmedRoom;
+     N3DSCachedTextLayout cachedTextLayout;
+     N3DSResolvedAssetPathEntry* resolvedAssetPathCache;
+@@ -5882,6 +5886,47 @@ static void N3DSRenderer_drawSurfaceRegion(Renderer* base, N3DSSurface* surface,
+     N3DSRenderer_drawImage(base, &image, x, y, (float) srcWidth * xscale, (float) srcHeight * yscale, 0.0f, 0.0f, angleDeg, color, alpha);
+ }
+ 
++// draw_surface of the surface being drawn to. AM2R 1.5's item screen draws the widescreen surface (the target of its
++// view) onto itself to show the frozen game frame; skipping that left a missile tank's screen blue. The GPU can't sample
++// a target while drawing to it, so the surface is first copied to a scratch surface (a draw, in command order, so
++// everything already drawn to it is in the copy) and the copy is drawn. Once a frame per surface.
++static N3DSSurface* N3DSRenderer_feedbackCopy(Renderer* base, int32_t surfaceID) {
++    N3DSRenderer* renderer = (N3DSRenderer*) base;
++    N3DSSurface* surface = N3DSRenderer_getSurface(renderer, surfaceID);
++    if (surface == NULL) return NULL;
++    N3DSSurface* copy = renderer->feedbackCopyId >= 0 ? N3DSRenderer_getSurface(renderer, renderer->feedbackCopyId) : NULL;
++    if (copy != NULL && renderer->feedbackFrame == renderer->frameSequence && renderer->feedbackSourceId == surfaceID) return copy;
++    if (copy == NULL || copy->width != surface->width || copy->height != surface->height) {
++        if (copy != NULL) N3DSRenderer_surfaceFree(base, renderer->feedbackCopyId);
++        renderer->feedbackCopyId = N3DSRenderer_createSurface(base, surface->width, surface->height);
++        copy = renderer->feedbackCopyId >= 0 ? N3DSRenderer_getSurface(renderer, renderer->feedbackCopyId) : NULL;
++        if (copy == NULL) {
++            N3DS_UNIMPL("drawSurface", "feedback surface=%d (no copy)", (int) surfaceID);
++            return NULL;
++        }
++    }
++
++    Matrix4f view = base->gmlMatrices[MATRIX_VIEW];
++    Matrix4f projection = base->gmlMatrices[MATRIX_PROJECTION];
++    float vpX = renderer->vpX, vpY = renderer->vpY, vpW = renderer->vpW, vpH = renderer->vpH;
++    bool blendEnabled = renderer->blendEnabled;
++
++    N3DSRenderer_setRenderTarget(base, renderer->feedbackCopyId, false);
++    renderer->blendEnabled = false;
++    N3DSRenderer_applyBlendState(renderer);
++    N3DSRenderer_drawSurfaceRegion(base, surface, 0, 0, -1, -1, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
++
++    renderer->blendEnabled = blendEnabled;
++    N3DSRenderer_setRenderTarget(base, surfaceID, false);
++    N3DSRenderer_setViewport(renderer, vpX, vpY, vpW, vpH);
++    N3DSRenderer_applyProjection(base, &view, &projection);
++    N3DSRenderer_applyBlendState(renderer);
++
++    renderer->feedbackFrame = renderer->frameSequence;
++    renderer->feedbackSourceId = surfaceID;
++    return copy;
++}
++
+ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
+     N3DS_ZONE(N3DS_ZONE_SURFACE_DRAW);
+     N3DSRenderer* renderer = (N3DSRenderer*) base;
+@@ -5895,8 +5940,8 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t
+ #endif
+     if (surface == NULL) return;
+     if (surfaceID == renderer->currentTargetSurface) {
+-        N3DS_UNIMPL("drawSurface", "feedback surface=%d", (int) surfaceID);
+-        return;
++        surface = N3DSRenderer_feedbackCopy(base, surfaceID);
++        if (surface == NULL) return;
+     }
+     N3DSRenderer_drawSurfaceRegion(base, surface, srcLeft, srcTop, srcWidth, srcHeight, x, y, xscale, yscale, angleDeg, color, alpha);
+ }
+@@ -6349,6 +6394,8 @@ Renderer* N3DSRenderer_create(void) {
+     renderer->base.circlePrecision = 24;
+     renderer->base.currentShader = -1;
+     renderer->currentTargetSurface = RENDER_TARGET_HOST_FRAMEBUFFER;
++    renderer->feedbackCopyId = -1;
++    renderer->feedbackSourceId = -1;
+     renderer->colorWrite[0] = renderer->colorWrite[1] = renderer->colorWrite[2] = renderer->colorWrite[3] = true;
+     renderer->resolvedAssetPathCache = NULL;
+     sh_new_strdup(renderer->resolvedAssetPathCache);

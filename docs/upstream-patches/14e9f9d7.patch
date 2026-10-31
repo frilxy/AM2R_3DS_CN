@@ -1,0 +1,100 @@
+From 14e9f9d7d1d2b364ce6e2958637b291c2f88cfdb Mon Sep 17 00:00:00 2001
+From: NattensMadrigal <henrik.duarte@gmail.com>
+Date: Wed, 28 Oct 2026 13:50:29 +0000
+Subject: [PATCH] n3ds: keep flush-to-zero on (denormals crashed the Metroid
+ fights); light map skips lights outside its surface and logs its cost
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/n3ds/main.c                   |  7 +++++--
+ src/n3ds/n3ds_am2r_native.c       |  1 +
+ src/n3ds/n3ds_am2r_native_hud.inc | 26 ++++++++++++++++++++++++++
+ 3 files changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/src/n3ds/main.c b/src/n3ds/main.c
+index 0aa5f3e..de8cf09 100644
+--- a/src/n3ds/main.c
++++ b/src/n3ds/main.c
+@@ -552,14 +552,17 @@ static void N3DS_logMemory(const char* when) {
+ }
+ 
+ // 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest
+-// and keeps denormals. GameMaker games' movement and collision code leans on exact double arithmetic (fractional
++// (flush-to-zero stays on, see below). GameMaker games' movement and collision code leans on exact double arithmetic (fractional
+ // speeds, floor() of positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game
+ // expects her (47.9999 instead of 48) and she can slip into or through blocks while moving vertically. The game
+ // runs on this thread only. Returns the FPSCR found, for the log.
+ static uint32_t N3DS_useIeeeRounding(void) {
+     uint32_t fpscr;
+     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
+-    uint32_t ieee = fpscr & ~((3u << 22) | (1u << 24)); // round to nearest, no flush-to-zero
++    // Round to nearest. Flush-to-zero stays on: the VFP11 can't compute with denormals in hardware (it needs support
++    // code the 3DS doesn't have), so a denormal in Instance_computeSpeedFromComponents ended in an undefined
++    // instruction exception (Omega and Zeta Metroid fights).
++    uint32_t ieee = fpscr & ~(3u << 22);
+     __asm__ volatile("vmsr fpscr, %0" : : "r"(ieee));
+     return fpscr;
+ }
+diff --git a/src/n3ds/n3ds_am2r_native.c b/src/n3ds/n3ds_am2r_native.c
+index 3930092..1356955 100644
+--- a/src/n3ds/n3ds_am2r_native.c
++++ b/src/n3ds/n3ds_am2r_native.c
+@@ -13,6 +13,7 @@
+ #include <stb/ds/stb_ds.h>
+ #include <math.h>
+ #include <string.h>
++#include <3ds.h>
+ 
+ // Each native below follows the game's bytecode instruction for instruction (the disassembly it was written from is
+ // quoted in its comment where the order matters): the same values read, the same variables written (with the same
+diff --git a/src/n3ds/n3ds_am2r_native_hud.inc b/src/n3ds/n3ds_am2r_native_hud.inc
+index b9ff2d3..2d21f68 100644
+--- a/src/n3ds/n3ds_am2r_native_hud.inc
++++ b/src/n3ds/n3ds_am2r_native_hud.inc
+@@ -277,7 +277,25 @@ static int32_t withInstances(int32_t obj) {
+ 
+ static GMLReal gViewX, gViewY;
+ 
++// Light-map statistics for the log (one line every LIGHT_STATS_FRAMES maps): quads drawn and skipped.
++#define LIGHT_STATS_FRAMES 300
++#define LIGHT_SURFACE_W 512 // oLightEngine user event 0: surface_create(512, 256)
++#define LIGHT_SURFACE_H 256
++#define LIGHT_SPRITE 1127   // the 64 x 64 soft light
++static uint32_t gLightQuads, gLightSkipped, gLightMaps;
++static double gLightMs;
++
+ static void lightQuad(GMLReal sprite, GMLReal x, GMLReal y, GMLReal sx, GMLReal sy, GMLReal rot, GMLReal colour, GMLReal alpha) {
++    // A light whose sprite lies wholly outside the light surface draws nothing: skip its four calls. The 64 x 64
++    // sprite's origin is inside it, so 64 x scale around the position bounds it.
++    if (sprite == LIGHT_SPRITE) {
++        GMLReal r = 64 * (fabs(sx) > fabs(sy) ? fabs(sx) : fabs(sy));
++        if (x + r < 0 || x - r > LIGHT_SURFACE_W || y + r < 0 || y - r > LIGHT_SURFACE_H) {
++            gLightSkipped++;
++            return;
++        }
++    }
++    gLightQuads++;
+     drawSpriteExt(sprite, -1, x, y, sx, sy, rot, colour, alpha);
+     drawSpriteExt(sprite, -1, x, y, -sx, sy, rot, colour, alpha);
+     drawSpriteExt(sprite, -1, x, y, sx, -sy, rot, colour, alpha);
+@@ -368,6 +386,7 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance*
+     RValue_free(&vx);
+     RValue_free(&vy);
+ 
++    u64 lightStart = svcGetSystemTick();
+     RValue target[1] = { *surfSlot };
+     target[0].ownsReference = false;
+     callVoid(N.surfaceSetTarget, target, 1);
+@@ -525,5 +544,12 @@ static bool native_oLightEngine_Other_11(MAYBE_UNUSED Runner* runner, Instance*
+ 
+     blendMode(0);
+     callVoid(N.surfaceResetTarget, NULL, 0);
++    gLightMs += (double) (svcGetSystemTick() - lightStart) * 1000.0 / (double) SYSCLOCK_ARM11;
++    if (++gLightMaps == LIGHT_STATS_FRAMES) {
++        logInfo("Light map: %.2f ms, %.1f quads (+%.1f skipped outside the surface) per map, last %u maps\n",
++            gLightMs / gLightMaps, (double) gLightQuads / gLightMaps, (double) gLightSkipped / gLightMaps, (unsigned) gLightMaps);
++        gLightQuads = gLightSkipped = gLightMaps = 0;
++        gLightMs = 0;
++    }
+     return true;
+ }

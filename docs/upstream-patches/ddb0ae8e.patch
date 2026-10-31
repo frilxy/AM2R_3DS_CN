@@ -1,0 +1,59 @@
+From ddb0ae8e2e015be1506a9c8ec1b58e8ccef9a678 Mon Sep 17 00:00:00 2001
+From: NattensMadrigal <henrik.duarte@gmail.com>
+Date: Wed, 14 Oct 2026 16:51:21 +0100
+Subject: [PATCH] N3DS renderer: tiles draw with tile->alpha, so hidden spots
+ fade their foreground
+
+The renderer re-derived a tile alpha from its colour and ignored tile_set_alpha, which oFadeTiles uses to fade the foreground over secret areas.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/n3ds/n3ds_renderer.c           |  5 +++--
+ tools/n3ds/harness/cufadetiles.txt | 22 ++++++++++++++++++++++
+ 2 files changed, 25 insertions(+), 2 deletions(-)
+ create mode 100644 tools/n3ds/harness/cufadetiles.txt
+
+diff --git a/src/n3ds/n3ds_renderer.c b/src/n3ds/n3ds_renderer.c
+index 4a231cc..d641a0b 100644
+--- a/src/n3ds/n3ds_renderer.c
++++ b/src/n3ds/n3ds_renderer.c
+@@ -4470,8 +4470,9 @@ static void N3DSRenderer_drawTile(Renderer* base, RoomTile* tile, float offsetX,
+     }
+ #endif
+     uint32_t bgr = tile->color & 0x00FFFFFFu;
+-    uint8_t alphaByte = (uint8_t) ((tile->color >> 24) & 0xFFu);
+-    float alpha = (alphaByte == 0) ? 1.0f : (float) alphaByte / 255.0f;
++    // tile->alpha starts as the colour's alpha byte (data_win.c) and is what tile_set_alpha changes: AM2R fades the
++    // foreground over its hidden spots with it (oFadeTiles).
++    float alpha = tile->alpha;
+     float drawX = (float) tile->x + offsetX;
+     float drawY = (float) tile->y + offsetY;
+     if (!Renderer_isFiniteFloat(drawX) || !Renderer_isFiniteFloat(drawY) ||
+diff --git a/tools/n3ds/harness/cufadetiles.txt b/tools/n3ds/harness/cufadetiles.txt
+new file mode 100644
+index 0000000..5eb9317
+--- /dev/null
++++ b/tools/n3ds/harness/cufadetiles.txt
+@@ -0,0 +1,22 @@
++# AM2R 1.5.5: Samus enters the hidden spot of rm_a1a07 (oFadeTiles at 432,80, area 160x80): the foreground must fade out. Screenshots outside and inside.
++seed 12345
++after_room titleroom
++press 800 START 4
++press 900 START 4
++press 1000 A 4
++press 1100 A 4
++press 1200 A 4
++after_room gameintroroom
++press 60 START 4
++press 120 START 4
++press 180 A 4
++after_room rm_a0h01
++goto 200 rm_a1a07
++after_room rm_a1a07
++place 5 380 140
++screenshot 60
++place 70 480 140
++screenshot 90
++screenshot 120
++screenshot 180
++exit 220

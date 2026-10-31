@@ -1,0 +1,215 @@
+From b0c705fa731789142c52acb734179f546ebf252a Mon Sep 17 00:00:00 2001
+From: NattensMadrigal <henrik.duarte@gmail.com>
+Date: Wed, 28 Oct 2026 15:56:31 +0000
+Subject: [PATCH] AM2R n3ds: free a left room light map (it leaked VRAM on
+ every room entry); Start opens the menu cross; pause pages laid out for 320;
+ no Screen option
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/n3ds/n3ds_am2r.c  | 84 +++++++++++++++++++++++++++----------------
+ src/n3ds/n3ds_pause.c |  5 +--
+ 2 files changed, 55 insertions(+), 34 deletions(-)
+
+diff --git a/src/n3ds/n3ds_am2r.c b/src/n3ds/n3ds_am2r.c
+index 41f9910..e4aef98 100644
+--- a/src/n3ds/n3ds_am2r.c
++++ b/src/n3ds/n3ds_am2r.c
+@@ -2,6 +2,7 @@
+ #include "n3ds_am2r_native.h"
+ 
+ #include "n3ds_gml.h"
++#include "n3ds_pause.h"
+ #include "n3ds_platform_config.h"
+ #include "n3ds_renderer.h"
+ #include "n3ds_screen.h"
+@@ -40,7 +41,7 @@ enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
+ enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
+ #define N3DS_AM2R_AREAS 10
+ #define N3DS_AM2R_MAX_AREA_ROOMS 64
+-enum { DISPLAY_ROW_SCREEN, DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
++enum { DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+ // The Extras page wraps the game's own Extras page (EXTRAS_ROW_GAME) and holds Cheats.
+ enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
+ // Rows a page shows at once (the tip bar covers the rest of the screen); longer pages scroll.
+@@ -104,6 +105,8 @@ typedef struct {
+     bool itemsForced;
+     double itemBackup[N3DS_AM2R_ITEMS];
+     bool itemChanged[N3DS_AM2R_ITEMS];
++    bool pauseWidescreenSaved;
++    double pauseWidescreen, pauseWidescreenSpace;
+     bool gameRunning; // a game has been played since the title screen (global.ingame is 0 while paused)
+ } N3DSAm2r;
+ 
+@@ -270,22 +273,7 @@ static RValue hookDamageSamusPush(MAYBE_UNUSED VMContext* ctx, RValue* args, int
+     return N3DSAm2r_damage(hookDamageSamusPush, args, argCount);
+ }
+ 
+-// ===[ Screen mode ]===
+-
+-// The screen modes the Display page offers, in order (Stretch first: the default).
+-static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X, N3DS_SCREEN_2X, N3DS_SCREEN_WIDE };
+-static const char* const kScreenModeNames[] = { "Stretch", "1x", "2x", "Wide" };
+-#define N3DS_AM2R_SCREEN_MODES ((int) (sizeof(kScreenModes) / sizeof(kScreenModes[0])))
+-
+-static int N3DSAm2r_screenModeSlot(void) {
+-    N3DSScreenMode mode = N3DS_getScreenMode();
+-    for (int i = 0; i < N3DS_AM2R_SCREEN_MODES; i++) {
+-        if (kScreenModes[i] == mode) return i;
+-    }
+-    return 0;
+-}
+-
+-// ===[ Cheats file (and the screen mode) ]===
++// ===[ Cheats file ]===
+ 
+ static void N3DSAm2r_loadCheats(void) {
+     FILE* f = fopen(N3DS_AM2R_CHEATS_FILE, "r");
+@@ -295,7 +283,6 @@ static void N3DSAm2r_loadCheats(void) {
+         char name[32];
+         int value = 0;
+         if (sscanf(line, "%31[^=]=%d", name, &value) != 2) continue;
+-        if (strcmp(name, "screen") == 0 && value >= 0 && value < N3DS_AM2R_SCREEN_MODES) N3DS_setScreenMode(kScreenModes[value]);
+         if (strcmp(name, "frameskip") == 0) N3DS_setFrameskip(value != 0);
+         if (strcmp(name, "native") == 0) N3DSAm2rNative_setEnabled(value != 0);
+         if (strcmp(name, "fps") == 0) N3DS_setFpsCounter(value != 0);
+@@ -311,7 +298,6 @@ static void N3DSAm2r_saveCheats(void) {
+     FILE* f = fopen(N3DS_AM2R_CHEATS_FILE, "w");
+     if (f == NULL) return;
+     for (int i = 0; i < CHEAT_COUNT; i++) fprintf(f, "%s=%d\n", kCheatNames[i], gAm2r.cheats[i] ? 1 : 0);
+-    fprintf(f, "screen=%d\n", N3DSAm2r_screenModeSlot());
+     fprintf(f, "frameskip=%d\n", N3DS_getFrameskip() ? 1 : 0);
+     fprintf(f, "native=%d\n", N3DSAm2rNative_enabled() ? 1 : 0);
+     fprintf(f, "fps=%d\n", N3DS_getFpsCounter() ? 1 : 0);
+@@ -427,6 +413,7 @@ void N3DSAm2r_init(Runner* runner) {
+     // Fast scripts default to on; cheats.ini can turn them off.
+     N3DSAm2rNative_setEnabled(true);
+     N3DSAm2r_loadCheats();
++    N3DS_setScreenMode(N3DS_SCREEN_STRETCH); // the only screen mode: the others made no sense for this game
+     N3DSAm2r_collectRooms();
+     N3DSAm2rNative_init(runner);
+ }
+@@ -504,8 +491,6 @@ static void N3DSAm2r_refreshPage(void) {
+         return;
+     }
+     if (gAm2r.page == PAGE_DISPLAY) {
+-        Instance* screen = N3DSAm2r_pageRow(DISPLAY_ROW_SCREEN);
+-        if (screen != NULL) N3DSGml_setVarString(screen, "optext", kScreenModeNames[N3DSAm2r_screenModeSlot()]);
+         Instance* frameskip = N3DSAm2r_pageRow(DISPLAY_ROW_FRAMESKIP);
+         if (frameskip != NULL) N3DSGml_setVarString(frameskip, "optext", N3DS_getFrameskip() ? "ON" : "OFF");
+         Instance* native = N3DSAm2r_pageRow(DISPLAY_ROW_NATIVE);
+@@ -516,8 +501,7 @@ static void N3DSAm2r_refreshPage(void) {
+         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? "ON" : "OFF");
+         Instance* lighting = N3DSAm2r_pageRow(DISPLAY_ROW_LIGHTING);
+         if (lighting != NULL) N3DSGml_setVarString(lighting, "optext", N3DSAm2rNative_lighting() ? "ON" : "OFF");
+-        const char* tip = selected == DISPLAY_ROW_SCREEN ? "Stretch fills the screen; 1x and 2x keep square pixels; Wide shows more of the room"
+-            : selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
++        const char* tip = selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
+             : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
+                 : "Busy game scripts run as built-in code: faster, same behaviour")
+             : selected == DISPLAY_ROW_FPS ? "A small frame rate counter in the bottom-left corner"
+@@ -557,10 +541,10 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
+     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
+     int count = N3DSAm2r_pageRowCount(page);
+     for (int i = 0; i < count; i++) {
+-        bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN || i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
++        bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
+             i == DISPLAY_ROW_FPS || i == DISPLAY_ROW_LIGHTING) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
+         const char* label = i == count - 1 ? "Exit"
+-            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_SCREEN ? "Screen" : i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
++            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
+                 : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Lighting")
+             : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? "Game extras" : "Cheats")
+             : page == PAGE_TELEPORT ? (i == TELE_AREA ? "Area" : i == TELE_ROOM ? "Room" : "Go")
+@@ -695,7 +679,51 @@ static void N3DSAm2r_placeSamus(void) {
+ }
+ 
+ // Lighting off: the light engine isn't drawn (its map isn't built either, see the native); on again: it is.
++// A room's light map is a surface its oLightEngine makes on entering the room and frees in its Destroy event, which
++// GameMaker doesn't run when a room ends: every room entry left one 512 x 256 surface behind, and a few visits ate
++// the 3DS's video memory (the light map then came out smaller, so the dark overlay covered part of the screen, and
++// everything slowed down). The previous room's is freed once the new room's exists.
++static void N3DSAm2r_freeStaleLightMap(void) {
++    static int32_t engine = -2;
++    static int32_t lastSurface = -1;
++    if (engine == -2) engine = N3DSGml_objectIndex("oLightEngine");
++    if (engine < 0) return;
++    Instance* list[1];
++    double surf = -1.0;
++    int32_t current = -1;
++    if (N3DSGml_instances(engine, list, 1) > 0 && N3DSGml_getVar(list[0], "surf", &surf)) current = (int32_t) surf;
++    if (lastSurface >= 0 && current >= 0 && current != lastSurface) {
++        Renderer* renderer = gAm2r.runner->renderer;
++        if (renderer != NULL && renderer->vtable->surfaceExists(renderer, lastSurface)) renderer->vtable->surfaceFree(renderer, lastSurface);
++    }
++    if (current >= 0) lastSurface = current;
++}
++
++// The pause screens (items, log) are laid out for the game's 426-wide picture, and the bottom screen is 320 wide: they
++// came out cropped on both sides. While paused the game is told it has no widescreen, so it lays them out for 320.
++static void N3DSAm2r_pauseLayout(void) {
++    Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
++    if (control == NULL) return;
++    if (N3DSPause_isPaused()) {
++        if (gAm2r.pauseWidescreenSaved) return;
++        double ws = 0.0, space = 0.0;
++        if (!N3DSGml_getVar(control, "widescreen", &ws) || ws < 0.5) return;
++        N3DSGml_getVar(control, "widescreen_space", &space);
++        gAm2r.pauseWidescreen = ws;
++        gAm2r.pauseWidescreenSpace = space;
++        gAm2r.pauseWidescreenSaved = true;
++        N3DSGml_setVar(control, "widescreen", 0.0);
++        N3DSGml_setVar(control, "widescreen_space", 0.0);
++    } else if (gAm2r.pauseWidescreenSaved) {
++        gAm2r.pauseWidescreenSaved = false;
++        N3DSGml_setVar(control, "widescreen", gAm2r.pauseWidescreen);
++        N3DSGml_setVar(control, "widescreen_space", gAm2r.pauseWidescreenSpace);
++    }
++}
++
+ static void N3DSAm2r_applyLighting(void) {
++    N3DSAm2r_pauseLayout();
++    N3DSAm2r_freeStaleLightMap();
+     static int32_t engine = -2;
+     static int lastApplied = -1;
+     if (engine == -2) engine = N3DSGml_objectIndex("oLightEngine");
+@@ -754,10 +782,6 @@ static void N3DSAm2r_updatePage(void) {
+         gAm2r.gameExtras = true;
+         N3DSGml_create(N3DS_AM2R_PAGE_X, N3DS_AM2R_PAGE_Y, gAm2r.objOptionsExtras);
+         return;
+-    } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_SCREEN && (menu1 || left || right)) {
+-        int slot = N3DSAm2r_screenModeSlot() + (left ? N3DS_AM2R_SCREEN_MODES - 1 : 1);
+-        N3DS_setScreenMode(kScreenModes[slot % N3DS_AM2R_SCREEN_MODES]);
+-        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_FRAMESKIP && (menu1 || left || right)) {
+         N3DS_setFrameskip(!N3DS_getFrameskip());
+         N3DSAm2r_sfx(gAm2r.sndMenuSel);
+@@ -1019,7 +1043,7 @@ void N3DSAm2r_update(void) {
+         if (extras == NULL) gAm2r.gameExtras = false;
+         if (display != NULL) {
+             N3DSGml_destroy(display);
+-            N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_SCREEN);
++            N3DSAm2r_openPage(PAGE_DISPLAY, DISPLAY_ROW_FRAMESKIP);
+         } else if (extras != NULL && !gAm2r.gameExtras) {
+             N3DSGml_destroy(extras);
+             N3DSAm2r_openPage(PAGE_EXTRAS, EXTRAS_ROW_GAME);
+diff --git a/src/n3ds/n3ds_pause.c b/src/n3ds/n3ds_pause.c
+index 4bc86e0..5f43618 100644
+--- a/src/n3ds/n3ds_pause.c
++++ b/src/n3ds/n3ds_pause.c
+@@ -583,14 +583,11 @@ bool N3DSPause_update(void) {
+         gPause.captureFrame = 0;
+         N3DSPause_clearSteps();
+         gPause.touchDown = false;
+-        // Start opens the pause menu itself (Resume, Options, ...): the cross to its page, as Menu2 and Down do. A tap
++        // Start opens the menu (the cross that picks the map, the log, the items or the pause menu), as Menu2 does. A tap
+         // on the bottom screen opens the map instead.
+         if (!gPause.touchOpened) {
+             N3DSPause_push(STEP_DELAY, 20, 0);
+             N3DSPause_press(BTN_MENU2);
+-            N3DSPause_push(STEP_DELAY, 20, 0);
+-            N3DSPause_push(STEP_WAIT_CROSS, 0, 0);
+-            N3DSPause_press(BTN_DOWN);
+         }
+         gPause.touchOpened = false;
+         logInfo("Pause: on the bottom screen\n");
