@@ -258,10 +258,10 @@ static u32 N3DSInput_filterChord(u32 held) {
 #define N3DS_PAUSE_PAGE_ITEMS 1.0
 #define N3DS_PAUSE_PAGE_MENU  3.0
 
-// A short SELECT tap belongs to the game: after a new area is scanned it shows that area's description with it, and the
-// port used to take every SELECT press for its items page, so that description only flashed up. Holding SELECT is the
-// port's own way into the items page instead.
-#define N3DS_SELECT_HOLD_MS 400u
+// A short START tap belongs to the game: after a new area is scanned, the game shows that area's description with it,
+// and the port used to take every START press for its pause screen, so only the pause ever came up. Holding START is
+// the port's own way into the pause (map page) instead.
+#define N3DS_START_HOLD_MS 400u
 
 static struct {
     double pendingPage;   // page the player asked for; -1 when there is nothing to do
@@ -270,8 +270,8 @@ static struct {
     // few frames to come up, and a tap that is still held when it does would otherwise reach the game's own Start
     // binding and close the pause on its first frame - the "opens and immediately closes" of a quick press.
     u32 swallowed;
-    u64 selectDownMs;     // when SELECT went down in play; 0 when no hold is being watched
-    bool watchingSelect;  // that press has not yet become the items page and still belongs to the game
+    u64 startDownMs;      // when START went down in play; 0 when no hold is being watched
+    bool watchingStart;   // that press has not yet become the pause and still belongs to the game
 } gPauseKeys = { -1.0, 0, 0, 0, false };
 
 static Instance* N3DSInput_objectInstance(const char* name) {
@@ -396,14 +396,9 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
-    // In play, START opens the pause on its menu page and SELECT opens the items page; in the pause, SELECT leaves
-    // (START is left to the game, whose own binding already exits). The pair still toggles the debug monitor.
-    //
-    // SELECT is different from START: a tap is the game's, not the port's. The game shows the current area's
-    // description with it (the hint it gives after an area is scanned), and taking the press for the items page made
-    // that description appear and vanish in the same breath. So the press goes to the game first and only a *hold*
-    // reaches the port: N3DS_SELECT_HOLD_MS with the button still down turns it into the items page, the same way a
-    // short press never does.
+    // In play: SELECT opens the pause on its items page, START only does so when held - a tap of START is the game's,
+    // which uses it for the area description after a scan. In the pause, SELECT leaves (START is left to the game,
+    // whose own binding already exits). The pair still toggles the debug monitor.
     {
         static u32 prevPauseKeys;
         u32 pauseKeys = held & (KEY_START | KEY_SELECT);
@@ -411,35 +406,34 @@ u32 N3DSInput_update(Runner* runner) {
         prevPauseKeys = pauseKeys;
         bool chord = pauseKeys == (KEY_START | KEY_SELECT);
         if (!chord && N3DSPause_inPlay()) {
-            if ((edges & KEY_START) != 0) {
+            if ((edges & KEY_SELECT) != 0) {
                 N3DSInput_openPause(runner);
                 // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
                 // actually want now, so the room is built with it and never shows the menu first.
-                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_MENU);
-                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_MENU;
-                gPauseKeys.swallowed |= (edges & KEY_START);
-            } else if ((edges & KEY_SELECT) != 0) {
-                // Watch this press: if it is still down after the threshold it becomes the items page, otherwise the
-                // game keeps it and does with it what it does (the area description).
-                gPauseKeys.selectDownMs = osGetTime();
-                gPauseKeys.watchingSelect = true;
-            } else if (gPauseKeys.watchingSelect && (held & KEY_SELECT) != 0 &&
-                       osGetTime() - gPauseKeys.selectDownMs >= N3DS_SELECT_HOLD_MS) {
-                gPauseKeys.watchingSelect = false;
-                N3DSInput_openPause(runner);
                 N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_ITEMS);
                 gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_ITEMS;
-                gPauseKeys.swallowed |= KEY_SELECT;
+                gPauseKeys.swallowed |= (edges & KEY_SELECT);
+            } else if ((edges & KEY_START) != 0) {
+                // Watch this press: still down after the threshold and it becomes the pause, otherwise the game keeps it.
+                gPauseKeys.startDownMs = osGetTime();
+                gPauseKeys.watchingStart = true;
+            } else if (gPauseKeys.watchingStart && (held & KEY_START) != 0 &&
+                       osGetTime() - gPauseKeys.startDownMs >= N3DS_START_HOLD_MS) {
+                gPauseKeys.watchingStart = false;
+                N3DSInput_openPause(runner);
+                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_MENU);
+                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_MENU;
+                gPauseKeys.swallowed |= KEY_START;
             }
-        } else if ((edges & KEY_SELECT) != 0 && N3DSPause_isPaused()) {
+        } else if (!chord && N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
             N3DSInput_closePause(runner);
             gPauseKeys.pendingPage = -1.0;
-            gPauseKeys.watchingSelect = false;
+            gPauseKeys.watchingStart = false;
             gPauseKeys.swallowed |= (edges & KEY_SELECT);
         }
-        if ((pauseKeys & KEY_SELECT) == 0) {
-            gPauseKeys.watchingSelect = false;
-            gPauseKeys.selectDownMs = 0;
+        if ((pauseKeys & KEY_START) == 0) {
+            gPauseKeys.watchingStart = false;
+            gPauseKeys.startDownMs = 0;
         }
         // Keep a taken-over button away from the game until it is released, so the room's own bindings never see the
         // press that opened it.
