@@ -5434,6 +5434,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
                 N3DSSurface* t = &renderer->surfaces[renderer->currentTargetSurface];
                 tw = (int) t->width; th = (int) t->height;
             }
+            // How wide is the first line, in the font's units and in pixels? If the drawn width is about half the
+            // wrapped width, the text really is being laid out narrow; if they agree, the surface is what clips it.
+            {
+                const char* lineEnd = strchr(text, '\n');
+                int32_t firstLen = lineEnd != NULL ? (int32_t) (lineEnd - text) : (int32_t) strlen(text);
+                float units = TextUtils_measureLineWidth(font, text, firstLen);
+                logInfo("TextW: scaleX=%.2f scaleY=%.2f firstLineUnits=%.0f pixels=%.0f\n",
+                    (double) font->scaleX, (double) font->scaleY, (double) units, (double) (units * font->scaleX));
+            }
             logInfo("TextPos: game %.1f,%.1f -> screen %.1f,%.1f target=%d surf=%dx%d [%.16s]\n",
                 (double) x, (double) y,
                 (double) N3DSRenderer_transformScreenX(renderer, x), (double) N3DSRenderer_transformScreenY(renderer, y),
