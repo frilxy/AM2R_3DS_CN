@@ -1259,6 +1259,10 @@ static void N3DSAm2r_applyScreenMode(void) {
         if (N3DSGml_getVar(control, "displayy", &value) && value != 0.0) {
             N3DSGml_setVar(control, "displayy", 0.0);
         }
+        // The picture is centred at displayx (40 in point-for-point), but the HUD is laid out on the whole GUI canvas
+        // from x=0: without this it sat 40 columns to the left of the picture and its left end - the energy readout -
+        // ran against the canvas edge. Shifting the left block by the same amount puts the HUD on the picture again.
+        gAm2r.hudLeftInset = wantedX > 0.0 ? wantedX : 0.0;
         N3DSAm2r_logScreenGeometry(control, 320.0, mode);
         return;
     }
