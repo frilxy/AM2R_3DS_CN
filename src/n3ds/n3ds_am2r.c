@@ -1225,6 +1225,13 @@ static void N3DSAm2r_applyScreenMode(void) {
         if (N3DSGml_getVar(control, "widescreen", &flag) && flag != 0.0) {
             N3DSGml_setVar(control, "widescreen", 0.0);
         }
+        // widescreen_space has to go with it: the pause pages, the log page and the HUD all lay themselves out as
+        // "250 + widescreen_space" or "148 + widescreen_space". Leaving it at 80 draws a 400-wide layout onto a
+        // 320-wide picture, which is what pushed the energy readout, the "scanning" note and the log text off screen.
+        double space = 0.0;
+        if (N3DSGml_getVar(control, "widescreen_space", &space) && space != 0.0) {
+            N3DSGml_setVar(control, "widescreen_space", 0.0);
+        }
         // The picture is the game's own 320x240 and it is placed by displayx, not by the renderer's viewport: the
         // picture's own drawing goes through the surface path, which sets the viewport to the whole target, so a
         // centred viewport never reaches it. 40 is the centring on a 400-wide screen: (400-320)/2.
