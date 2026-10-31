@@ -1,4 +1,5 @@
 #include "n3ds_am2r.h"
+#include "n3ds_pause.h"
 #include "n3ds_am2r_native.h"
 
 #include "n3ds_font_replace.h"
