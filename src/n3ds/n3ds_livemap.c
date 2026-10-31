@@ -617,8 +617,14 @@ static void N3DSLiveMap_drawStaticFrame(void) {
         gLive.titleLanguage = language;
         gLive.titleFetched = true;
     }
-    // In the black margin above the bar, centred there.
-    N3DSLiveMap_text(gLive.title != NULL ? gLive.title : "MAP", 160.0f, N3DS_STATUS_TITLE_Y, 1);
+    // In the black margin above the bar, centred there. Drawn twice, one pixel apart: the page title is the screen's
+    // heading and reads too light at 12px against the black band, so the second pass thickens every stroke by a pixel
+    // (the same trick the game uses for its own outlined text, minus the dark copy).
+    {
+        const char* title = gLive.title != NULL ? gLive.title : "MAP";
+        N3DSLiveMap_text(title, 160.0f, N3DS_STATUS_TITLE_Y, 1);
+        N3DSLiveMap_text(title, 161.0f, N3DS_STATUS_TITLE_Y, 1);
+    }
     // The bottom margin's zoom steps. They change with the zoom step, which invalidates the cache, so they belong here.
     N3DSLiveMap_drawZoomControl();
 }
