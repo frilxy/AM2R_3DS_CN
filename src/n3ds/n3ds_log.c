@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 // platformLog for the 3DS: N3DS_SD_DIR "log.txt", each line stamped with seconds since start.
 // Also sent to svcOutputDebugString (shown by Azahar / GDB).
@@ -18,6 +19,10 @@
 #define N3DS_LOG_REPEAT_SLOTS 64
 
 static FILE* gLogFile = NULL;
+// This session's file: log-YYYYMMDD-HHMMSS.txt. One file per launch means a copy taken after playing can never be an
+// older session's, which is what made "the log never changes" impossible to argue with.
+static char gSessionLogName[64] = "log.txt";
+static char gSessionLogPath[80] = N3DS_SD_DIR "log.txt";
 static u64 gLogStartMs = 0;
 static bool gAtLineStart = true;
 static bool gLogDirty = false;
@@ -34,8 +39,8 @@ static struct {
 // Copies the previous session's log to log_crash.txt when that session did not exit cleanly. A copy rather than a
 // rename: rename() has been seen to leave the old file in place here (the card kept handing back a stale
 // log_crash.txt), and a copy also leaves log_prev.txt holding the same session as a second chance.
-static uint32_t N3DSLog_copyCrashedLog(void) {
-    FILE* in = fopen(N3DS_SD_DIR "log.txt", "rb");
+static uint32_t N3DSLog_copyCrashedLog(const char* path) {
+    FILE* in = fopen(path, "rb");
     if (in == NULL) return 0;
     remove(N3DS_SD_DIR "log_crash_prev.txt"); // the two-copy scheme is gone; keep the folder tidy
     FILE* out = fopen(N3DS_SD_DIR "log_crash.txt", "wb");
@@ -57,8 +62,8 @@ static uint32_t N3DSLog_copyCrashedLog(void) {
 
 // True when the previous session's log ends with the runner's own "Exiting" line, i.e. it shut down cleanly. Anything
 // else (a hang, a GPU fault, the user pulling the power) means that file is the one worth keeping.
-static bool N3DSLog_previousRunExitedCleanly(void) {
-    FILE* previous = fopen(N3DS_SD_DIR "log.txt", "rb");
+static bool N3DSLog_previousRunExitedCleanly(const char* path) {
+    FILE* previous = fopen(path, "rb");
     if (previous == NULL) return true; // nothing to keep
     bool clean = false;
     if (fseek(previous, 0, SEEK_END) == 0) {
@@ -80,21 +85,45 @@ void N3DSLog_init(void) {
     gLogReady = true;
     gLogStartMs = osGetTime();
     gLastFlushMs = gLogStartMs;
-    // A session that did not exit cleanly is kept as log_crash.txt: rotating it into log_prev.txt means the next launch
-    // overwrites it, and the player relaunches the game before copying anything - which is exactly how the first crash
-    // logs were lost.
+
+    // The previous session's file name is kept in log_last.txt, because the name now carries the time.
+    char previousLog[80] = N3DS_SD_DIR "log.txt";
+    FILE* lastName = fopen(N3DS_SD_DIR "log_last.txt", "r");
+    if (lastName != NULL) {
+        char line[64];
+        if (fgets(line, sizeof line, lastName) != NULL) {
+            size_t n = strlen(line);
+            while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = '\0';
+            if (n > 4 && strncmp(line, "log-", 4) == 0) {
+                snprintf(previousLog, sizeof previousLog, N3DS_SD_DIR "%s", line);
+            }
+        }
+        fclose(lastName);
+    }
+    // A session that did not exit cleanly is kept as log_crash.txt: the player relaunches before copying anything, and
+    // with one file per launch the crashed one is still on the card under its own name anyway.
     uint32_t keptCrashBytes = 0;
-    if (!N3DSLog_previousRunExitedCleanly()) keptCrashBytes = N3DSLog_copyCrashedLog();
-    // The last run's log survives one relaunch.
-    remove(N3DS_SD_DIR "log_prev.txt");
-    rename(N3DS_SD_DIR "log.txt", N3DS_SD_DIR "log_prev.txt");
-    gLogFile = fopen(N3DS_SD_DIR "log.txt", "w");
+    if (!N3DSLog_previousRunExitedCleanly(previousLog)) keptCrashBytes = N3DSLog_copyCrashedLog(previousLog);
+
+    time_t now = (time_t) (osGetTime() / 1000);
+    struct tm* tm = localtime(&now);
+    if (tm != NULL) {
+        snprintf(gSessionLogName, sizeof gSessionLogName, "log-%04d%02d%02d-%02d%02d%02d.txt",
+            tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+    } else {
+        snprintf(gSessionLogName, sizeof gSessionLogName, "log-%lu.txt", (unsigned long) (osGetTime() / 1000));
+    }
+    snprintf(gSessionLogPath, sizeof gSessionLogPath, N3DS_SD_DIR "%s", gSessionLogName);
+    gLogFile = fopen(gSessionLogPath, "w");
+    FILE* lastNameOut = fopen(N3DS_SD_DIR "log_last.txt", "w");
+    if (lastNameOut != NULL) {
+        fprintf(lastNameOut, "%s\n", gSessionLogName);
+        fclose(lastNameOut);
+    }
     // Say so in the new log: it is the only way to tell from the outside whether the crashed session was preserved.
     if (keptCrashBytes > 0) {
         logInfo("Previous session did not exit cleanly; copied %lu KB of its log to log_crash.txt\n",
             (unsigned long) (keptCrashBytes / 1024u));
-    } else if (!N3DSLog_previousRunExitedCleanly()) {
-        logWarn("Previous session did not exit cleanly but its log could not be copied\n");
     }
 }
 

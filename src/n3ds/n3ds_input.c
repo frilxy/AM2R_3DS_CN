@@ -397,7 +397,8 @@ u32 N3DSInput_update(Runner* runner) {
         }
     }
     // In play, START opens the pause on its menu page and SELECT opens the items page; in the pause, SELECT leaves
-    // (START is left to the game, whose own binding already exits). The pair still toggles the debug monitor.
+    // START is the game's own: its Start handler opens the pause (map page) and exits it again, so the port no longer
+    // intercepts it. The pair still toggles the debug monitor.
     //
     // SELECT is different from START: a tap is the game's, not the port's. The game shows the current area's
     // description with it (the hint it gives after an area is scanned), and taking the press for the items page made
@@ -411,14 +412,7 @@ u32 N3DSInput_update(Runner* runner) {
         prevPauseKeys = pauseKeys;
         bool chord = pauseKeys == (KEY_START | KEY_SELECT);
         if (!chord && N3DSPause_inPlay()) {
-            if ((edges & KEY_START) != 0) {
-                N3DSInput_openPause(runner);
-                // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
-                // actually want now, so the room is built with it and never shows the menu first.
-                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_MENU);
-                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_MENU;
-                gPauseKeys.swallowed |= (edges & KEY_START);
-            } else if ((edges & KEY_SELECT) != 0) {
+            if ((edges & KEY_SELECT) != 0) {
                 // Watch this press: if it is still down after the threshold it becomes the items page, otherwise the
                 // game keeps it and does with it what it does (the area description).
                 gPauseKeys.selectDownMs = osGetTime();
