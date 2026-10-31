@@ -6597,6 +6597,18 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     N3DS_ZONE(N3DS_ZONE_SURFACE_DRAW);
     N3DSRenderer* renderer = (N3DSRenderer*) base;
     N3DSSurface* surface = N3DSRenderer_getSurface(renderer, surfaceID);
+    // Diagnostic (diag/ws-and-text): the log page's surface is created after the first sixteen and is therefore not in
+    // the creation log. Recording what is drawn answers how wide that box really is and where it lands.
+    {
+        static int budget = 40;
+        if (budget > 0) {
+            budget--;
+            logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
+                (int) surfaceID, surface != NULL ? (int) surface->width : -1, surface != NULL ? (int) surface->height : -1,
+                (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
+                (double) xscale, (double) yscale);
+        }
+    }
 #ifdef N3DS_DIAG_PATTERN
     if (renderer->frameSequence % 120u == 2u) {
         logInfo("N3DS diag: drawSurface id=%d exists=%d src=%d,%d %dx%d at %.1f,%.1f scale %.2f,%.2f col=%06lx a=%.2f target=%d vp=%.0f,%.0f %.0fx%.0f map x'=%.2fx+%.1f y'=%.2fy+%.1f\n",
