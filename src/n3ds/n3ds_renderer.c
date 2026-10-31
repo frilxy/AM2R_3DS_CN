@@ -6600,8 +6600,11 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     // Diagnostic (diag/ws-and-text): the log page's surface is created after the first sixteen and is therefore not in
     // the creation log. Recording what is drawn answers how wide that box really is and where it lands.
     {
+        // Only the small page-like surfaces: the scene's 400x240 and 592x256 draws used up a plain budget long before
+        // the log page appeared at 194 s.
         static int budget = 40;
-        if (budget > 0) {
+        bool interesting = surface != NULL && surface->width >= 100 && surface->width <= 260;
+        if (budget > 0 && interesting) {
             budget--;
             logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
                 (int) surfaceID, surface != NULL ? (int) surface->width : -1, surface != NULL ? (int) surface->height : -1,
