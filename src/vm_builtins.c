@@ -11735,7 +11735,14 @@ static void drawTextExtCommonColor(Runner* runner, const char* str, float x, flo
     Font* font = &runner->dataWin->font.fonts[fontIndex];
 
     PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
-    PreprocessedText wrappedText = TextUtils_wrapText(font, processedText.text, width);
+    // The wrap limit is in pixels, but TextUtils_measureLineWidth works in the font's own units: with a horizontal
+    // scale the two differ, and the page broke its lines at 228 "units" while drawing them at half that width - the
+    // text filled only the left half of its 229-wide box. Convert once, here, so wrapping and drawing agree.
+    int32_t wrapWidth = width;
+    if (font->scaleX > 0.0f && font->scaleX != 1.0f && width > 0) {
+        wrapWidth = (int32_t) ((float) width / font->scaleX + 0.5f);
+    }
+    PreprocessedText wrappedText = TextUtils_wrapText(font, processedText.text, wrapWidth);
     if (c1 == c2 && c2 == c3 && c3 == c4 && c4 == runner->renderer->drawColor) {
         // using the ordinary drawText is safe
         runner->renderer->vtable->drawText(runner->renderer, wrappedText.text, x, y, xscale, yscale, angle, (float) separation);
