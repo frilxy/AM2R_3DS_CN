@@ -1262,7 +1262,9 @@ static void N3DSAm2r_applyScreenMode(void) {
         // The picture is centred at displayx (40 in point-for-point), but the HUD is laid out on the whole GUI canvas
         // from x=0: without this it sat 40 columns to the left of the picture and its left end - the energy readout -
         // ran against the canvas edge. Shifting the left block by the same amount puts the HUD on the picture again.
-        gAm2r.hudLeftInset = wantedX > 0.0 ? wantedX : 0.0;
+        // 13 rather than the full displayx: the HUD only needs the crop compensation (426 -> 400 picture), not the
+        // whole centring offset - the picture's own drawing already carries displayx.
+        gAm2r.hudLeftInset = 13.0;
         N3DSAm2r_logScreenGeometry(control, 320.0, mode);
         return;
     }
