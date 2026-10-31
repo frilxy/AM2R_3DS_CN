@@ -11738,9 +11738,11 @@ static void drawTextExtCommonColor(Runner* runner, const char* str, float x, flo
     // The wrap limit is in pixels, but TextUtils_measureLineWidth works in the font's own units: with a horizontal
     // scale the two differ, and the page broke its lines at 228 "units" while drawing them at half that width - the
     // text filled only the left half of its 229-wide box. Convert once, here, so wrapping and drawing agree.
+    // EXPERIMENT (b15): the log page asks for 228 but TextUtils_wrapText breaks its lines at ~140, so the right of the
+    // 229-wide box stays empty. Scale only that request to see whether the wrap limit is the whole story.
     int32_t wrapWidth = width;
-    if (font->scaleX > 0.0f && font->scaleX != 1.0f && width > 0) {
-        wrapWidth = (int32_t) ((float) width / font->scaleX + 0.5f);
+    if (width == 228) {
+        wrapWidth = 228 * 163 / 100;
     }
     PreprocessedText wrappedText = TextUtils_wrapText(font, processedText.text, wrapWidth);
     if (c1 == c2 && c2 == c3 && c3 == c4 && c4 == runner->renderer->drawColor) {
