@@ -5440,8 +5440,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
                 const char* lineEnd = strchr(text, '\n');
                 int32_t firstLen = lineEnd != NULL ? (int32_t) (lineEnd - text) : (int32_t) strlen(text);
                 float units = TextUtils_measureLineWidth(font, text, firstLen);
-                logInfo("TextW: scaleX=%.2f scaleY=%.2f firstLineUnits=%.0f pixels=%.0f\n",
-                    (double) font->scaleX, (double) font->scaleY, (double) units, (double) (units * font->scaleX));
+                // The advance the renderer will actually step per glyph, next to the measured width: if the drawn
+                // advance is larger, lines overflow whatever the wrap width says.
+                // Measures one glyph on its own: the renderer steps by this per character.
+                float adv = units;
+                if (firstLen > 0) adv = TextUtils_measureLineWidth(font, text, 3); // enough for one UTF-8 CJK glyph
+                logInfo("TextW: scaleX=%.2f firstLineUnits=%.0f pixels=%.0f glyphShift=%.0f target=%d surfW=%d\n",
+                    (double) font->scaleX, (double) units, (double) (units * font->scaleX), (double) adv,
+                    (int) renderer->currentTargetSurface,
+                    renderer->currentTargetSurface >= 0 ? (int) renderer->surfaces[renderer->currentTargetSurface].width : -1);
             }
             logInfo("TextPos: game %.1f,%.1f -> screen %.1f,%.1f target=%d surf=%dx%d [%.16s]\n",
                 (double) x, (double) y,
