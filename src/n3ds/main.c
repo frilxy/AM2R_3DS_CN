@@ -673,15 +673,22 @@ static void N3DS_logMemory(const char* when) {
         (unsigned long) (vramSpaceFree() / 1024u));
 }
 
-// 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest
-// and keeps denormals. GameMaker games' movement and collision code leans on exact double arithmetic (fractional
-// speeds, floor() of positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game
-// expects her (47.9999 instead of 48) and she can slip into or through blocks while moving vertically. The game
-// runs on this thread only. Returns the FPSCR found, for the log.
+// 3DS threads start with the VFP in "RunFast" with rounding toward zero (FPSCR 0x03C00000); a PC rounds to nearest.
+// GameMaker games' movement and collision code leans on exact double arithmetic (fractional speeds, floor() of
+// positions, pixel-snapping loops), so round toward zero puts Samus a hair off where the game expects her (47.9999
+// instead of 48) and she can slip into or through blocks while moving vertically. The game runs on this thread only.
+//
+// Flush-to-zero stays ON, and that is not a detail: ARM11's VFPv2 has no denormal support code on the 3DS (nothing
+// installs one), so a denormal *result* raises a VFP exception (FPEXC.EX with the UFC flag) that nothing handles, and
+// the process dies. That is how a decaying speed (hspeed *= 0.95 until it is ~1e-20) killed the game inside
+// Instance_computeSpeedFromComponents: `vmul.f32 s16, s16, s16` squared the tiny hspeed, got a denormal, and the
+// console closed the app (crash_dump: pc in that function, FPEXC 0xC0000708, FPINST the vmul). Clearing bit 24 with
+// the rounding mode turned denormals on; the console's own default is FZ=1 and the game was built to run that way.
+// Returns the FPSCR found, for the log.
 static uint32_t N3DS_useIeeeRounding(void) {
     uint32_t fpscr;
     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
-    uint32_t ieee = fpscr & ~((3u << 22) | (1u << 24)); // round to nearest, no flush-to-zero
+    uint32_t ieee = (fpscr & ~(3u << 22)) | (1u << 24); // round to nearest; flush-to-zero on (bit 24)
     __asm__ volatile("vmsr fpscr, %0" : : "r"(ieee));
     return fpscr;
 }
@@ -718,9 +725,9 @@ int main(int argc, char** argv) {
         uint32_t fpscr;
         __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
         volatile double third = 1.0 / 3.0, tenth = 0.1;
-        logInfo("FPU: FPSCR was %08lx, now %08lx (round to nearest); 1/3*3 %s 1, 0.1+0.2 %s 0.3 as on a PC\n",
-            (unsigned long) startFpscr, (unsigned long) fpscr, third * 3.0 == 1.0 ? "==" : "!=",
-            tenth + 0.2 == 0.3 ? "==" : "!=");
+        logInfo("FPU: FPSCR was %08lx, now %08lx (round to nearest, flush-to-zero %s); 1/3*3 %s 1, 0.1+0.2 %s 0.3\n",
+            (unsigned long) startFpscr, (unsigned long) fpscr, (fpscr & (1u << 24)) ? "on" : "OFF",
+            third * 3.0 == 1.0 ? "==" : "!=", tenth + 0.2 == 0.3 ? "==" : "!=");
     }
     N3DS_logMemory("startup");
 
