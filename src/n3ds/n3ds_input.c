@@ -258,10 +258,8 @@ static u32 N3DSInput_filterChord(u32 held) {
 #define N3DS_PAUSE_PAGE_ITEMS 1.0
 #define N3DS_PAUSE_PAGE_MENU  3.0
 
-// A short START tap belongs to the game: after a new area is scanned, the game shows that area's description with it,
-// and the port used to take every START press for its pause screen, so only the pause ever came up. Holding START is
-// the port's own way into the pause (map page) instead.
-#define N3DS_START_HOLD_MS 400u
+// START belongs to the game. Its own Start handler opens the pause (map page), and a tap while the scan popup is up is
+// the game's too. The port used to watch START for a long press and open the pause itself; that is gone.
 
 static struct {
     double pendingPage;   // page the player asked for; -1 when there is nothing to do
@@ -270,9 +268,7 @@ static struct {
     // few frames to come up, and a tap that is still held when it does would otherwise reach the game's own Start
     // binding and close the pause on its first frame - the "opens and immediately closes" of a quick press.
     u32 swallowed;
-    u64 startDownMs;      // when START went down in play; 0 when no hold is being watched
-    bool watchingStart;   // that press has not yet become the pause and still belongs to the game
-} gPauseKeys = { -1.0, 0, 0, 0, false };
+} gPauseKeys = { -1.0, 0, 0 };
 
 static Instance* N3DSInput_objectInstance(const char* name) {
     int32_t index = N3DSGml_objectIndex(name);
@@ -396,44 +392,26 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
-    // In play: SELECT opens the pause on its items page, START only does so when held - a tap of START is the game's,
-    // which uses it for the area description after a scan. In the pause, SELECT leaves (START is left to the game,
-    // whose own binding already exits). The pair still toggles the debug monitor.
+    // START is never intercepted: the game's own Start binding opens the pause (map page) and also handles the tap
+    // that dismisses the scan popup, so every START press goes straight through. Only SELECT is the port's - it opens
+    // the pause on the items page in play and leaves the pause when it is up - because the game leaves SELECT unbound.
     {
         static u32 prevPauseKeys;
         u32 pauseKeys = held & (KEY_START | KEY_SELECT);
         u32 edges = pauseKeys & ~prevPauseKeys;
         prevPauseKeys = pauseKeys;
         bool chord = pauseKeys == (KEY_START | KEY_SELECT);
-        if (!chord && N3DSPause_inPlay()) {
-            if ((edges & KEY_SELECT) != 0) {
-                N3DSInput_openPause(runner);
-                // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
-                // actually want now, so the room is built with it and never shows the menu first.
-                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_ITEMS);
-                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_ITEMS;
-                gPauseKeys.swallowed |= (edges & KEY_SELECT);
-            } else if ((edges & KEY_START) != 0) {
-                // Watch this press: still down after the threshold and it becomes the pause, otherwise the game keeps it.
-                gPauseKeys.startDownMs = osGetTime();
-                gPauseKeys.watchingStart = true;
-            } else if (gPauseKeys.watchingStart && (held & KEY_START) != 0 &&
-                       osGetTime() - gPauseKeys.startDownMs >= N3DS_START_HOLD_MS) {
-                gPauseKeys.watchingStart = false;
-                N3DSInput_openPause(runner);
-                N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_MENU);
-                gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_MENU;
-                gPauseKeys.swallowed |= KEY_START;
-            }
+        if (!chord && N3DSPause_inPlay() && (edges & KEY_SELECT) != 0) {
+            N3DSInput_openPause(runner);
+            // The handler ends by setting ssmode = 3 and asking for the room; both are undone by writing the page we
+            // actually want now, so the room is built with it and never shows the menu first.
+            N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_ITEMS);
+            gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_ITEMS;
+            gPauseKeys.swallowed |= (edges & KEY_SELECT);
         } else if (!chord && N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
             N3DSInput_closePause(runner);
             gPauseKeys.pendingPage = -1.0;
-            gPauseKeys.watchingStart = false;
             gPauseKeys.swallowed |= (edges & KEY_SELECT);
-        }
-        if ((pauseKeys & KEY_START) == 0) {
-            gPauseKeys.watchingStart = false;
-            gPauseKeys.startDownMs = 0;
         }
         // Keep a taken-over button away from the game until it is released, so the room's own bindings never see the
         // press that opened it.
@@ -453,6 +431,32 @@ u32 N3DSInput_update(Runner* runner) {
     if (circle.dy > 80) dirs |= KEY_DUP;
     if (circle.dy < -80) dirs |= KEY_DDOWN;
 #ifdef N3DS_KEYBOARD_MIRROR
+    // A new log entry arrives as a narrow 130px preview (oLogScreen) that shows only part of the text; one D-pad tap
+    // turns it into the game's full log page. The port makes that tap itself, a few frames after the preview appears,
+    // so the player sees the complete entry. The tap is synthesised only while that preview exists.
+    static int logPreviewStage; // 0 arming, 1 waiting, 2 pressed, 3 released
+    static int logPreviewFrames;
+    {
+        bool previewUp = N3DSInput_objectInstance("oLogScreen") != NULL;
+        if (!previewUp) {
+            logPreviewStage = 0;
+            logPreviewFrames = 0;
+        } else if (logPreviewStage == 0) {
+            logPreviewStage = 1;
+            logPreviewFrames = 0;
+        } else if (logPreviewStage == 1) {
+            if (++logPreviewFrames >= 6) {
+                RunnerKeyboard_onKeyDown(runner->keyboard, VK_DOWN);
+                logPreviewStage = 2;
+                logPreviewFrames = 0;
+            }
+        } else if (logPreviewStage == 2) {
+            if (++logPreviewFrames >= 2) {
+                RunnerKeyboard_onKeyUp(runner->keyboard, VK_DOWN);
+                logPreviewStage = 3;
+            }
+        }
+    }
     repeat(sizeof(gKeyMap) / sizeof(gKeyMap[0]), i) {
         bool now = (dirs & gKeyMap[i].key) != 0;
         bool before = (gKeysHeldPrev & gKeyMap[i].key) != 0;
