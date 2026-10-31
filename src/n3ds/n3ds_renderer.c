@@ -6602,20 +6602,26 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     {
         // Only the small page-like surfaces: the scene's 400x240 and 592x256 draws used up a plain budget long before
         // the log page appeared at 194 s.
-        // Once per surface id: a surface that is drawn every frame (the 200x160 effect above) used up a plain budget
-        // long before the log page appeared. Only ids seen for the first time are logged.
-        static int32_t seen[64];
-        static int seenCount;
-        bool interesting = surface != NULL && surface->width >= 100 && surface->width <= 260;
-        for (int i = 0; i < seenCount; i++) {
-            if (seen[i] == surfaceID) interesting = false;
-        }
-        if (interesting && seenCount < 64) {
-            seen[seenCount++] = surfaceID;
-            logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
-                (int) surfaceID, surface != NULL ? (int) surface->width : -1, surface != NULL ? (int) surface->height : -1,
-                (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
-                (double) xscale, (double) yscale);
+        // Every surface draw, up to a large cap, with consecutive repeats collapsed: the log page's surface has to be
+        // in here, and a small budget kept being eaten by effect surfaces drawn 40 times in a row.
+        static int budget = 3000;
+        static int32_t lastId = -999, lastW, lastH, lastSrcX, lastSrcY, lastSrcW, lastSrcH;
+        static float lastX = -99999.0f, lastY = -99999.0f;
+        if (budget > 0 && surface != NULL) {
+            bool same = surfaceID == lastId && (int) surface->width == lastW && (int) surface->height == lastH &&
+                        srcLeft == lastSrcX && srcTop == lastSrcY && srcWidth == lastSrcW && srcHeight == lastSrcH &&
+                        x == lastX && y == lastY;
+            if (!same) {
+                lastId = surfaceID;
+                lastW = (int) surface->width; lastH = (int) surface->height;
+                lastSrcX = srcLeft; lastSrcY = srcTop; lastSrcW = srcWidth; lastSrcH = srcHeight;
+                lastX = x; lastY = y;
+                budget--;
+                logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
+                    (int) surfaceID, (int) surface->width, (int) surface->height,
+                    (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
+                    (double) xscale, (double) yscale);
+            }
         }
     }
 #ifdef N3DS_DIAG_PATTERN
