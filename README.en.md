@@ -41,11 +41,10 @@ Upgrading from an older build is just a CIA reinstall; saves and SD data stay.
 - Screen modes: point (native 320×240, default), wide, stretch
 - Fixes for the save-select stutter and a long-session crash (atlas page OOM); the Chinese glyphs are baked offline, so a boot parses no fonts at all
 
-## Two things you can replace
+## One thing you can replace
 
 | File | Purpose |
 |---|---|
-| `sdmc:/3ds/am2r/gfx/bottom.png` | Bottom-screen artwork (320×240 PNG); swap it without reinstalling |
 | `sdmc:/3ds/am2r/lang/fonts/cjk-font.bin` | The baked Chinese glyph pack (see `docs/font-plan.md`); regenerate it after changing the translation or the sizes in `sizes.ini` |
 
 ## Building
