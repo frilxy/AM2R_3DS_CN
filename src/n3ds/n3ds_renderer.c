@@ -5282,9 +5282,9 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // centred at displayx, so the prompt's anchor lands left of where it belongs by the same 13 columns the HUD had to
     // be compensated for.
     if (text != NULL && N3DS_getScreenMode() != N3DS_SCREEN_WIDE) {
-        bool isScanPrompt = strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0 ||
-                            strcmp(text, "Scanning Environment") == 0 || strcmp(text, "Scanning Bioform") == 0 ||
-                            strcmp(text, "Scanning Mechanism") == 0 || strcmp(text, "Energy Pattern Scan") == 0;
+        // Substring, not prefix: the prompt arrives with whatever the language file puts in front of it.
+        bool isScanPrompt = strstr(text, "\xe6\x89\xab\xe6\x8f\x8f") != NULL || // 扫描
+                            strstr(text, "Scanning") != NULL || strstr(text, "Energy Pattern") != NULL;
         if (isScanPrompt) x += 13.0f;
     }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
