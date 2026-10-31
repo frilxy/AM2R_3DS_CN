@@ -20,8 +20,6 @@
 #include "n3ds_livemap.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
-
-#include <time.h>
 #include "n3ds_prof.h"
 #include "n3ds_renderer.h"
 #include "n3ds_screen.h"
@@ -717,16 +715,6 @@ int main(int argc, char** argv) {
     mkdir(N3DS_SD_DIR, 0777);
     N3DSLog_init();
     logInfo("Butterscotch 3DS (%s %s)\n", BUTTERSCOTCH_COMMIT_HASH, BUTTERSCOTCH_COMMIT_DATE);
-    {
-        // Wall-clock stamp, so a log can be matched to the session it came from at a glance (the relative timestamps
-        // below start at 0 every launch).
-        time_t now = (time_t) (osGetTime() / 1000);
-        struct tm* tm = localtime(&now);
-        if (tm != NULL) {
-            logInfo("Log: session %04d-%02d-%02d %02d:%02d:%02d\n", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-                tm->tm_hour, tm->tm_min, tm->tm_sec);
-        }
-    }
     bool isNew3DS = false;
     APT_CheckNew3DS(&isNew3DS);
     logInfo("Console: %s, speedup %s\n", isNew3DS ? "New 3DS" : "Old 3DS", isNew3DS ? "on" : "n/a");
