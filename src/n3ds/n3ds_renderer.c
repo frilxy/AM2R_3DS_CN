@@ -6631,10 +6631,12 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
                 lastId = surfaceID; lastSX = srcLeft; lastSY = srcTop; lastSW = srcWidth; lastSH = srcHeight;
                 lastX = x; lastY = y;
                 budget--;
-            logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
-                    (int) surfaceID, (int) surface->width, (int) surface->height,
-                    (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
-                    (double) xscale, (double) yscale);
+            logInfo("SurfDraw: id=%d size=%dx%d at game %.0f,%.0f -> screen %.0f,%.0f (viewScale %.3f,%.3f off %.0f,%.0f)\n",
+                    (int) surfaceID, (int) surface->width, (int) surface->height, (double) x, (double) y,
+                    (double) N3DSRenderer_transformScreenX(renderer, x), (double) N3DSRenderer_transformScreenY(renderer, y),
+                    (double) renderer->viewScaleX, (double) renderer->viewScaleY,
+                    (double) (renderer->frameOffsetX + renderer->portOffsetX),
+                    (double) (renderer->frameOffsetY + renderer->portOffsetY));
             }
         }
     }
