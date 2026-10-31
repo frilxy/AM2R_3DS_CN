@@ -10,13 +10,20 @@ The five filenames are the ones `data.win` itself asks for in `oControl`'s Creat
 called when the file exists, so the names have to match. The mapping from name to pixel size is the game's own, from
 `lang/fonts/sizes.ini`:
 
-| file | size | used by |
-|---|---|---|
-| `04b09.ttf` | 12px | `fontGUI`, `fontSubScr` |
-| `Acknowledge_TT_BRK.ttf` | 12px | `fontGUI2` |
-| `Glasstown_NBP.ttf` | 12px | `fontMenuSmall2` |
-| `uni_05_53.ttf` | 10px | `fontMenuSmall` |
-| `04b24.ttf` | 8px | `fontMenuTiny`, `fontSubScr` |
+| file | strike in the file | size asked for | used by |
+|---|---|---|---|
+| `04b09.ttf` | 12px | 12 (large) / 10 (small) | `fontGUI`, `fontSubScr` |
+| `Acknowledge_TT_BRK.ttf` | 12px | 12 | `fontGUI2` |
+| `Glasstown_NBP.ttf` | 12px | 12 | `fontMenuSmall2` |
+| `uni_05_53.ttf` | 10px | 10 | `fontMenuSmall` |
+| `04b24.ttf` | 8px | 10 | `fontMenuTiny` |
+
+The two columns are different on purpose: the size the game asks for is the **ascent** it laid the line out with
+(a glyph's rectangle runs from the line top down to its ink), while the strike decides how large the ink is drawn.
+Nothing is scaled: a pixel font rasterized bigger comes out grey and bold. So `04b24.ttf` holds the 8px face under a
+10px request, because `fontMenuTiny` draws item names on a 9px stride and its ink has to fit in 8px, and `04b09.ttf`
+holds one face for two slots - `fontGUI`'s 12px and `fontSubScr`'s 10px request share it, the smaller one just crops
+two blank rows off each rectangle (see `docs/font-plan.md`).
 
 The files are **fusion-pixel-font** 2026.09.25, `proportional` / `zh_hans` / `.ms`, from
 <https://github.com/TakWolf/fusion-pixel-font> (MIT). Each carries exactly one 1-bit `EBLC`/`EBDT` strike:
