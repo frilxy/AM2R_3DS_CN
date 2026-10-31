@@ -2516,6 +2516,70 @@ int32_t N3DSRenderer_allocImagePage(Renderer* base, uint32_t width, uint32_t hei
     return tpagIndex;
 }
 
+// A texture page holding a whole image at runtime: the language packs' title logos (see background_replace in
+// n3ds_am2r.c). RGBA8 rather than the font page's RGBA5551 -- a logo is a shaded picture, and 5-bit channels band
+// visibly. The texture is the next power of two around the image and the image sits in its top-left corner; the TPAG
+// and the sub-texture cover only the image, so a background draws it one pixel per pixel, like the data.win art it
+// replaces. Pixels go straight in, 8x8 Morton tiles, byte order A,B,G,R (the same the screens' colour buffers use).
+int32_t N3DSRenderer_allocImagePageRGBA8(Renderer* base, const uint8_t* rgba, uint32_t width, uint32_t height) {
+    N3DSRenderer* renderer = (N3DSRenderer*) base;
+    if (renderer == NULL || renderer->base.dataWin == NULL || rgba == NULL || width == 0u || height == 0u) return -1;
+    uint32_t texW = 8u, texH = 8u;
+    while (texW < width && texW < 1024u) texW <<= 1u;
+    while (texH < height && texH < 1024u) texH <<= 1u;
+    if (texW < width || texH < height) return -1;
+
+    int32_t tpagIndex = N3DSRenderer_allocDynamicCaptureTPAG(renderer);
+    if (tpagIndex < 0) return -1;
+    N3DSDynamicCaptureTPAG* capture = &renderer->dynamicCaptureTPAGs[(uint32_t) tpagIndex - renderer->baseTPAGCount];
+
+    if (!C3D_TexInit(&capture->texture, (u16) texW, (u16) texH, GPU_RGBA8)) {
+        logInfo("N3DS: could not allocate the %ux%u image page\n", (unsigned) texW, (unsigned) texH);
+        return -1;
+    }
+    C3D_TexSetFilter(&capture->texture, GPU_NEAREST, GPU_NEAREST);
+    C3D_TexSetWrap(&capture->texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    capture->texture.border = 0x00000000u;
+    if (capture->texture.data != NULL) {
+        memset(capture->texture.data, 0, capture->texture.size);
+        uint32_t* dst = (uint32_t*) capture->texture.data;
+        for (uint32_t y = 0; y < height; y++) {
+            for (uint32_t x = 0; x < width; x++) {
+                const uint8_t* px = rgba + ((size_t) y * (size_t) width + (size_t) x) * 4u;
+                uint32_t value = ((uint32_t) px[0] << 24) | ((uint32_t) px[1] << 16) | ((uint32_t) px[2] << 8) | (uint32_t) px[3];
+                dst[((size_t) (y >> 3) * (size_t) (texW >> 3) + (size_t) (x >> 3)) * 64u + (size_t) N3DSRenderer_morton(x & 7u, y & 7u)] = value;
+            }
+        }
+        GSPGPU_FlushDataCache(capture->texture.data, capture->texture.size);
+    }
+
+    capture->subtex = (Tex3DS_SubTexture) {
+        .width = (u16) width, .height = (u16) height,
+        .left = 0.0f, .top = 1.0f,
+        .right = (float) width / (float) texW, .bottom = 1.0f - (float) height / (float) texH,
+    };
+    capture->image.tex = &capture->texture;
+    capture->image.subtex = &capture->subtex;
+    capture->used = true;
+    capture->ownerSpriteIndex = -1;
+    capture->logicalWidth = (uint16_t) width;
+    capture->logicalHeight = (uint16_t) height;
+
+    TexturePageItem* tpag = &renderer->base.dataWin->tpag.items[tpagIndex];
+    tpag->texturePageId = -1;
+    tpag->sourceX = 0;
+    tpag->sourceY = 0;
+    tpag->sourceWidth = (uint16_t) width;
+    tpag->sourceHeight = (uint16_t) height;
+    tpag->targetX = 0;
+    tpag->targetY = 0;
+    tpag->targetWidth = (uint16_t) width;
+    tpag->targetHeight = (uint16_t) height;
+    tpag->boundingWidth = (uint16_t) width;
+    tpag->boundingHeight = (uint16_t) height;
+    return tpagIndex;
+}
+
 // Makes the pixels written through allocImagePage's pointer visible to the GPU. Call once, after the last write.
 void N3DSRenderer_flushImagePage(Renderer* base, int32_t tpagIndex) {
     N3DSRenderer* renderer = (N3DSRenderer*) base;

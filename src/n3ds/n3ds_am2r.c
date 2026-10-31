@@ -15,6 +15,7 @@
 #include "../vm.h"
 
 #include <stb/ds/stb_ds.h>
+#include "stb_image.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -153,6 +154,7 @@ static RValue hookDamageSamusPush(VMContext* ctx, RValue* args, int32_t argCount
 static RValue hookRoomChange(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookFontReplace(VMContext* ctx, RValue* args, int32_t argCount);
 static RValue hookDrawText(VMContext* ctx, RValue* args, int32_t argCount);
+static RValue hookBackgroundReplace(VMContext* ctx, RValue* args, int32_t argCount);
 // The builtin the hook replaced, so every other draw_text still runs the game's own.
 static BuiltinFunc gDrawTextBuiltin = NULL;
 
@@ -420,6 +422,45 @@ static RValue hookDrawText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
     return gDrawTextBuiltin != NULL ? gDrawTextBuiltin(ctx, args, argCount) : RValue_makeUndefined();
 }
 
+// background_replace(background, png, removeback, smooth, xorigin, yorigin). The language packs use it for the title
+// logo: the game scans lang/titles/*.png, parses the file name for the language and the logo's offset, and swaps the
+// title room's background for the picture. The PNG is decoded and uploaded whole; the background then draws at the
+// image's real size, which is what makes the logo line up with the title screen.
+//
+// The path is game-relative ("lang/titles/<file>.png"), so it is read through the runner's FileSystem (romfs, then the
+// SD folder) rather than fopen, which has no idea where the game lives.
+static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount < 2 || args[1].type != RVALUE_STRING || args[1].string == NULL) return RValue_makeUndefined();
+    Runner* runner = gAm2r.runner;
+    DataWin* dw = runner != NULL ? runner->dataWin : NULL;
+    if (dw == NULL || runner->fileSystem == NULL) return RValue_makeUndefined();
+    int32_t backgroundIndex = RValue_toInt32(args[0]);
+    if (backgroundIndex < 0 || (uint32_t) backgroundIndex >= dw->bgnd.count) return RValue_makeUndefined();
+
+    uint8_t* png = NULL;
+    int32_t pngSize = 0;
+    bool read = runner->fileSystem->vtable->readFileBinary(runner->fileSystem, args[1].string, &png, &pngSize);
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* pixels = (read && png != NULL && pngSize > 0) ? stbi_load_from_memory(png, pngSize, &width, &height, &channels, 4) : NULL;
+    free(png);
+    if (pixels == NULL || width <= 0 || height <= 0) {
+        logInfo("AM2R: background_replace could not read %s\n", args[1].string);
+        if (pixels != NULL) stbi_image_free(pixels);
+        return RValue_makeUndefined();
+    }
+
+    int32_t tpagIndex = N3DSRenderer_allocImagePageRGBA8(runner->renderer, pixels, (uint32_t) width, (uint32_t) height);
+    stbi_image_free(pixels);
+    if (tpagIndex < 0) {
+        logError("AM2R: background_replace could not upload %s (%dx%d)\n", args[1].string, width, height);
+        return RValue_makeUndefined();
+    }
+    // A background draws through its tpagIndex, and the item the page added is already sized to the image.
+    dw->bgnd.backgrounds[backgroundIndex].tpagIndex = tpagIndex;
+    logInfo("AM2R: background %d -> %s (%dx%d, tpag %d)\n", (int) backgroundIndex, args[1].string, width, height, (int) tpagIndex);
+    return RValue_makeUndefined();
+}
+
 // ===[ Unlimited health ]===
 
 static bool N3DSAm2r_cheat(int which);
@@ -596,6 +637,9 @@ void N3DSAm2r_init(Runner* runner) {
         } else if (strcmp(name, "draw_text") == 0) {
             gDrawTextBuiltin = (BuiltinFunc) vm->funcCallCache[i].builtin;
             vm->funcCallCache[i].builtin = (void*) hookDrawText;
+        } else if (strcmp(name, "background_replace") == 0) {
+            vm->funcCallCache[i].builtin = (void*) hookBackgroundReplace;
+            logInfo("AM2R: background_replace goes through the 3DS front end\n");
         }
     }
     // Fast scripts default to on; cheats.ini can turn them off.

@@ -83,5 +83,8 @@ void N3DSRenderer_endScreenOverlay(Renderer* renderer);
 // RGBA5551, first tile row at the top; call N3DSRenderer_flushImagePage once the last pixel is in.
 int32_t N3DSRenderer_allocImagePage(Renderer* renderer, uint32_t width, uint32_t height, uint16_t** outPixels);
 void N3DSRenderer_flushImagePage(Renderer* renderer, int32_t tpagIndex);
+// A texture page holding one RGBA8 image (the language packs' title logos), drawn 1:1 from a TPAG that covers exactly
+// the image. Returns the TPAG index, or -1.
+int32_t N3DSRenderer_allocImagePageRGBA8(Renderer* renderer, const uint8_t* rgba, uint32_t width, uint32_t height);
 // Drops the cached text layout: a font's glyph rectangles changed, so strings laid out earlier are stale.
 void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);
