@@ -6602,10 +6602,16 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     {
         // Only the small page-like surfaces: the scene's 400x240 and 592x256 draws used up a plain budget long before
         // the log page appeared at 194 s.
-        static int budget = 40;
+        // Once per surface id: a surface that is drawn every frame (the 200x160 effect above) used up a plain budget
+        // long before the log page appeared. Only ids seen for the first time are logged.
+        static int32_t seen[64];
+        static int seenCount;
         bool interesting = surface != NULL && surface->width >= 100 && surface->width <= 260;
-        if (budget > 0 && interesting) {
-            budget--;
+        for (int i = 0; i < seenCount; i++) {
+            if (seen[i] == surfaceID) interesting = false;
+        }
+        if (interesting && seenCount < 64) {
+            seen[seenCount++] = surfaceID;
             logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
                 (int) surfaceID, surface != NULL ? (int) surface->width : -1, surface != NULL ? (int) surface->height : -1,
                 (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
