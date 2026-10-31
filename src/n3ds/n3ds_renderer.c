@@ -5278,6 +5278,15 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
     // matching on the string content moves every pass together. The shifts only apply in Wide - the other modes draw
     // the game's plain 320x240 picture whose own layout already fits.
+    // The scan prompts are handled in every mode now: point-for-point and stretch draw the game's plain 320-wide picture
+    // centred at displayx, so the prompt's anchor lands left of where it belongs by the same 13 columns the HUD had to
+    // be compensated for.
+    if (text != NULL && N3DS_getScreenMode() != N3DS_SCREEN_WIDE) {
+        bool isScanPrompt = strncmp(text, "\xe6\x89\xab\xe6\x8f\x8f", 6) == 0 ||
+                            strcmp(text, "Scanning Environment") == 0 || strcmp(text, "Scanning Bioform") == 0 ||
+                            strcmp(text, "Scanning Mechanism") == 0 || strcmp(text, "Energy Pattern Scan") == 0;
+        if (isScanPrompt) x += 13.0f;
+    }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
         static const char* const kRightEdgePopups[] = {
             // Chinese.
