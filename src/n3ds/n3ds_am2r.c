@@ -8,6 +8,7 @@
 #include "n3ds_renderer.h"
 #include "n3ds_screen.h"
 
+#include "../ini.h"
 #include "../log.h"
 #include "../renderer.h"
 #include "../utils.h"
@@ -51,18 +52,39 @@ enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
 typedef enum { PAGE_NONE, PAGE_DISPLAY, PAGE_EXTRAS, PAGE_CHEATS, PAGE_TELEPORT } N3DSAm2rPage;
 
 static const char* const kCheatNames[CHEAT_COUNT] = { "master", "health", "ammo", "beam", "bombs", "missiles", "powerups" };
-static const char* const kCheatLabels[CHEAT_COUNT] = {
-    "Cheats", "Unlimited Health", "Unlimited Ammo", "Super Beam", "Super Bombs", "Super Missiles", "All Power-ups",
-};
-static const char* const kCheatTips[CHEAT_COUNT] = {
-    "Turn all cheats on or off",
-    "Energy stays full",
-    "Missiles, Super Missiles and Power Bombs stay full",
-    "Beam shots destroy anything they hit",
-    "Bombs and Power Bombs destroy anything they hit",
-    "Missiles destroy anything they hit, Metroids too",
-    "Every suit, ball, boot and beam upgrade; back as it was when switched off",
-};
+
+// The front end's own strings, defined with the language block below (it decides which of the two is drawn).
+static const char* N3DSAm2r_text(const char* english, const char* chinese);
+
+static const char* N3DSAm2r_cheatLabel(int32_t cheat) {
+    switch (cheat) {
+        case CHEAT_MASTER: return N3DSAm2r_text("Cheats", "金手指");
+        case CHEAT_HEALTH: return N3DSAm2r_text("Unlimited Health", "无限生命");
+        case CHEAT_AMMO: return N3DSAm2r_text("Unlimited Ammo", "无限弹药");
+        case CHEAT_BEAM: return N3DSAm2r_text("Super Beam", "强化光束");
+        case CHEAT_BOMBS: return N3DSAm2r_text("Super Bombs", "强化炸弹");
+        case CHEAT_MISSILES: return N3DSAm2r_text("Super Missiles", "强化导弹");
+        case CHEAT_POWERUPS: return N3DSAm2r_text("All Power-ups", "全能力");
+        default: return "";
+    }
+}
+
+static const char* N3DSAm2r_cheatTip(int32_t cheat) {
+    switch (cheat) {
+        case CHEAT_MASTER: return N3DSAm2r_text("Turn all cheats on or off", "打开或关闭全部金手指");
+        case CHEAT_HEALTH: return N3DSAm2r_text("Energy stays full", "能量始终保持全满");
+        case CHEAT_AMMO: return N3DSAm2r_text("Missiles, Super Missiles and Power Bombs stay full",
+            "导弹、超级导弹与强力炸弹始终保持全满");
+        case CHEAT_BEAM: return N3DSAm2r_text("Beam shots destroy anything they hit", "光束击中任何目标都会将其摧毁");
+        case CHEAT_BOMBS: return N3DSAm2r_text("Bombs and Power Bombs destroy anything they hit",
+            "炸弹与强力炸弹击中任何目标都会将其摧毁");
+        case CHEAT_MISSILES: return N3DSAm2r_text("Missiles destroy anything they hit, Metroids too",
+            "导弹击中任何目标都会将其摧毁，对 Metroid 也有效");
+        case CHEAT_POWERUPS: return N3DSAm2r_text("Every suit, ball, boot and beam upgrade; back as it was when switched off",
+            "所有服装、变形球、靴子与光束升级；关闭时恢复原状");
+        default: return "";
+    }
+}
 
 typedef struct {
     const char* name;
@@ -171,11 +193,122 @@ static char* N3DSAm2r_nintendoText(const char* text) {
     return NULL;
 }
 
+// ===[ Languages ]===
+// lang/languages.txt holds one language file per line, and config.ini's [Screen] Language is the line number (what the
+// game keeps in global.currentlanguage). The game reads both itself; the 3DS front end's own pages are in no language
+// file, so they need to know which language is active to follow it.
+
+#define N3DS_AM2R_LANGUAGES 16
+
+typedef struct {
+    char* file;
+    char* name;
+} N3DSAm2rLanguage;
+
+static N3DSAm2rLanguage gLanguages[N3DS_AM2R_LANGUAGES];
+static int32_t gLanguageCount = 0;
+
+static char* N3DSAm2r_trimLine(char* line) {
+    while (*line == ' ' || *line == '\t') line++;
+    char* end = line + strlen(line);
+    while (end > line && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t')) end--;
+    *end = '\0';
+    return line;
+}
+
+// One "Key=Value" out of an ini file's section. The language files start with a UTF-8 BOM, which ini.c skips.
+static void N3DSAm2r_readIniString(const char* path, const char* section, const char* key, char* out, size_t outSize) {
+    out[0] = '\0';
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) return;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return;
+    }
+    long size = ftell(f);
+    if (size <= 0) {
+        fclose(f);
+        return;
+    }
+    rewind(f);
+    char* text = (char*) safeMalloc((size_t) size + 1u);
+    size_t got = fread(text, 1, (size_t) size, f);
+    fclose(f);
+    text[got] = '\0';
+    IniFile* ini = Ini_parse(text);
+    free(text);
+    if (ini == NULL) return;
+    const char* value = Ini_getString(ini, section, key);
+    if (value != NULL) {
+        // GameMaker writes # for a line break inside a string.
+        size_t at = 0;
+        for (const char* c = value; *c != '\0' && at + 1u < outSize; c++) out[at++] = (*c == '#') ? ' ' : *c;
+        out[at] = '\0';
+    }
+    Ini_free(ini);
+}
+
+static void N3DSAm2r_loadLanguages(void) {
+    for (int32_t i = 0; i < gLanguageCount; i++) {
+        free(gLanguages[i].file);
+        free(gLanguages[i].name);
+    }
+    gLanguageCount = 0;
+    FILE* f = fopen(N3DS_SD_DIR "lang/languages.txt", "r");
+    if (f == NULL) {
+        logInfo("AM2R: no " N3DS_SD_DIR "lang/languages.txt\n");
+        return;
+    }
+    char line[256];
+    while (gLanguageCount < N3DS_AM2R_LANGUAGES && fgets(line, sizeof(line), f) != NULL) {
+        char* file = N3DSAm2r_trimLine(line);
+        if (*file == '\0') continue;
+        char path[512];
+        snprintf(path, sizeof(path), N3DS_SD_DIR "lang/%s", file);
+        FILE* probe = fopen(path, "r");
+        if (probe == NULL) continue; // the game skips a language whose file is not there, and reuses the index
+        fclose(probe);
+        char name[256];
+        N3DSAm2r_readIniString(path, "Header", "Language", name, sizeof(name));
+        gLanguages[gLanguageCount].file = safeStrdup(file);
+        gLanguages[gLanguageCount].name = safeStrdup(name[0] != '\0' ? name : file);
+        logInfo("AM2R: language %d: %s (%s)\n", (int) gLanguageCount, file, gLanguages[gLanguageCount].name);
+        gLanguageCount++;
+    }
+    fclose(f);
+}
+
+// The selected language's index. config.ini's [Screen] Language is the game's setting; global.currentlanguage is what
+// it has actually applied, so it wins once the game is running.
+static int32_t N3DSAm2r_languageSlot(void) {
+    double current = 0.0;
+    if (N3DSGml_getGlobal("currentlanguage", -1, &current) && current >= 0.0) return (int32_t) current;
+    char text[64];
+    N3DSAm2r_readIniString(N3DS_SD_DIR "config.ini", "Screen", "Language", text, sizeof(text));
+    return text[0] != '\0' ? (int32_t) strtol(text, NULL, 10) : 0;
+}
+
+// True while a language whose file starts with this prefix is selected.
+static bool N3DSAm2r_languageIs(const char* prefix) {
+    int32_t slot = N3DSAm2r_languageSlot();
+    if (slot < 0 || slot >= gLanguageCount) return false;
+    const char* file = gLanguages[slot].file;
+    return file != NULL && strncmp(file, prefix, strlen(prefix)) == 0;
+}
+
+// The front end's own pages in English and Chinese. Only Chinese is translated (a wrong translation is worse than the
+// English string), and the characters it uses are baked into the font pack by tools/n3ds/fontgen/make_cjk_font.py,
+// which reads the Chinese literals out of this directory.
+static const char* N3DSAm2r_text(const char* english, const char* chinese) {
+    return N3DSAm2r_languageIs("schinese") ? chinese : english;
+}
+
 static RValue hookGetText(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     const char* section = argCount > 0 && args[0].type == RVALUE_STRING ? args[0].string : "";
     const char* key = argCount > 1 && args[1].type == RVALUE_STRING ? args[1].string : "";
+    // The port replaces the game's Display page with its own, so the row's tip is the port's to write.
     if (strcmp(section, "OptionsMain") == 0 && strcmp(key, "Display_Tip") == 0) {
-        return RValue_makeOwnedString(safeStrdup("Screen mode and cheats"));
+        return RValue_makeOwnedString(safeStrdup(N3DSAm2r_text("Display and performance settings", "画面与性能设置")));
     }
     char cacheKey[256] = "";
     if (argCount == 2 && args[0].type == RVALUE_STRING && args[1].type == RVALUE_STRING) {
@@ -416,6 +549,7 @@ void N3DSAm2r_init(Runner* runner) {
     }
     gAm2r.active = gAm2r.objOptionsMain >= 0 && gAm2r.objControl >= 0;
     if (!gAm2r.active) return;
+    N3DSAm2r_loadLanguages();
 
     VMContext* vm = runner->vmContext;
     DataWin* dataWin = runner->dataWin;
@@ -516,27 +650,40 @@ static void N3DSAm2r_refreshPage(void) {
     int32_t selected = (int32_t) curropt;
     N3DSAm2r_layoutRows(selected);
     if (gAm2r.page == PAGE_EXTRAS) {
-        N3DSGml_setGlobalString("tiptext", selected == EXTRAS_ROW_GAME ? "The game's own extras"
-            : selected == EXTRAS_ROW_CHEATS ? "Unlimited health and ammo, stronger weapons, teleport" : "Back to the options");
+        N3DSGml_setGlobalString("tiptext", selected == EXTRAS_ROW_GAME ? N3DSAm2r_text("The game's own extras", "游戏自带的额外内容")
+            : selected == EXTRAS_ROW_CHEATS ? N3DSAm2r_text("Unlimited health and ammo, stronger weapons, teleport",
+                "无限生命和弹药、更强的武器、传送")
+            : N3DSAm2r_text("Back to the options", "回到选项"));
         return;
     }
     if (gAm2r.page == PAGE_DISPLAY) {
         Instance* frameskip = N3DSAm2r_pageRow(DISPLAY_ROW_FRAMESKIP);
-        if (frameskip != NULL) N3DSGml_setVarString(frameskip, "optext", N3DS_getFrameskip() ? "ON" : "OFF");
+        if (frameskip != NULL) N3DSGml_setVarString(frameskip, "optext", N3DS_getFrameskip()
+            ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         Instance* native = N3DSAm2r_pageRow(DISPLAY_ROW_NATIVE);
         if (native != NULL) {
-            N3DSGml_setVarString(native, "optext", N3DSAm2rNative_available() == 0 ? "N/A" : N3DSAm2rNative_enabled() ? "ON" : "OFF");
+            N3DSGml_setVarString(native, "optext", N3DSAm2rNative_available() == 0 ? N3DSAm2r_text("N/A", "不可用")
+                : N3DSAm2rNative_enabled() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         }
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
-        if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? "ON" : "OFF");
+        if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter()
+            ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         Instance* lighting = N3DSAm2r_pageRow(DISPLAY_ROW_LIGHTING);
-        if (lighting != NULL) N3DSGml_setVarString(lighting, "optext", N3DSAm2rNative_lighting() ? "ON" : "OFF");
-        const char* tip = selected == DISPLAY_ROW_FRAMESKIP ? "A steady 30 fps at full game speed (draws every other frame)"
-            : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0 ? "Not available for this version of the game"
-                : "Busy game scripts run as built-in code: faster, same behaviour")
-            : selected == DISPLAY_ROW_FPS ? "A small frame rate counter in the bottom-left corner"
-            : selected == DISPLAY_ROW_LIGHTING ? "The dark rooms' light effect. OFF draws them fully lit, which is also faster"
-            : "Back to the options";
+        if (lighting != NULL) N3DSGml_setVarString(lighting, "optext", N3DSAm2rNative_lighting()
+            ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
+        const char* tip = selected == DISPLAY_ROW_FRAMESKIP ? N3DSAm2r_text(
+                "A steady 30 fps at full game speed (draws every other frame)",
+                "保持完整游戏速度下稳定的 30 帧（隔帧绘制）")
+            : selected == DISPLAY_ROW_NATIVE ? (N3DSAm2rNative_available() == 0
+                ? N3DSAm2r_text("Not available for this version of the game", "此版本的游戏不支持")
+                : N3DSAm2r_text("Busy game scripts run as built-in code: faster, same behaviour",
+                    "繁重的游戏脚本改用内置代码运行：更快，行为相同"))
+            : selected == DISPLAY_ROW_FPS ? N3DSAm2r_text("A small frame rate counter in the bottom-left corner",
+                "左下角的小型帧率计数器")
+            : selected == DISPLAY_ROW_LIGHTING ? N3DSAm2r_text(
+                "The dark rooms' light effect. OFF draws them fully lit, which is also faster",
+                "暗房间的光照效果；关闭后全亮，也更快")
+            : N3DSAm2r_text("Back to the options", "回到选项");
         N3DSGml_setGlobalString("tiptext", tip);
         return;
     }
@@ -547,19 +694,22 @@ static void N3DSAm2r_refreshPage(void) {
         if (area != NULL) N3DSGml_setVarString(area, "optext", areaText);
         Instance* room = N3DSAm2r_pageRow(TELE_ROOM);
         if (room != NULL) N3DSGml_setVarString(room, "optext", N3DSAm2r_teleRoomName());
-        N3DSGml_setGlobalString("tiptext", selected == TELE_AREA ? "The area (A0 to A8) of the room to go to"
-            : selected == TELE_ROOM ? "The room to go to" : selected == TELE_GO ? "Go to the chosen room (while playing)"
-            : "Back to the cheats");
+        N3DSGml_setGlobalString("tiptext", selected == TELE_AREA ? N3DSAm2r_text(
+                "The area (A0 to A8) of the room to go to", "目标房间所在的区域（A0 到 A8）")
+            : selected == TELE_ROOM ? N3DSAm2r_text("The room to go to", "要前往的房间")
+            : selected == TELE_GO ? N3DSAm2r_text("Go to the chosen room (while playing)", "前往所选房间（游戏进行中）")
+            : N3DSAm2r_text("Back to the cheats", "回到金手指"));
         return;
     }
     for (int i = 0; i < CHEAT_COUNT; i++) {
         Instance* row = N3DSAm2r_pageRow(i);
         if (row == NULL) continue;
-        N3DSGml_setVarString(row, "optext", gAm2r.cheats[i] ? "ON" : "OFF");
+        N3DSGml_setVarString(row, "optext", gAm2r.cheats[i] ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         N3DSGml_setVar(row, "enabled", (i == CHEAT_MASTER || gAm2r.cheats[CHEAT_MASTER]) ? 1.0 : 0.0);
     }
-    N3DSGml_setGlobalString("tiptext", selected >= 0 && selected < CHEAT_COUNT ? kCheatTips[selected]
-        : selected == CHEATS_PAGE_TELEPORT ? "Go to any room (while playing)" : "Back to the extras");
+    N3DSGml_setGlobalString("tiptext", selected >= 0 && selected < CHEAT_COUNT ? N3DSAm2r_cheatTip(selected)
+        : selected == CHEATS_PAGE_TELEPORT ? N3DSAm2r_text("Go to any room (while playing)", "前往任意房间（游戏进行中）")
+        : N3DSAm2r_text("Back to the extras", "回到额外选项"));
 }
 
 // Pages built from the game's own row objects, where the game's pages go (oOptionsMain creates them at (50, 92)):
@@ -567,18 +717,26 @@ static void N3DSAm2r_refreshPage(void) {
 static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     float x = N3DS_AM2R_PAGE_X, y = N3DS_AM2R_PAGE_Y - 8.0f;
     Instance* title = N3DSGml_create(x, y, gAm2r.objMenuLabel);
-    if (title != NULL) N3DSGml_setVarString(title, "text", page == PAGE_DISPLAY ? "Display" : page == PAGE_EXTRAS ? "Extras" : page == PAGE_TELEPORT ? "Teleport" : "Cheats");
+    if (title != NULL) N3DSGml_setVarString(title, "text",
+        page == PAGE_DISPLAY ? N3DSAm2r_text("Display", "显示")
+        : page == PAGE_EXTRAS ? N3DSAm2r_text("Extras", "额外选项")
+        : page == PAGE_TELEPORT ? N3DSAm2r_text("Teleport", "传送")
+        : N3DSAm2r_text("Cheats", "金手指"));
     gAm2r.pageTitle = title != NULL ? (int32_t) title->instanceId : -1;
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
         bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
             i == DISPLAY_ROW_FPS || i == DISPLAY_ROW_LIGHTING) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
-        const char* label = i == count - 1 ? "Exit"
-            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP ? "Frameskip"
-                : i == DISPLAY_ROW_NATIVE ? "Fast scripts" : i == DISPLAY_ROW_FPS ? "FPS counter" : "Lighting")
-            : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? "Game extras" : "Cheats")
-            : page == PAGE_TELEPORT ? (i == TELE_AREA ? "Area" : i == TELE_ROOM ? "Room" : "Go")
-            : i == CHEATS_PAGE_TELEPORT ? "Teleport" : kCheatLabels[i];
+        const char* label = i == count - 1 ? N3DSAm2r_text("Exit", "返回")
+            : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP ? N3DSAm2r_text("Frameskip", "跳帧")
+                : i == DISPLAY_ROW_NATIVE ? N3DSAm2r_text("Fast scripts", "快速脚本")
+                : i == DISPLAY_ROW_FPS ? N3DSAm2r_text("FPS counter", "帧率显示")
+                : N3DSAm2r_text("Lighting", "光照"))
+            : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? N3DSAm2r_text("Game extras", "游戏额外内容")
+                : N3DSAm2r_text("Cheats", "金手指"))
+            : page == PAGE_TELEPORT ? (i == TELE_AREA ? N3DSAm2r_text("Area", "区域")
+                : i == TELE_ROOM ? N3DSAm2r_text("Room", "房间") : N3DSAm2r_text("Go", "前往"))
+            : i == CHEATS_PAGE_TELEPORT ? N3DSAm2r_text("Teleport", "传送") : N3DSAm2r_cheatLabel(i);
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
         gAm2r.pageRows[i] = row != NULL ? (int32_t) row->instanceId : -1;
         if (row == NULL) continue;
