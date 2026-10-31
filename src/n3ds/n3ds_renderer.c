@@ -6619,22 +6619,19 @@ static void N3DSRenderer_drawSurface(Renderer* base, int32_t surfaceID, int32_t 
     {
         // Only the small page-like surfaces: the scene's 400x240 and 592x256 draws used up a plain budget long before
         // the log page appeared at 194 s.
-        // Every surface draw, up to a large cap, with consecutive repeats collapsed: the log page's surface has to be
-        // in here, and a small budget kept being eaten by effect surfaces drawn 40 times in a row.
-        static int budget = 3000;
-        static int32_t lastId = -999, lastW, lastH, lastSrcX, lastSrcY, lastSrcW, lastSrcH;
+        // Only the log page's box (229 or 149 wide): the earlier wide filter was eaten by a 200x160 effect surface
+        // drawn 40 times before the page ever appeared.
+        static int budget = 200;
+        static int32_t lastId = -999, lastSX, lastSY, lastSW, lastSH;
         static float lastX = -99999.0f, lastY = -99999.0f;
-        if (budget > 0 && surface != NULL) {
-            bool same = surfaceID == lastId && (int) surface->width == lastW && (int) surface->height == lastH &&
-                        srcLeft == lastSrcX && srcTop == lastSrcY && srcWidth == lastSrcW && srcHeight == lastSrcH &&
-                        x == lastX && y == lastY;
+        if (budget > 0 && surface != NULL && (surface->width == 229 || surface->width == 149)) {
+            bool same = surfaceID == lastId && srcLeft == lastSX && srcTop == lastSY && srcWidth == lastSW &&
+                        srcHeight == lastSH && x == lastX && y == lastY;
             if (!same) {
-                lastId = surfaceID;
-                lastW = (int) surface->width; lastH = (int) surface->height;
-                lastSrcX = srcLeft; lastSrcY = srcTop; lastSrcW = srcWidth; lastSrcH = srcHeight;
+                lastId = surfaceID; lastSX = srcLeft; lastSY = srcTop; lastSW = srcWidth; lastSH = srcHeight;
                 lastX = x; lastY = y;
                 budget--;
-                logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
+            logInfo("SurfDraw: id=%d size=%dx%d src=%d,%d %dx%d at %.0f,%.0f scale %.2f,%.2f\n",
                     (int) surfaceID, (int) surface->width, (int) surface->height,
                     (int) srcLeft, (int) srcTop, (int) srcWidth, (int) srcHeight, (double) x, (double) y,
                     (double) xscale, (double) yscale);
