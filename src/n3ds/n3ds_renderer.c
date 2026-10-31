@@ -3658,6 +3658,7 @@ static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer
     // to drawing it, so the cache is only used when the whole string matches.
     N3DSRenderer_freeCachedTextLayout(layout);
     int32_t len = (int32_t) strlen(text);
+
     layout->fontIndex = fontIndex;
     layout->drawHalign = renderer->base.drawHalign;
     layout->drawValign = renderer->base.drawValign;
@@ -5278,6 +5279,14 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     // draw_cool_text draws the same string nine times (a 3x3 one-pixel black outline, then the coloured face), so
     // matching on the string content moves every pass together. The shifts only apply in Wide - the other modes draw
     // the game's plain 320x240 picture whose own layout already fits.
+    // The scan prompt is anchored at -19 in the picture's own coordinates (its drawX came out -18, off the left edge)
+    // in point-for-point and stretch, where the picture is centred at displayx = 40. Shifting it by that offset puts the
+    // first glyph back on screen; Wide has its own +2 inset below, so the two never stack.
+    if (text != NULL && N3DS_getScreenMode() != N3DS_SCREEN_WIDE &&
+        (strstr(text, "\xe6\x89\xab\xe6\x8f\x8f") != NULL || strstr(text, "Scanning") != NULL ||
+         strstr(text, "Energy Pattern") != NULL)) {
+        x += 40.0f;
+    }
     if (N3DS_getScreenMode() == N3DS_SCREEN_WIDE && text != NULL) {
         static const char* const kRightEdgePopups[] = {
             // Chinese.
