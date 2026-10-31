@@ -3657,6 +3657,24 @@ static const N3DSCachedTextLayout* N3DSRenderer_getCachedTextLayout(N3DSRenderer
     // the bottom screen's changing numbers came out as two copies a pixel apart. Rebuilding the layout is cheap next
     // to drawing it, so the cache is only used when the whole string matches.
     N3DSRenderer_freeCachedTextLayout(layout);
+    // Diagnostic (diag/ws-and-text): the log page draws at x=2 but appears around x=155. This records the renderer's
+    // own transform for the first few text draws, which tells apart "drawn at 2 and covered" from "transformed to 155".
+    {
+        static int budget = 60;
+        // Long strings only: the log page's entries are hundreds of bytes, the HUD's are a few, so the budget cannot be
+        // eaten by gameplay text before the page is opened.
+        if (budget > 0 && text != NULL && strlen(text) > 100 && (uint32_t) base->drawFont < dw->font.count) {
+            budget--;
+            logInfo("TextPos: game %.1f,%.1f -> screen %.1f,%.1f (frameOff %.1f,%.1f portOff %.1f,%.1f view %d,%d scale %.3f,%.3f) target=%d [%.20s]\n",
+                (double) x, (double) y,
+                (double) N3DSRenderer_transformScreenX(renderer, x), (double) N3DSRenderer_transformScreenY(renderer, y),
+                (double) renderer->frameOffsetX, (double) renderer->frameOffsetY,
+                (double) renderer->portOffsetX, (double) renderer->portOffsetY,
+                (int) renderer->viewX, (int) renderer->viewY,
+                (double) renderer->viewScaleX, (double) renderer->viewScaleY,
+                (int) renderer->currentTargetSurface, text);
+        }
+    }
     int32_t len = (int32_t) strlen(text);
     layout->fontIndex = fontIndex;
     layout->drawHalign = renderer->base.drawHalign;
