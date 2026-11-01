@@ -2326,10 +2326,13 @@ static void N3DSRenderer_transformScreenRect(
         // 10 of 11 columns, which at 12px is most vertical strokes of a Chinese character. Widening (and heightening)
         // the quad to at least the bitmap's own size keeps every column; only the glyph is a pixel wider than the slot
         // the layout gave it, positions do not move.
-        // Only the wide (CJK) glyphs: a latin glyph is 5-8 px wide and losing a column of it is invisible, while
-        // widening every digit of the HUD by a pixel would push numbers out of their fixed slots.
-        float wantedW = fabsf(localW) >= 9.0f ? ceilf(fabsf(localW)) : fabsf(localW);
-        float wantedH = fabsf(localW) >= 9.0f ? ceilf(fabsf(localH)) : fabsf(localH);
+        // Every CJK glyph loses a column to the squeeze, at every size: 11px -> 10, 9px -> 8, 7px -> 6 (measured by
+        // simulating the same snap+nearest sampling). So the rule covers glyphs from 7px up -- the item names' 8px
+        // face is 7px wide, and leaving it out left that line just as damaged as before. Digits (5-6px) stay out: the
+        // HUD's numbers sit in fixed slots and a pixel more would crowd them.
+        bool wide = fabsf(localW) >= 7.0f;
+        float wantedW = wide ? ceilf(fabsf(localW)) : fabsf(localW);
+        float wantedH = wide ? ceilf(fabsf(localH)) : fabsf(localH);
         if (*outW < wantedW) *outW = wantedW;
         if (*outH < wantedH) *outH = wantedH;
     }
