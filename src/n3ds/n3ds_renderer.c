@@ -2165,7 +2165,10 @@ static void N3DSRenderer_flushC2DQueue(N3DSRenderer* renderer) {
 static void N3DSRenderer_submitC2DQueue(N3DSRenderer* renderer) {
     if (renderer == NULL) return;
     N3DSRenderer_flushC2DQueue(renderer);
-    if (C3D_GetCmdBufUsage() > 0.5f) C3D_FrameSplit(0);
+    // Unconditional: C3D_GetCmdBufUsage() only reports the fill of the LAST split, so gating on it never fired.
+    // C3D_FrameSplit hands the used part of the buffer to the GPU and starts a fresh one; with nothing queued it is a
+    // no-op. This is what keeps the pause map (tens of thousands of cells in one frame) from filling the buffer.
+    C3D_FrameSplit(0);
 }
 
 static void N3DSRenderer_noteC2DDraws(N3DSRenderer* renderer, uint32_t drawCount) {
