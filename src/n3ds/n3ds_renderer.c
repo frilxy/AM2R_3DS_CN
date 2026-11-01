@@ -5209,6 +5209,16 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    // The notification box in the bottom-left corner draws two lines ten pixels apart, and the game's own pixel faces
+    // have ink shorter than that gap. The Chinese strike is a full 12px for both lines, so the second line overlaps the
+    // first. Matched by font and colour: the log green (224,248,208) and its shadow are what oNotification and the log
+    // prompt use, while the pause screen's hints use the same fonts in white and stay put.
+    if (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u) {
+        // fontMenuSmall2 (font 6): the "press B to open the log" prompt under the title.
+        if ((int32_t) base->drawFont == 6 && y >= 220.0f && y <= 260.0f) y += 2.0f;
+        // fontMenuSmall (font 4): the Metroid count the scan notification shows under its title.
+        else if ((int32_t) base->drawFont == 4 && y >= 222.5f && y <= 225.5f) y += 2.0f;
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();

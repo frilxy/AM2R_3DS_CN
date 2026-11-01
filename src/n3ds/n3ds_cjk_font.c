@@ -229,6 +229,16 @@ bool N3DSCjkFont_apply(Runner* runner, int32_t fontIndex, const char* ttfPath, f
     // move.
     if (strip.maxGlyphHeight > font->maxGlyphHeight) font->maxGlyphHeight = strip.maxGlyphHeight;
     font->tpagIndex = gTexturePage;
+    // The item names on the pause screen's items page crowd the block heading above them, so the old Chinese build
+    // moved them down 2 px. ascenderOffset is subtracted from the cursor (hence -2) and is free here: it is only read
+    // from data.win at WAD 17 and this game is WAD 15, so the game's own value is 0. No other font is nudged.
+    if (font->name != NULL && strncmp(font->name, "fontMenuTiny", 12) == 0) {
+        const char* rest = font->name + 12;
+        if (*rest == '\0' || strcmp(rest, "Default") == 0) {
+            font->ascenderOffset = -2;
+            logInfo("AM2R: %s shifted down 2 px (item names)\n", font->name);
+        }
+    }
     // No position nudges: this version keeps the layout the game was built with. The old branch moved a handful of
     // strings by a pixel or two (fontMenuTiny's item names, the save-slot play time, the notification's second line,
     // the options page's tip line); none of that is applied here, so if something looks crowded it is the game's own
