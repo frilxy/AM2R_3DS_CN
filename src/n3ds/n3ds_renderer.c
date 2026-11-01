@@ -494,6 +494,9 @@ typedef struct {
     bool topScreenGui2xActive;
     bool topScreenBattleViewActive;
     bool textLinearFilterActive;
+    // Set while glyphs of a text string are drawn: their quads are kept at least as large as their bitmap (see
+    // N3DSRenderer_transformScreenRect), so the 426 -> 400 squeeze cannot drop one of their pixel columns.
+    bool textGlyphDrawActive;
     uint8_t activeSceneTarget;
     const C3D_Tex* lastDrawTexture;
     float savedFrameScaleX;
@@ -2317,6 +2320,19 @@ static void N3DSRenderer_transformScreenRect(
     *outY = screenY0 < screenY1 ? screenY0 : screenY1;
     *outW = fabsf(screenX1 - screenX0);
     *outH = fabsf(screenY1 - screenY0);
+    if (renderer != NULL && renderer->textGlyphDrawActive) {
+        // A text glyph is one bitmap, drawn where the layout puts it -- and the game's GUI is laid out 426 wide for a
+        // 400 wide screen, so its 11 or 12 pixel columns land on 10 or 11 screen pixels. Nearest sampling then keeps
+        // 10 of 11 columns, which at 12px is most vertical strokes of a Chinese character. Widening (and heightening)
+        // the quad to at least the bitmap's own size keeps every column; only the glyph is a pixel wider than the slot
+        // the layout gave it, positions do not move.
+        // Only the wide (CJK) glyphs: a latin glyph is 5-8 px wide and losing a column of it is invisible, while
+        // widening every digit of the HUD by a pixel would push numbers out of their fixed slots.
+        float wantedW = fabsf(localW) >= 9.0f ? ceilf(fabsf(localW)) : fabsf(localW);
+        float wantedH = fabsf(localW) >= 9.0f ? ceilf(fabsf(localH)) : fabsf(localH);
+        if (*outW < wantedW) *outW = wantedW;
+        if (*outH < wantedH) *outH = wantedH;
+    }
 }
 
 static void N3DSRenderer_drawImageFastFlipped(Renderer* base, C2D_Image* image, float localX, float localY, float xscale, float yscale, bool flipX, bool flipY, uint32_t color, float alpha);
@@ -5276,7 +5292,9 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         }
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
+    bool savedTextGlyphDraw = renderer->textGlyphDrawActive;
     renderer->textLinearFilterActive = false;
+    renderer->textGlyphDrawActive = true;
     u64 textStartTick = svcGetSystemTick();
     Font* font = &dw->font.fonts[base->drawFont];
     float effectiveXScale = xscale * font->scaleX;
@@ -5324,6 +5342,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             (void) c4;
             renderer->frameTextTenthsMs += (uint32_t) lround(N3DSRenderer_ticksToMs(svcGetSystemTick() - textStartTick) * 10.0);
             renderer->textLinearFilterActive = savedTextLinearFilterActive;
+            renderer->textGlyphDrawActive = savedTextGlyphDraw;
             return;
         }
 
@@ -5368,6 +5387,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         (void) c4;
         renderer->frameTextTenthsMs += (uint32_t) lround(N3DSRenderer_ticksToMs(svcGetSystemTick() - textStartTick) * 10.0);
         renderer->textLinearFilterActive = savedTextLinearFilterActive;
+        renderer->textGlyphDrawActive = savedTextGlyphDraw;
         return;
     }
     int32_t lineCount = TextUtils_countLines(text, len);
@@ -5457,6 +5477,7 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     (void) c4;
     renderer->frameTextTenthsMs += (uint32_t) lround(N3DSRenderer_ticksToMs(svcGetSystemTick() - textStartTick) * 10.0);
     renderer->textLinearFilterActive = savedTextLinearFilterActive;
+    renderer->textGlyphDrawActive = savedTextGlyphDraw;
 }
 
 static void N3DSRenderer_drawText(Renderer* base, const char* text, float x, float y, float xscale, float yscale, float angleDeg, float lineSeparation) {
