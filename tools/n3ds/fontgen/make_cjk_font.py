@@ -31,6 +31,11 @@ from pathlib import Path
 
 ATLAS_WIDTH = 1024
 ATLAS_MAX_HEIGHT = 1024
+# 1 px of empty space to the right of every glyph. Without it a glyph's rectangle touches the next glyph's, and the
+# first column of that neighbour is blank: any sub-texel sampling -- the game's GUI is drawn at 400/426 of its layout,
+# and scaled text falls back to linear filtering -- then reads the blank column and drops a one-pixel stroke, which at
+# 12px is most vertical strokes of a character.
+GLYPH_PAD = 1
 
 # What oControl's Create event asks font_replace for: (font file, key in sizes.ini, fallback size). The keys are the
 # game's own (sizes.ini is keyed by FILENAME, not by GameMaker font name -- see docs/localization.md).
@@ -329,7 +334,7 @@ def pack_strips(strips):
                 cursor_y += shelf_height
                 shelf_height = 0
             glyph["x"], glyph["y"] = cursor_x, cursor_y
-            cursor_x += glyph["width"]
+            cursor_x += glyph["width"] + GLYPH_PAD
             shelf_height = max(shelf_height, glyph["height"])
         cursor_y += shelf_height
         strip["yOffset"] = start
