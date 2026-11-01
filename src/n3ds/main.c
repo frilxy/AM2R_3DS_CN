@@ -818,6 +818,12 @@ int main(int argc, char** argv) {
         N3DSLiveMap_beginFrame();
         // Before the step: freezes the top screen when the pause screen opens and turns touches into its presses.
         bool paused = N3DSPause_update();
+        // Debug: L+R+Y plays the area title where Samus is. The title is normally spawned by the game on a real area
+        // transition, which a teleport (or a save-less test) cannot produce, so this makes the replaced area banners
+        // checkable anywhere. Not while paused: the pause screen is its own room, with no Samus in it.
+        if (!paused && (hidKeysDown() & KEY_Y) && (hidKeysHeld() & (KEY_L | KEY_R)) == (KEY_L | KEY_R)) {
+            N3DSAm2r_playAreaTitle();
+        }
         bool frameOpenBeforeStep = N3DSRenderer_frameIsOpen();
         u64 stepStartTick = svcGetSystemTick();
         {

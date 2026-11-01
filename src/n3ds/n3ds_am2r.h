@@ -18,6 +18,9 @@
 void N3DSAm2r_init(Runner* runner);
 // Once a frame, after the game's step.
 void N3DSAm2r_update(void);
+// Debug: plays the game's area title (oAreaIntro) where Samus is, so the replaced area banners can be checked without
+// a real area transition. Bound to L+R+Y in main.c while playing.
+void N3DSAm2r_playAreaTitle(void);
 // "Paused" on the top screen (over the frozen game) while the pause screen is up.
 void N3DSAm2r_drawPausedBanner(Renderer* renderer);
 // The width the game lays its picture out for: 320 + oControl.widescreen_space while the Community Updates' own

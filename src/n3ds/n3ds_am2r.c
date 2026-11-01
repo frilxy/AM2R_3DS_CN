@@ -41,9 +41,7 @@ enum { CHEAT_MASTER, CHEAT_HEALTH, CHEAT_AMMO, CHEAT_BEAM, CHEAT_BOMBS, CHEAT_MI
 #define N3DS_AM2R_ITEMS 15
 // The Cheats page's row after the switches opens the Teleport page: an area, a room in it, go (each page ends with Exit).
 enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
-// TELE_TITLE is a test hook: the area title (oAreaIntro) is normally spawned by the game on a real area transition,
-// which is hard to reach from a teleport -- this plays it once, so the replaced banners can be checked anywhere.
-enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_TITLE, TELE_PAGE_ROWS };
+enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
 #define N3DS_AM2R_AREAS 10
 #define N3DS_AM2R_MAX_AREA_ROOMS 64
 enum { DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
@@ -825,7 +823,6 @@ static void N3DSAm2r_refreshPage(void) {
                 "The area (A0 to A8) of the room to go to", "目标房间所在的区域（A0 到 A8）")
             : selected == TELE_ROOM ? N3DSAm2r_text("The room to go to", "要前往的房间")
             : selected == TELE_GO ? N3DSAm2r_text("Go to the chosen room (while playing)", "前往所选房间（游戏进行中）")
-            : selected == TELE_TITLE ? N3DSAm2r_text("Play the area title here (test)", "在这里播一次区域标题（测试）")
             : N3DSAm2r_text("Back to the cheats", "回到金手指"));
         return;
     }
@@ -863,9 +860,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
             : page == PAGE_EXTRAS ? (i == EXTRAS_ROW_GAME ? N3DSAm2r_text("Game extras", "游戏额外内容")
                 : N3DSAm2r_text("Cheats", "金手指"))
             : page == PAGE_TELEPORT ? (i == TELE_AREA ? N3DSAm2r_text("Area", "区域")
-                : i == TELE_ROOM ? N3DSAm2r_text("Room", "房间")
-                : i == TELE_GO ? N3DSAm2r_text("Go", "前往")
-                : N3DSAm2r_text("Area title", "区域标题"))
+                : i == TELE_ROOM ? N3DSAm2r_text("Room", "房间") : N3DSAm2r_text("Go", "前往"))
             : i == CHEATS_PAGE_TELEPORT ? N3DSAm2r_text("Teleport", "传送") : N3DSAm2r_cheatLabel(i);
         Instance* row = N3DSGml_create(x, y + N3DS_AM2R_ROW_SEP * (float) (i + 1), lrRow ? gAm2r.objOptionLR : gAm2r.objPauseOption);
         gAm2r.pageRows[i] = row != NULL ? (int32_t) row->instanceId : -1;
@@ -1054,7 +1049,6 @@ static void N3DSAm2r_applyLighting(void) {
     lastApplied = on ? 1 : 0;
 }
 
-static void N3DSAm2r_playAreaTitle(void);
 static void N3DSAm2r_updatePage(void) {
     int count = N3DSAm2r_pageRowCount(gAm2r.page);
     // The page's instances go with the room (leaving the pause screen): nothing to go back to then.
@@ -1135,13 +1129,6 @@ static void N3DSAm2r_updatePage(void) {
             logInfo("AM2R: teleport to %s\n", N3DSAm2r_teleRoomName());
             return;
         }
-    } else if (gAm2r.page == PAGE_TELEPORT && selected == TELE_TITLE && menu1) {
-        N3DSAm2r_sfx(gAm2r.sndMenuSel);
-        N3DSAm2r_closePage();
-        // The game only animates while it thinks a game is running (the teleport path does the same).
-        N3DSGml_setGlobal("ingame", 1.0);
-        N3DSAm2r_playAreaTitle();
-        return;
     } else if (gAm2r.page == PAGE_CHEATS && selected < CHEAT_COUNT && (menu1 || left || right)) {
         gAm2r.cheats[selected] = !gAm2r.cheats[selected];
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
@@ -1152,8 +1139,8 @@ static void N3DSAm2r_updatePage(void) {
 
 // Plays the game's area title (oAreaIntro) once, where Samus is. The title normally appears when entering an area
 // through a transition; a teleport does not do that, so this makes the replaced banners (lang/headers) checkable
-// anywhere.
-static void N3DSAm2r_playAreaTitle(void) {
+// anywhere. Called from main.c's L+R+Y (debug).
+void N3DSAm2r_playAreaTitle(void) {
     if (gAm2r.objAreaIntro < 0) {
         logInfo("AM2R: no oAreaIntro in this game\n");
         return;
