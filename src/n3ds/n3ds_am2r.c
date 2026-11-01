@@ -101,7 +101,6 @@ typedef struct {
     int32_t objBeam, objMissile, objMissileExpl, objBombExpl, objPBombExpl;
     int32_t objMetroids[4];
     int32_t objCharacter;
-    int32_t objAreaIntro; // the game's area title, so the teleport page can play it on demand
     int32_t objSSFg, objSSBg, drawCoolText;
     int32_t sndSpin[5]; // the spin-jump loops: plain, Space Jump, Screw Attack, both, underwater
     int32_t sprA, sprB, sprX, sprY;
@@ -690,7 +689,6 @@ void N3DSAm2r_init(Runner* runner) {
     gAm2r.sndMenuMove = N3DSGml_soundIndex("sndMenuMove");
     gAm2r.sndMenuSel = N3DSGml_soundIndex("sndMenuSel");
     gAm2r.objCharacter = N3DSGml_objectIndex("oCharacter");
-    gAm2r.objAreaIntro = N3DSGml_objectIndex("oAreaIntro");
     gAm2r.objSSFg = N3DSGml_objectIndex("oSS_Fg");
     gAm2r.objSSBg = N3DSGml_objectIndex("oSS_Bg");
     gAm2r.drawCoolText = N3DSGml_scriptIndex("draw_cool_text");
@@ -1172,40 +1170,6 @@ static void N3DSAm2r_updatePage(void) {
     }
     N3DSGml_setGlobal("curropt", (double) selected);
     N3DSAm2r_refreshPage();
-}
-
-// Plays the game's area title (oAreaIntro) once, where Samus is. The title normally appears when entering an area
-// through a transition; a teleport does not do that, so this makes the replaced banners (lang/headers) checkable
-// anywhere. Called from main.c's L+R+Y (debug).
-void N3DSAm2r_playAreaTitle(void) {
-    if (gAm2r.objAreaIntro < 0) {
-        logInfo("AM2R: no oAreaIntro in this game\n");
-        return;
-    }
-    Instance* samus = gAm2r.objCharacter >= 0 ? N3DSGml_anyInstance(gAm2r.objCharacter) : NULL;
-    float x = samus != NULL ? samus->x : 0.0f;
-    float y = samus != NULL ? samus->y : 0.0f;
-    Instance* intro = N3DSGml_create(x, y, gAm2r.objAreaIntro);
-    if (intro == NULL) {
-        logInfo("AM2R: area title at %.0f,%.0f: failed\n", (double) x, (double) y);
-        return;
-    }
-    // oAreaIntro's own sprite is sIntro_A1: the game points it at the area's banner when IT spawns the title. Made by
-    // hand it would always show area 1's (黄金神殿), so the room's name (rm_a<area>...) picks the sprite here.
-    const char* room = gAm2r.runner != NULL && gAm2r.runner->currentRoom != NULL ? gAm2r.runner->currentRoom->name : NULL;
-    int32_t area = (room != NULL && strncmp(room, "rm_a", 4) == 0 && room[4] >= '0' && room[4] <= '9') ? room[4] - '0' : -1;
-    int32_t sprite = -1;
-    if (area >= 1) {
-        char name[24];
-        snprintf(name, sizeof(name), "sIntro_A%d", (int) area);
-        sprite = N3DSGml_spriteIndex(name);
-        if (sprite >= 0) {
-            intro->spriteIndex = sprite;
-            intro->imageIndex = 0.0f;
-        }
-    }
-    logInfo("AM2R: area title at %.0f,%.0f in %s: %s (area %d, sprite %d)\n", (double) x, (double) y,
-        room != NULL ? room : "?", "created", (int) area, (int) sprite);
 }
 
 // ===[ Cheat effects ]===
