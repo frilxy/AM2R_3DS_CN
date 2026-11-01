@@ -2243,6 +2243,16 @@ static void N3DSRenderer_trackTextureUse(N3DSRenderer* renderer, const C2D_Image
 static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_Tex* texture, float scaleX, float scaleY) {
     if (texture == NULL || !Renderer_isFiniteFloat(scaleX) || !Renderer_isFiniteFloat(scaleY)) return;
 
+    // Text is never filtered. The game sets its own texture filter (base.texFilter, GML gpu_set_texfilter) for its
+    // artwork, and that used to put every glyph on the top screen through a linear filter: a one pixel wide stroke
+    // between two texel centres then blends to half its colour, which on the dark backgrounds reads as a missing
+    // stroke. The bottom screen never showed it because its GUI path forces nearest -- which is exactly the
+    // difference between the two screens. Glyphs are pixel bitmaps, so nearest is always the right filter for them.
+    if (renderer != NULL && renderer->textGlyphDrawActive) {
+        C3D_TexSetFilter(texture, GPU_NEAREST, GPU_NEAREST);
+        return;
+    }
+
     if (renderer != NULL && renderer->textLinearFilterActive) {
         C3D_TexSetFilter(texture, GPU_LINEAR, GPU_LINEAR);
         return;
