@@ -185,14 +185,6 @@ static const N3DSCjkStrip* N3DSCjk_findStrip(const char* baseName, uint16_t size
     return NULL;
 }
 
-// The pixel font sits a little low in a line the game already laid out: item names inside a block crowded the heading
-// above them. ascenderOffset is subtracted from the cursor, so a negative value moves the text up.
-static void N3DSCjk_applyVerticalNudge(Font* font) {
-    if (font == NULL || font->name == NULL) return;
-    if (strcmp(font->name, "fontMenuTiny") != 0 && strcmp(font->name, "fontMenuTinyDefault") != 0) return;
-    font->ascenderOffset = -2;
-}
-
 bool N3DSCjkFont_apply(Runner* runner, int32_t fontIndex, const char* ttfPath, float emSize) {
     if (runner == NULL || runner->dataWin == NULL || ttfPath == NULL) return false;
     DataWin* dw = runner->dataWin;
@@ -237,7 +229,10 @@ bool N3DSCjkFont_apply(Runner* runner, int32_t fontIndex, const char* ttfPath, f
     // move.
     if (strip.maxGlyphHeight > font->maxGlyphHeight) font->maxGlyphHeight = strip.maxGlyphHeight;
     font->tpagIndex = gTexturePage;
-    N3DSCjk_applyVerticalNudge(font);
+    // No position nudges: this version keeps the layout the game was built with. The old branch moved a handful of
+    // strings by a pixel or two (fontMenuTiny's item names, the save-slot play time, the notification's second line,
+    // the options page's tip line); none of that is applied here, so if something looks crowded it is the game's own
+    // spacing and can be tuned later, one string at a time.
     N3DSRenderer_invalidateTextLayoutCache(runner->renderer);
     logInfo("AM2R: %s -> %s at %upx, %u glyphs (tpag %d)\n",
         font->name != NULL ? font->name : "font", baseName, (unsigned) requested, (unsigned) font->glyphCount,
