@@ -1186,7 +1186,26 @@ void N3DSAm2r_playAreaTitle(void) {
     float x = samus != NULL ? samus->x : 0.0f;
     float y = samus != NULL ? samus->y : 0.0f;
     Instance* intro = N3DSGml_create(x, y, gAm2r.objAreaIntro);
-    logInfo("AM2R: area title at %.0f,%.0f: %s\n", (double) x, (double) y, intro != NULL ? "created" : "failed");
+    if (intro == NULL) {
+        logInfo("AM2R: area title at %.0f,%.0f: failed\n", (double) x, (double) y);
+        return;
+    }
+    // oAreaIntro's own sprite is sIntro_A1: the game points it at the area's banner when IT spawns the title. Made by
+    // hand it would always show area 1's (黄金神殿), so the room's name (rm_a<area>...) picks the sprite here.
+    const char* room = gAm2r.runner != NULL && gAm2r.runner->currentRoom != NULL ? gAm2r.runner->currentRoom->name : NULL;
+    int32_t area = (room != NULL && strncmp(room, "rm_a", 4) == 0 && room[4] >= '0' && room[4] <= '9') ? room[4] - '0' : -1;
+    int32_t sprite = -1;
+    if (area >= 1) {
+        char name[24];
+        snprintf(name, sizeof(name), "sIntro_A%d", (int) area);
+        sprite = N3DSGml_spriteIndex(name);
+        if (sprite >= 0) {
+            intro->spriteIndex = sprite;
+            intro->imageIndex = 0.0f;
+        }
+    }
+    logInfo("AM2R: area title at %.0f,%.0f in %s: %s (area %d, sprite %d)\n", (double) x, (double) y,
+        room != NULL ? room : "?", "created", (int) area, (int) sprite);
 }
 
 // ===[ Cheat effects ]===
