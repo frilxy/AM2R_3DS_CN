@@ -2430,6 +2430,19 @@ static void N3DSRenderer_freeDynamicCaptureTPAG(N3DSRenderer* renderer, N3DSDyna
     capture->ownerSpriteIndex = -1;
 }
 
+// Each capture's C2D_Image points at fields of its OWN entry, and the pool is a realloc'd array: growing it can move
+// every entry, so the pointers are rebuilt afterwards. A stale one is not just wrong but draws from freed memory -- the
+// font page is allocated first (at boot, for font_replace) and every runtime image after it (the title logo, the area
+// banners, the suit palettes) moved the pool, which blanked every glyph on screen.
+static void N3DSRenderer_refreshCaptureImages(N3DSRenderer* renderer) {
+    if (renderer == NULL || renderer->dynamicCaptureTPAGs == NULL) return;
+    repeat(renderer->dynamicCaptureTPAGCount, i) {
+        N3DSDynamicCaptureTPAG* capture = &renderer->dynamicCaptureTPAGs[i];
+        if (capture->image.tex != NULL) capture->image.tex = &capture->texture;
+        if (capture->image.subtex != NULL) capture->image.subtex = &capture->subtex;
+    }
+}
+
 static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer) {
     if (renderer == NULL || renderer->base.dataWin == NULL) return -1;
 
@@ -2449,6 +2462,7 @@ static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer) {
     memset(&renderer->dynamicCaptureTPAGs[dynamicIndex], 0, sizeof(renderer->dynamicCaptureTPAGs[dynamicIndex]));
     renderer->dynamicCaptureTPAGs[dynamicIndex].ownerSpriteIndex = -1;
     renderer->dynamicCaptureTPAGCount = newDynamicCount;
+    N3DSRenderer_refreshCaptureImages(renderer);
 
     DataWin* dw = renderer->base.dataWin;
     uint32_t newTPAGCount = renderer->baseTPAGCount + renderer->dynamicCaptureTPAGCount;
