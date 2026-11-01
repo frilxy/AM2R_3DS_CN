@@ -229,10 +229,18 @@ bool N3DSCjkFont_apply(Runner* runner, int32_t fontIndex, const char* ttfPath, f
     // move.
     if (strip.maxGlyphHeight > font->maxGlyphHeight) font->maxGlyphHeight = strip.maxGlyphHeight;
     font->tpagIndex = gTexturePage;
-    // No position nudges: this version keeps the layout the game was built with. The old branch moved a handful of
-    // strings by a pixel or two (fontMenuTiny's item names, the save-slot play time, the notification's second line,
-    // the options page's tip line); none of that is applied here, so if something looks crowded it is the game's own
-    // spacing and can be tuned later, one string at a time.
+    // One nudge from the old Chinese build is wanted back: the item names on the pause screen's items page crowd the
+    // block heading above them, so they move down 2 px. ascenderOffset is subtracted from the cursor, hence the -2, and
+    // it is free to use: it is only read from data.win at WAD 17 and this game is WAD 15, so the game's own value is 0.
+    // (The old branch also moved the save-slot play time, the notification's second line and the options page's tip
+    // line; those stay as the game laid them out.)
+    if (font->name != NULL && strncmp(font->name, "fontMenuTiny", 12) == 0) {
+        const char* rest = font->name + 12;
+        if (*rest == '\0' || strcmp(rest, "Default") == 0) {
+            font->ascenderOffset = -2;
+            logInfo("AM2R: %s shifted down 2 px (item names)\n", font->name);
+        }
+    }
     N3DSRenderer_invalidateTextLayoutCache(runner->renderer);
     logInfo("AM2R: %s -> %s at %upx, %u glyphs (tpag %d)\n",
         font->name != NULL ? font->name : "font", baseName, (unsigned) requested, (unsigned) font->glyphCount,
