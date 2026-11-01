@@ -2282,6 +2282,13 @@ static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_
     GPU_TEXTURE_FILTER_PARAM minFilter = (fabsf(scaleX) < 0.999f || fabsf(scaleY) < 0.999f)
         ? GPU_LINEAR
         : GPU_NEAREST;
+    if (minFilter == GPU_LINEAR && renderer != NULL && renderer->textGlyphDrawActive) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            logInfo("AM2R: scaled text is sampled LINEAR (scale %.3f x %.3f)\n", (double) scaleX, (double) scaleY);
+        }
+    }
     C3D_TexSetFilter(texture, minFilter, GPU_NEAREST);
 }
 
@@ -2333,8 +2340,19 @@ static void N3DSRenderer_transformScreenRect(
         bool wide = fabsf(localW) >= 7.0f;
         float wantedW = wide ? ceilf(fabsf(localW)) : fabsf(localW);
         float wantedH = wide ? ceilf(fabsf(localH)) : fabsf(localH);
-        if (*outW < wantedW) *outW = wantedW;
-        if (*outH < wantedH) *outH = wantedH;
+        bool widened = false;
+        if (*outW < wantedW) { *outW = wantedW; widened = true; }
+        if (*outH < wantedH) { *outH = wantedH; widened = true; }
+        if (wide) {
+            // Diagnostic: does the rule reach the glyphs at all, and is the quad the size we think? One line per width.
+            static bool logged[16];
+            uint32_t slot = (uint32_t) (wantedW > 0.0f && wantedW < 16.0f ? wantedW : 0.0f);
+            if (!logged[slot]) {
+                logged[slot] = true;
+                logInfo("AM2R: glyph quad: bitmap %ux%u -> screen %.0fx%.0f%s\n",
+                    (unsigned) wantedW, (unsigned) wantedH, (double) *outW, (double) *outH, widened ? " (widened)" : "");
+            }
+        }
     }
 }
 
