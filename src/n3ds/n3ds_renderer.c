@@ -80,7 +80,9 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_TOP_BATTLE_SCENE_Y_OFFSET 200.0f
 #define N3DS_TOP_BATTLE_ENEMY_Y_OFFSET 200.0f
 // Flushing doesn't free citro2d buffer space (that resets per frame), it only adds GPU draw calls.
-#define N3DS_C2D_FLUSH_DRAW_BUDGET 2048u
+// Draws queued before the C2D queue is flushed and the GPU command buffer submitted. Kept small: one flush must fit in
+// what is left of citro3d's command buffer, or GPUCMD_Add panics mid-flush (the pause map of a big area overflows it).
+#define N3DS_C2D_FLUSH_DRAW_BUDGET 512u
 #define N3DS_PERF_LOG_INTERVAL_FRAMES 30u
 #define N3DS_ATLAS_TRACE_LOG_PATH N3DS_SD_DIR "atlas_trace.log"
 
@@ -2155,11 +2157,22 @@ static void N3DSRenderer_flushC2DQueue(N3DSRenderer* renderer) {
     renderer->lastDrawTexture = NULL;
 }
 
+// citro3d keeps one command buffer for the whole frame and only hands it to the GPU at a split: a frame that queues
+// more commands than it holds makes GPUCMD_Add panic (svcBreak). The pause map draws thousands of cells in one frame,
+// and a real-hardware crash dump showed exactly that (pc=svcBreak, lr=GPUCMD_Add+0xb8, r4=gpuCmdBufOffset,
+// r10=gpuCmdBufSize) when START opened the pause screen; the emulator never filled the buffer. Submitting what is
+// queued every so many draws keeps it from filling.
+static void N3DSRenderer_submitC2DQueue(N3DSRenderer* renderer) {
+    if (renderer == NULL) return;
+    N3DSRenderer_flushC2DQueue(renderer);
+    if (C3D_GetCmdBufUsage() > 0.5f) C3D_FrameSplit(0);
+}
+
 static void N3DSRenderer_noteC2DDraws(N3DSRenderer* renderer, uint32_t drawCount) {
     if (renderer == NULL || drawCount == 0) return;
     renderer->pendingC2DDraws += drawCount;
     if (renderer->pendingC2DDraws >= N3DS_C2D_FLUSH_DRAW_BUDGET) {
-        N3DSRenderer_flushC2DQueue(renderer);
+        N3DSRenderer_submitC2DQueue(renderer);
     }
 }
 
