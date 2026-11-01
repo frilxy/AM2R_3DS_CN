@@ -603,8 +603,15 @@ int main(int argc, char** argv) {
     }
     N3DS_logMemory("startup");
 
+    // citro3d's GPU command buffer: a frame hands the GPU all of its commands at once, and the buffer is only reset at
+    // the next frame start (GPUCMD_Split consumes it for good -- gpuCmdBuf/gpuCmdBufSize advance). AM2R's pause screen
+    // draws an area's whole map into one surface in a single frame, which overran 512 KB on real hardware and made
+    // GPUCMD_Add panic (svcBreak) -- the crash dumps showed exactly that, and no amount of splitting can extend the
+    // buffer. 4 MB is what the whole map needs; the smaller sizes are only there so a failed allocation still boots.
     bool citroReady = false;
-    if (C3D_Init(0x80000) && C2D_Init(N3DS_C2D_MAX_OBJECTS)) {
+    bool c3dReady = C3D_Init(0x400000) || (logWarn("N3DS: no 4 MB GPU command buffer, trying 1 MB\n"), C3D_Init(0x100000))
+        || (logWarn("N3DS: no 1 MB GPU command buffer, trying 512 KB\n"), C3D_Init(0x80000));
+    if (c3dReady && C2D_Init(N3DS_C2D_MAX_OBJECTS)) {
         C2D_Prepare();
         citroReady = true;
     } else {
