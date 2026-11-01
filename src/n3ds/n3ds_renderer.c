@@ -237,7 +237,10 @@ typedef struct {
     LightLock lock;
     LightEvent wake;
     CondVar done;
-    FILE* file; // its own handle on atlas.bin (the main thread seeks the other)
+    // The loader opens atlas.bin itself, once per page it reads, instead of keeping a handle open for its lifetime: a
+    // crash dump from real hardware showed fseek dying inside newlib (_lseek_r) on a handle whose device was gone --
+    // a use-after-close of the shared stream. A handle opened and closed in the same call cannot be closed underneath.
+    char path[256];
     uint32_t* queue; // stb_ds array of page indices
     volatile bool stop;
 } N3DSBlobLoader;
@@ -1492,9 +1495,13 @@ static void N3DSBlobLoader_main(void* arg) {
             LightLock_Unlock(&loader->lock);
 
             uint8_t* data = malloc(size);
-            if (data != NULL && (fseek(loader->file, (long) offset, SEEK_SET) != 0 || fread(data, 1, size, loader->file) != size)) {
-                free(data);
-                data = NULL;
+            if (data != NULL) {
+                FILE* file = loader->path[0] != '\0' ? fopen(loader->path, "rb") : NULL;
+                if (file == NULL || fseek(file, (long) offset, SEEK_SET) != 0 || fread(data, 1, size, file) != size) {
+                    free(data);
+                    data = NULL;
+                }
+                if (file != NULL) fclose(file);
             }
 
             LightLock_Lock(&loader->lock);
@@ -1509,9 +1516,12 @@ static void N3DSBlobLoader_main(void* arg) {
 static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
     if (renderer->packedAtlasFile == NULL || !N3DSRenderer_isPackedAtlasVersion(renderer->atlasVersion)) return;
     N3DSBlobLoader* loader = &renderer->blobLoader;
-    char path[256];
-    loader->file = N3DSRenderer_openAssetFile(renderer, "atlas.bin", path, sizeof(path));
-    if (loader->file == NULL) return;
+    // Resolved once here (the renderer's path cache is not touched from the worker thread), opened per page there.
+    if (!N3DSRenderer_resolveAssetPath(renderer, "atlas.bin", loader->path, sizeof(loader->path))) return;
+    FILE* probe = fopen(loader->path, "rb"); // only to know it is readable: pages open it themselves
+    if (probe == NULL) return;
+    fclose(probe);
+
     LightLock_Init(&loader->lock);
     LightEvent_Init(&loader->wake, RESET_ONESHOT);
     CondVar_Init(&loader->done);
@@ -1521,8 +1531,6 @@ static void N3DSBlobLoader_start(N3DSRenderer* renderer) {
     loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 2, false);
     if (loader->thread == NULL) loader->thread = threadCreate(N3DSBlobLoader_main, renderer, N3DS_BLOB_LOADER_STACK_SIZE, N3DS_BLOB_LOADER_PRIORITY, 1, false);
     if (loader->thread == NULL) {
-        fclose(loader->file);
-        loader->file = NULL;
         logWarn("N3DS: no background page loader thread; pages load on the main thread\n");
         return;
     }
@@ -1538,7 +1546,7 @@ static void N3DSBlobLoader_stop(N3DSRenderer* renderer) {
     LightEvent_Signal(&loader->wake);
     threadJoin(loader->thread, U64_MAX);
     threadFree(loader->thread);
-    fclose(loader->file);
+    loader->path[0] = '\0';
     arrfree(loader->queue);
     repeat(renderer->atlasPageCount, i) {
         free(renderer->atlasPages[i].asyncData);
@@ -5224,6 +5232,18 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     if (base->drawFont < 0 || (uint32_t) base->drawFont >= dw->font.count) return;
 
     N3DSRenderer* renderer = (N3DSRenderer*) base;
+    // The notification box in the bottom-left corner draws two lines ten pixels apart, and the game's own pixel faces
+    // have ink shorter than that gap. This port's Chinese strike is a full 12px for both lines, so the second line
+    // overlapped the first by two pixels. The old Chinese build nudged it down and it is wanted back: matched by font
+    // and colour, because the log pages' prompt ("press B") and the scan result ("N 只密特罗德在该区域") both go through
+    // the log's green (224,248,208) and its dark shadow (8,24,32), while the pause screen's hints use the same fonts
+    // in white and stay put.
+    if (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u) {
+        // fontMenuSmall2 (font 6): the "press B to open the log" prompt under the title, at y 224.
+        if ((int32_t) base->drawFont == 6 && y >= 220.0f && y <= 260.0f) y += 2.0f;
+        // fontMenuSmall (font 4): the Metroid count the scan notification shows under its title, at y 224.
+        else if ((int32_t) base->drawFont == 4 && y >= 222.5f && y <= 225.5f) y += 2.0f;
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
