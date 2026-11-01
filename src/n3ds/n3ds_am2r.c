@@ -1264,6 +1264,18 @@ static void N3DSAm2r_dropWaterFilter(void) {
 }
 
 int32_t N3DSAm2r_gameWidth(void) {
+    {
+        static bool logged;
+        if (!logged && gAm2r.objControl >= 0) {
+            logged = true;
+            Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
+            double wide = 0.0, space = 0.0;
+            if (control != NULL && N3DSGml_getVar(control, "widescreen", &wide) &&
+                N3DSGml_getVar(control, "widescreen_space", &space)) {
+                logInfo("TEXTFIX widescreen: %s (space %.0f)\n", wide >= 0.5 ? "on" : "off", space);
+            }
+        }
+    }
     if (!gAm2r.active) return 0;
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
     double widescreen = 0.0, space = 0.0;

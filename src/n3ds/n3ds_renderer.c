@@ -2299,6 +2299,15 @@ static void N3DSRenderer_transformScreenRect(
     *outW = fabsf(screenX1 - screenX0);
     *outH = fabsf(screenY1 - screenY0);
     if (renderer != NULL && renderer->textGlyphDrawActive) {
+        {
+            static bool logged[24];
+            uint32_t bucket = (uint32_t) (fabsf(localW) < 23.0f ? fabsf(localW) : 23.0f);
+            if (!logged[bucket]) {
+                logged[bucket] = true;
+                logInfo("TEXTFIX glyph: bitmap %.0fx%.0f -> screen before %.0fx%.0f\n",
+                    (double) fabsf(localW), (double) fabsf(localH), (double) *outW, (double) *outH);
+            }
+        }
         // The game's GUI is laid out 426 wide for a 400 wide screen, so a glyph's 12 or 11 pixel columns would land
         // on 11 or 10 screen pixels and nearest sampling would keep one column fewer -- whichever column falls between
         // two pixels, which for 12 -> 11 is the middle one, i.e. a stroke. Keeping the quad at the bitmap's size
@@ -5236,6 +5245,14 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
     }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     bool savedTextGlyphDraw = renderer->textGlyphDrawActive;
+    {
+        static bool loggedText;
+        if (!loggedText) {
+            loggedText = true;
+            logInfo("TEXTFIX active: view scale %.3f x %.3f, first text '%s'\n",
+                (double) renderer->viewScaleX, (double) renderer->viewScaleY, text != NULL ? text : "");
+        }
+    }
     renderer->textLinearFilterActive = false;
     renderer->textGlyphDrawActive = true;
     u64 textStartTick = svcGetSystemTick();
