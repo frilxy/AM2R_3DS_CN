@@ -492,26 +492,35 @@ static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
         if (pixels != NULL) stbi_image_free(pixels);
         return RValue_makeUndefined();
     }
+    // sprite_replace(..., removeback, ...): the packs' banners are drawn on an opaque dark background, and the game asks
+    // for it to be keyed out -- GameMaker takes the colour of the bottom-left pixel as the key.
+    if (argCount > 3 && RValue_toBool(args[3])) {
+        const uint8_t* key = pixels + (size_t) (height - 1) * (size_t) width * 4u;
+        for (size_t i = 0; i < (size_t) width * (size_t) height; i++) {
+            uint8_t* px = pixels + i * 4u;
+            if (px[0] == key[0] && px[1] == key[1] && px[2] == key[2]) px[3] = 0u;
+        }
+    }
 
-    // The language packs ship an area banner as ONE strip of frames laid side by side, with the frame width in the file
-    // name (<language>_a<area>_f<frameWidth>_...png): 832x16 at 16px is 52 frames of the shimmer. The sprite keeps its
-    // animation, so the strip is cut into frames and the sprite's frames rebuilt from them; handing the strip over
-    // whole (one image) made the intro flash the entire banner for a single frame instead of animating it.
-    uint32_t frameWidth = 0;
+    // A banner is ONE strip of frames laid side by side. The file name says how many frames it holds
+    // (<language>_a<area>_f<frames>_...png): A3 is 832x16 with f16, i.e. 16 frames of 52x16 -- measured from the strip's
+    // repeat period, not assumed. The sprite keeps its animation, so the strip is cut into those frames and the sprite's
+    // frames rebuilt from them; handing the strip over whole made the intro flash the entire banner for a single frame.
+    uint32_t namedFrames = 0;
     {
         const char* base = strrchr(args[1].string, '/');
         base = base != NULL ? base + 1 : args[1].string;
         const char* mark = strstr(base, "_f");
         while (mark != NULL && (mark[2] < '0' || mark[2] > '9')) mark = strstr(mark + 1, "_f");
-        if (mark != NULL) frameWidth = (uint32_t) strtoul(mark + 2, NULL, 10);
+        if (mark != NULL) namedFrames = (uint32_t) strtoul(mark + 2, NULL, 10);
     }
     uint32_t frameCount = 1;
-    if (frameWidth >= 2u && frameWidth <= (uint32_t) width && ((uint32_t) width % frameWidth) == 0u) {
-        frameCount = (uint32_t) width / frameWidth;
-    } else {
-        frameWidth = (uint32_t) width; // no frame width in the name: the whole picture is one frame
+    uint32_t frameWidth = (uint32_t) width; // no frame count in the name: the whole picture is one frame
+    if (namedFrames >= 2u && namedFrames <= 512u && ((uint32_t) width % namedFrames) == 0u &&
+        ((uint32_t) width / namedFrames) >= 2u) {
+        frameCount = namedFrames;
+        frameWidth = (uint32_t) width / frameCount;
     }
-    if (frameCount > 1024u) frameCount = 1024u;
 
     int32_t* frames = (int32_t*) safeMalloc((size_t) frameCount * sizeof(int32_t));
     uint32_t made = 0;
