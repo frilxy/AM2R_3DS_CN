@@ -80,9 +80,10 @@ static inline bool Renderer_isFiniteFloat(float v) { return isfinite(v); }
 #define N3DS_TOP_BATTLE_SCENE_Y_OFFSET 200.0f
 #define N3DS_TOP_BATTLE_ENEMY_Y_OFFSET 200.0f
 // Flushing doesn't free citro2d buffer space (that resets per frame), it only adds GPU draw calls.
-// Draws queued before the C2D queue is flushed and the GPU command buffer submitted. Kept small: one flush must fit in
-// what is left of citro3d's command buffer, or GPUCMD_Add panics mid-flush (the pause map of a big area overflows it).
-#define N3DS_C2D_FLUSH_DRAW_BUDGET 512u
+// Draws queued before the C2D queue is flushed (and the GPU command buffer handed over). Batching more draws per flush
+// is what keeps the command count down: 4096 draws of one batch still fit the 512 KB fallback buffer, and with the
+// 4 MB one (see main.c) a whole frame does.
+#define N3DS_C2D_FLUSH_DRAW_BUDGET 4096u
 #define N3DS_PERF_LOG_INTERVAL_FRAMES 30u
 #define N3DS_ATLAS_TRACE_LOG_PATH N3DS_SD_DIR "atlas_trace.log"
 
