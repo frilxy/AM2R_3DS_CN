@@ -1,6 +1,7 @@
 #include "n3ds_input.h"
 #include "../random.h"
 #include "n3ds_gml.h"
+#include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
 
 #include "../log.h"
@@ -238,6 +239,68 @@ static u32 N3DSInput_filterChord(u32 held) {
     return held;
 }
 
+// ===[ SELECT: the pause screen's items page ]===
+// The port's own key. SELECT opens the pause screen on the items page while playing and leaves the pause when it is up;
+// a tap is enough (a held SELECT does nothing more than a tap). START stays the game's own: its handler opens the pause
+// on the menu page. The two together still toggle the debug monitor, which N3DSInput_filterChord takes care of.
+//
+// The game builds the pause room for the menu page and only then would switch pages, so after opening we ask for the
+// items page in global.ssmode and, once the room has had its frames, fire the page rebuild the pause screen's own
+// controls use (oSS_Control's user events 0 and 1).
+#define N3DS_PAUSE_PAGE_ITEMS 1.0 // global.ssmode: 0 map, 1 inventory, 2 logs, 3 options
+#define N3DS_PAUSE_PAGE_MENU  3.0
+
+static struct {
+    double pendingPage; // the page the player asked for, -1 when none
+    uint32_t pausedFrames;
+} gPauseKeys = { -1.0, 0 };
+
+static Instance* N3DSInput_objectInstance(const char* name) {
+    int32_t index = N3DSGml_objectIndex(name);
+    return index >= 0 ? N3DSGml_firstInstance(index) : NULL;
+}
+
+static void N3DSInput_openPause(Runner* runner) {
+    Instance* control = N3DSInput_objectInstance("oControl");
+    if (control != NULL) Runner_executeEvent(runner, control, EVENT_KEYPRESS, 27); // VK_ESCAPE, what the game's start does
+}
+
+static void N3DSInput_closePause(Runner* runner) {
+    Instance* fg = N3DSInput_objectInstance("oSS_Fg");
+    if (fg != NULL) Runner_executeEvent(runner, fg, EVENT_OTHER, 10); // user event 0: fade out, back to currentroom
+}
+
+// Whether the page the player asked for is the one on screen. The page objects are what tell: the menu is
+// oPauseMenuOptions, the items page is oSubscreenMenu.
+static bool N3DSInput_pageIsUp(double page) {
+    if (page == N3DS_PAUSE_PAGE_MENU) return N3DSInput_objectInstance("oPauseMenuOptions") != NULL;
+    if (page == N3DS_PAUSE_PAGE_ITEMS) return N3DSInput_objectInstance("oSubscreenMenu") != NULL;
+    return true;
+}
+
+static void N3DSInput_applyPendingPage(Runner* runner) {
+    if (gPauseKeys.pendingPage < 0.0 || !N3DSPause_isPaused()) {
+        gPauseKeys.pausedFrames = 0;
+        return;
+    }
+    gPauseKeys.pausedFrames++;
+    if (N3DSInput_pageIsUp(gPauseKeys.pendingPage)) {
+        gPauseKeys.pendingPage = -1.0;
+        gPauseKeys.pausedFrames = 0;
+        return;
+    }
+    if (gPauseKeys.pausedFrames < 15) return; // give the room its frames to build the page first
+    Instance* control = N3DSInput_objectInstance("oSS_Control");
+    if (control == NULL) return;
+    double page = gPauseKeys.pendingPage;
+    gPauseKeys.pendingPage = -1.0;
+    gPauseKeys.pausedFrames = 0;
+    N3DSGml_setGlobal("ssmode", page);
+    Runner_executeEvent(runner, control, EVENT_OTHER, 10);
+    Runner_executeEvent(runner, control, EVENT_OTHER, 11);
+    logInfo("Pause keys: rebuilt page %.0f after the room had loaded\n", page);
+}
+
 bool N3DSInput_startComing(void) {
     return gStartComing;
 }
@@ -311,6 +374,31 @@ u32 N3DSInput_update(Runner* runner) {
             held |= KEY_TOUCH;
         }
     }
+    {
+        static u32 prevPauseKeys;
+        static u32 swallowed;
+        u32 pauseKeys = held & (KEY_START | KEY_SELECT);
+        u32 edges = pauseKeys & ~prevPauseKeys;
+        prevPauseKeys = pauseKeys;
+        bool chord = pauseKeys == (KEY_START | KEY_SELECT);
+        if (!chord && N3DSPause_inPlay() && (edges & KEY_SELECT) != 0) {
+            N3DSInput_openPause(runner);
+            // The handler ends by setting ssmode = 3 and asking for the room; writing the page we want now means the
+            // room is built with it and never shows the menu first.
+            N3DSGml_setGlobal("ssmode", N3DS_PAUSE_PAGE_ITEMS);
+            gPauseKeys.pendingPage = N3DS_PAUSE_PAGE_ITEMS;
+            swallowed |= (edges & KEY_SELECT);
+        } else if (!chord && N3DSPause_isPaused() && (edges & KEY_SELECT) != 0) {
+            N3DSInput_closePause(runner);
+            gPauseKeys.pendingPage = -1.0;
+            swallowed |= (edges & KEY_SELECT);
+        }
+        // Keep a taken-over button away from the game until it is released, so the room's own bindings never see the
+        // press that opened it.
+        held &= ~(pauseKeys & swallowed);
+        if (pauseKeys == 0) swallowed = 0;
+    }
+    N3DSInput_applyPendingPage(runner);
     held = N3DSInput_filterChord(held);
     circlePosition circle, cstick;
     hidCircleRead(&circle);
