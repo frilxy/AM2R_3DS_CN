@@ -2265,6 +2265,14 @@ static void N3DSRenderer_trackTextureUse(N3DSRenderer* renderer, const C2D_Image
 static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_Tex* texture, float scaleX, float scaleY) {
     if (texture == NULL || !Renderer_isFiniteFloat(scaleX) || !Renderer_isFiniteFloat(scaleY)) return;
 
+    // Text glyphs are never filtered: a glyph is a pixel bitmap whose columns are exactly the strokes, and the GUI is
+    // drawn 426 wide for a 400 wide screen (0.939), which would otherwise switch the filter to linear and smear the
+    // 1px strokes into nothing. Integer-sized quads (see N3DSRenderer_transformScreenRect) then sample them 1:1.
+    if (renderer != NULL && renderer->textGlyphDrawActive) {
+        C3D_TexSetFilter(texture, GPU_NEAREST, GPU_NEAREST);
+        return;
+    }
+
     if (renderer != NULL && renderer->textLinearFilterActive) {
         C3D_TexSetFilter(texture, GPU_LINEAR, GPU_LINEAR);
         return;
