@@ -86,5 +86,9 @@ void N3DSRenderer_flushImagePage(Renderer* renderer, int32_t tpagIndex);
 // A texture page holding one RGBA8 image (the language packs' title logos), drawn 1:1 from a TPAG that covers exactly
 // the image. Returns the TPAG index, or -1.
 int32_t N3DSRenderer_allocImagePageRGBA8(Renderer* renderer, const uint8_t* rgba, uint32_t width, uint32_t height);
+// One frame cut out of an RGBA8 picture (x, y, w, h), as a small RGBA5551 page: how the language packs' banner strips
+// become the frames of an animated sprite. Returns the TPAG index, or -1.
+int32_t N3DSRenderer_allocImageRegionPage(Renderer* renderer, const uint8_t* rgba, uint32_t srcWidth,
+                                          uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 // Drops the cached text layout: a font's glyph rectangles changed, so strings laid out earlier are stale.
 void N3DSRenderer_invalidateTextLayoutCache(Renderer* renderer);

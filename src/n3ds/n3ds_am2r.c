@@ -493,24 +493,52 @@ static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
         return RValue_makeUndefined();
     }
 
-    int32_t tpagIndex = N3DSRenderer_allocImagePageRGBA8(runner->renderer, pixels, (uint32_t) width, (uint32_t) height);
+    // The language packs ship an area banner as ONE strip of frames laid side by side, with the frame width in the file
+    // name (<language>_a<area>_f<frameWidth>_...png): 832x16 at 16px is 52 frames of the shimmer. The sprite keeps its
+    // animation, so the strip is cut into frames and the sprite's frames rebuilt from them; handing the strip over
+    // whole (one image) made the intro flash the entire banner for a single frame instead of animating it.
+    uint32_t frameWidth = 0;
+    {
+        const char* base = strrchr(args[1].string, '/');
+        base = base != NULL ? base + 1 : args[1].string;
+        const char* mark = strstr(base, "_f");
+        while (mark != NULL && (mark[2] < '0' || mark[2] > '9')) mark = strstr(mark + 1, "_f");
+        if (mark != NULL) frameWidth = (uint32_t) strtoul(mark + 2, NULL, 10);
+    }
+    uint32_t frameCount = 1;
+    if (frameWidth >= 2u && frameWidth <= (uint32_t) width && ((uint32_t) width % frameWidth) == 0u) {
+        frameCount = (uint32_t) width / frameWidth;
+    } else {
+        frameWidth = (uint32_t) width; // no frame width in the name: the whole picture is one frame
+    }
+    if (frameCount > 1024u) frameCount = 1024u;
+
+    int32_t* frames = (int32_t*) safeMalloc((size_t) frameCount * sizeof(int32_t));
+    uint32_t made = 0;
+    for (uint32_t f = 0; f < frameCount; f++) {
+        frames[f] = N3DSRenderer_allocImageRegionPage(runner->renderer, pixels, (uint32_t) width,
+            f * frameWidth, 0u, frameWidth, (uint32_t) height);
+        if (frames[f] < 0) break;
+        made++;
+    }
     stbi_image_free(pixels);
-    if (tpagIndex < 0) {
+    if (made == 0) {
         logError("AM2R: sprite_replace could not upload %s (%dx%d)\n", args[1].string, width, height);
+        free(frames);
         return RValue_makeUndefined();
     }
 
-    // The image goes in at imgnum and the sprite becomes as large as the picture: the pack's strip is wider than the
-    // English frames, and the game reads sprite_get_width to know how many pieces it has.
-    sprite->tpagIndices[imageIndex] = tpagIndex;
-    sprite->width = (uint32_t) width;
+    if (sprite->tpagIndices != NULL) free(sprite->tpagIndices);
+    sprite->tpagIndices = frames;
+    sprite->textureCount = made;
+    sprite->width = frameWidth;
     sprite->height = (uint32_t) height;
-    if (argCount > 6) {
-        sprite->originX = (int32_t) RValue_toInt32(args[5]);
-        sprite->originY = (int32_t) RValue_toInt32(args[6]);
-    }
-    logInfo("AM2R: sprite %d (%s) image %d -> %s (%dx%d, tpag %d)\n",
-        (int) spriteIndex, sprite->name != NULL ? sprite->name : "?", (int) imageIndex, args[1].string, width, height, (int) tpagIndex);
+    sprite->originX = 0;
+    sprite->originY = 0;
+    (void) imageIndex;
+    logInfo("AM2R: sprite %d (%s) -> %s: %u frames of %ux%u (tpags %d..%d)\n",
+        (int) spriteIndex, sprite->name != NULL ? sprite->name : "?", args[1].string, made, frameWidth,
+        (unsigned) height, (int) frames[0], (int) frames[made - 1u]);
     return RValue_makeUndefined();
 }
 
