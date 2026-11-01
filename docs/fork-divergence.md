@@ -1,5 +1,8 @@
 # 与上游的差异清单（便于跟随上游更新）
 
+> **⚠️ 旧分支文档。** 记录的是 `main`（V1.x）分支的实现；当前正式版是 `new` 分支的 v0.4.x，差异清单请见 [changes-vs-upstream.md](changes-vs-upstream.md)。
+
+
 上游：`codeberg.org/NattensMadrigal/AM2R_3DS`，比对基线 `b0c705f`（2026-10-28）。
 本地树与上游共 **52 处路径差异**，按"跟随上游的难易"分三档。
 

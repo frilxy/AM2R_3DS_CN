@@ -1,5 +1,8 @@
 # 暂停页 / HUD 版式问题（V1.10 后状态）
 
+> **⚠️ 旧分支文档。** 记录的是 `main`（V1.x）分支的实现；当前正式版是 `new` 分支的 v0.4.x，差异清单请见 [changes-vs-upstream.md](changes-vs-upstream.md)。
+
+
 ## 已解决（V1.10）
 
 | # | 现象 | 修法 | 证据 |

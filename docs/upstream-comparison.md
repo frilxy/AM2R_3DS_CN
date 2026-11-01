@@ -1,5 +1,8 @@
 # 与上游 AM2R_3DS 的对比（2026-10-31）
 
+> **⚠️ 旧分支文档。** 记录的是 `main`（V1.x）分支的实现；当前正式版是 `new` 分支的 v0.4.x，差异清单请见 [changes-vs-upstream.md](changes-vs-upstream.md)。
+
+
 上游：`codeberg.org/NattensMadrigal/AM2R_3DS`，最新提交 `b0c705fa`（2026-10-28）。
 
 ## 结论速览
