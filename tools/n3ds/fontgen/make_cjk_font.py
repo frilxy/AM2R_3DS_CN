@@ -296,7 +296,13 @@ def build_strip(font, em_size, codepoints):
         above = max(0, em_size - ink["by"])
         glyphs.append({
             "codepoint": codepoint,
-            "width": left + ink["w"],
+            # One blank column on the right, INSIDE the rectangle. The game lays its GUI out 426 wide and draws it onto
+            # the 400 wide screen, so every glyph is drawn at 0.939 of its size -- and nearest sampling then keeps one
+            # column fewer than the bitmap has, dropping whichever column falls between two screen pixels (for 12 -> 11
+            # that is the middle one, so it can be a stroke). With the extra blank column the glyph is drawn a pixel
+            # wider than its ink, so the column the squeeze costs is blank; the renderer keeps the quad at least the
+            # bitmap's size (N3DSRenderer_transformScreenRect), so nothing is skipped at all and the blank stays blank.
+            "width": left + ink["w"] + 1,
             "height": above + ink["h"],
             "ink_x": left if ink["bx"] >= 0 else 0,
             "ink_y": above,
