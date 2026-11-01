@@ -3,7 +3,6 @@
 
 #include "n3ds_cjk_font.h"
 #include "n3ds_gml.h"
-#include "n3ds_input.h"
 #include "n3ds_pause.h"
 #include "n3ds_platform_config.h"
 #include "n3ds_renderer.h"
@@ -1376,9 +1375,6 @@ void N3DSAm2r_drawPausedBanner(Renderer* renderer) {
 
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
-    // A SELECT press is handled here, after the step: the pause screen's events are GML, and running them from the input
-    // phase (outside the step) is not safe.
-    N3DSInput_updatePauseKeys(gAm2r.runner);
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_checkWidescreenSurface();

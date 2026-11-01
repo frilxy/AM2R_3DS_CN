@@ -13,9 +13,6 @@ typedef struct Renderer Renderer;
 void N3DSInput_init(Runner* runner);
 // Reads the buttons (plus harness.txt presses) into the keyboard and gamepad slot 0. Returns newly pressed keys.
 u32 N3DSInput_update(Runner* runner);
-// After the game's step: opens/closes the pause screen for a SELECT press (the events are GML, so they must not run in
-// the input phase) and switches to the page that was asked for once the room is up.
-void N3DSInput_updatePauseKeys(Runner* runner);
 bool N3DSInput_exitRequested(void);
 // True once per Start+Select chord (the chord never reaches the game).
 bool N3DSInput_takeMonitorToggle(void);
