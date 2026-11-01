@@ -5244,6 +5244,37 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
         // fontMenuSmall (font 4): the Metroid count the scan notification shows under its title, at y 224.
         else if ((int32_t) base->drawFont == 4 && y >= 222.5f && y <= 225.5f) y += 2.0f;
     }
+    // The other two spacing fixes the old Chinese build needed, same cause (a 12px strike in a slot the game sized for
+    // ~10px ink): the completion percentage on the file-select screen sits two pixels high, and the options pages'
+    // one-line description on the bottom bar ran off the 240-tall picture.
+    if ((int32_t) base->drawFont == 3 && x > 200.0f && text != NULL) {
+        size_t n = strlen(text);
+        if (n >= 2 && text[n - 1] == '%') y += 2.0f;
+    }
+    if ((int32_t) base->drawFont == 4 && y >= 226.0f && y <= 230.0f && base->drawHalign == 1 &&
+        base->drawColor == 0x00FFFFFFu) {
+        y -= 2.0f;
+    }
+    {
+        // One log line the first time each rule fires, so a log from a test run says whether the nudges are live.
+        static bool loggedNotification, loggedPercent, loggedTip;
+        if (!loggedNotification && (base->drawColor == 0x00D0F8E0u || base->drawColor == 0x00201808u) &&
+            (((int32_t) base->drawFont == 6 && y >= 222.0f && y <= 262.0f) ||
+             ((int32_t) base->drawFont == 4 && y >= 224.5f && y <= 227.5f))) {
+            loggedNotification = true;
+            logInfo("AM2R: notification second line nudged +2 px (font %d)\n", (int) base->drawFont);
+        } else if (!loggedPercent && (int32_t) base->drawFont == 3 && x > 200.0f && text != NULL) {
+            size_t n = strlen(text);
+            if (n >= 2 && text[n - 1] == '%') {
+                loggedPercent = true;
+                logInfo("AM2R: completion percentage nudged +2 px\n");
+            }
+        } else if (!loggedTip && (int32_t) base->drawFont == 4 && y >= 224.0f && y <= 228.0f && base->drawHalign == 1 &&
+                   base->drawColor == 0x00FFFFFFu) {
+            loggedTip = true;
+            logInfo("AM2R: options tip line nudged -2 px\n");
+        }
+    }
     bool savedTextLinearFilterActive = renderer->textLinearFilterActive;
     renderer->textLinearFilterActive = false;
     u64 textStartTick = svcGetSystemTick();
