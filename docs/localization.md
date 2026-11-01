@@ -1,11 +1,15 @@
-> **Status on the `new` branch (2026-11-01).** Everything below describes the fork's first Chinese implementation,
-> which the `new` branch (a fresh start from upstream b0c705f) did not carry over. What exists here now: the offline
-> baked glyph pack and its loader (`docs/font-plan.md`), the port's own front-end strings following the language,
-> `background_replace` (the title logo) and `sprite_replace` (the area banners and the suit palettes; verified on
-> hardware for A1-A5, A7 and A8 -- the game ships no `sIntro_A0`/`sIntro_A6`, so those two areas have no banner), and
-> the BOM fix
-> from "the other three fixes" (`src/ini.c`). Still missing: `program_directory` and the devoptab absolute-path fix in
-> `src/overlay_file_system.c`. No position nudges are applied in this version -- see `docs/font-plan.md`.
+> **Status on the `new` branch (v0.4.5).** Everything below describes the fork's first Chinese implementation, which
+> the `new` branch (a fresh start from upstream b0c705f) had to carry over. What exists here now: the offline baked
+> glyph pack and its loader (`docs/font-plan.md`), the port's own front-end pages and strings following the language,
+> `background_replace` (the title logo), `sprite_replace` (the area banners -- verified on hardware for A1-A5, A7 and
+> A8; the game ships no `sIntro_A0`/`sIntro_A6` -- and the suit palettes), the BOM fix in `src/ini.c`, and the one
+> position nudge the old build used (item names down 2 px). The old branch's other three nudges (save-slot play time,
+> the notification's second line, the options page's tip line) are **not** applied.
+>
+> Not carried over, and not needed for what ships: `program_directory` and the devoptab absolute-path fix in
+> `src/overlay_file_system.c` (the language files are read through the runner's file system).
+>
+> See [changes-vs-upstream.md](changes-vs-upstream.md) for the current diff against upstream.
 
 # Localization (Chinese, with a config.ini language switch)
 

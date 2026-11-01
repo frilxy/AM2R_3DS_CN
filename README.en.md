@@ -1,5 +1,11 @@
 # AM2R for 3DS — Chinese Edition
 
+> **Chinese localization fork.** This is [frilxy/AM2R_3DS_CN](https://github.com/frilxy/AM2R_3DS_CN): the port
+> from [NattensMadrigal/AM2R_3DS](https://codeberg.org/NattensMadrigal/AM2R_3DS) with a Simplified Chinese
+> localization (baked CJK font, translated front-end pages, Chinese title logo and area banners), a full-screen
+> bottom-screen map, and three fixes for problems that only showed on real hardware. Gameplay and layout are
+> unchanged. See [docs/changes-vs-upstream.md](docs/changes-vs-upstream.md) (Chinese) for the full list.
+
 Play **AM2R** (Another Metroid 2 Remake) on a **New 3DS / New 2DS XL**, fully translated into Simplified Chinese, with a live map on the bottom screen.
 
 [中文](README.md) · [Development notes (Chinese)](开发文档.md) · [Releases](https://github.com/frilxy/AM2R_3DS_CN/releases)
