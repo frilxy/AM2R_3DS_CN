@@ -23,12 +23,27 @@ jobs:
           rm -rf /tmp/parts && mkdir -p /tmp/parts
           split -b 1800M -d -a 2 /tmp/devkitpro.tar.xz /tmp/parts/devkitpro.tar.xz.part
           ls -l /tmp/parts
+      # The devkitpro container has no gh, so the release is created and filled with the REST API.
       - name: Publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          gh release view toolchain-export --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create toolchain-export --repo "$GITHUB_REPOSITORY" --title "devkitPro toolchain export" \
-              --notes "Packed /opt/devkitpro from devkitpro/devkitarm. Download the parts, cat them together, tar -xJf into /opt."
-          gh release upload toolchain-export /tmp/parts/* --clobber --repo "$GITHUB_REPOSITORY"
+          API="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          AUTH="Authorization: Bearer $TOKEN"
+          ACCEPT="Accept: application/vnd.github+json"
+          # Reuse the release if it already exists, otherwise create it.
+          RELEASE_ID=$(curl -sS -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/toolchain-export" | sed -n 's/.*"id": *\([0-9]*\).*/\1/p' | head -1)
+          if [ -z "$RELEASE_ID" ]; then
+            curl -sS -X POST -H "$AUTH" -H "$ACCEPT" "$API/releases" \
+              -d '{"tag_name":"toolchain-export","name":"devkitPro toolchain export","body":"Packed /opt/devkitpro from devkitpro/devkitarm: cat the parts together, then tar -xJf into /opt."}' > /tmp/release.json
+            RELEASE_ID=$(sed -n 's/.*"id": *\([0-9]*\).*/\1/p' /tmp/release.json | head -1)
+          fi
+          echo "release id: $RELEASE_ID"
+          for f in /tmp/parts/*; do
+            name=$(basename "$f")
+            echo "uploading $name ($(stat -c%s "$f") bytes)"
+            curl -sS -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary @"$f" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name" -o /dev/null
+          done
+          curl -sS -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/toolchain-export" | sed -n 's/.*"name": "\([^"]*\)".*/asset: \1/p' | head -10
