@@ -302,15 +302,19 @@ def build_strip(font, em_size, codepoints):
             # that is the middle one, so it can be a stroke). With the extra blank column the glyph is drawn a pixel
             # wider than its ink, so the column the squeeze costs is blank; the renderer keeps the quad at least the
             # bitmap's size (N3DSRenderer_transformScreenRect), so nothing is skipped at all and the blank stays blank.
-            "width": left + ink["w"] + 1,
+            "width": left + ink["w"] + 3,
             "height": above + ink["h"],
-            "ink_x": left if ink["bx"] >= 0 else 0,
+            # One blank column on each side of the ink and two at the right: whatever single column a non-1:1 sample
+            # costs -- at either edge, whichever way it biases -- lands on blank, never on a stroke.
+            "ink_x": (left if ink["bx"] >= 0 else 0) + 1,
             "ink_y": above,
             "rows": ink["rows"],
             # The game's own fonts nudge a glyph right by one, which is where the pixel font's left side bearing lands;
             # a negative bearing grows the rectangle instead of shifting the ink.
             "shift": ink["adv"],
-            "offset": 1 - left if ink["bx"] < 0 else 1,
+            # The rectangles now start one blank column before the ink, so the horizontal nudge goes away: the ink
+            # still lands exactly where the game's own fonts put it.
+            "offset": 0,
         })
     return {"ppem": strike["ppem"], "glyphs": glyphs,
             "maxGlyphHeight": max((g["height"] for g in glyphs), default=0)}

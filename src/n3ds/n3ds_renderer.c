@@ -2249,7 +2249,14 @@ static void N3DSRenderer_applyTextureFilterForScale(N3DSRenderer* renderer, C3D_
     // stroke. The bottom screen never showed it because its GUI path forces nearest -- which is exactly the
     // difference between the two screens. Glyphs are pixel bitmaps, so nearest is always the right filter for them.
     if (renderer != NULL && renderer->textGlyphDrawActive) {
-        C3D_TexSetFilter(texture, GPU_NEAREST, GPU_NEAREST);
+        // Text is never filtered by the game's own texture filter -- that put every 1px stroke through bilinear at 1:1
+        // and dimmed it on the dark backgrounds, which is what the top screen showed while the bottom screen (nearest
+        // by its GUI path) stayed crisp. But when a string IS drawn scaled down (a menu label at 0.8, say), nearest
+        // sampling skips a whole column, and which column it skips depends on where the glyph sits -- the same
+        // character ends up complete in one place and missing a dot in another. So: nearest at 1:1 (exact, crisp),
+        // linear only when minified (soft but every stroke kept).
+        bool minified = fabsf(scaleX) < 0.999f || fabsf(scaleY) < 0.999f;
+        C3D_TexSetFilter(texture, minified ? GPU_LINEAR : GPU_NEAREST, GPU_NEAREST);
         return;
     }
 
