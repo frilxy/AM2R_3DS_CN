@@ -1288,6 +1288,29 @@ static void N3DSAm2r_dropWaterFilter(void) {
     N3DSGml_destroy(filter);
 }
 
+// AM2R's own widescreen is 320 + widescreen_space wide. 80 makes exactly the screen's 400, so the picture is drawn
+// 1:1 -- every column the game draws is a column on the screen, nothing cropped and, crucially, nothing scaled. The
+// game writes its own 106 on every room entry, which would make a 426-wide picture the 400-wide screen can only show
+// by scaling it down (and scaling text down is what eats its 1px strokes), so the value is restated every frame, as
+// is the picture's transform: display_scale 1, displayx 0, displayy 0 put the 400-wide picture on the screen exactly.
+//
+// This is how the old build (main branch) did its widescreen, and it is the default here.
+#define N3DS_AM2R_NATIVE_SPACE 80.0
+
+static void N3DSAm2r_applyScreenMode(void) {
+    Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
+    if (control == NULL) return;
+    if (N3DS_getScreenMode() != N3DS_SCREEN_WIDE) return;
+    double value = 0.0;
+    if (N3DSGml_getVar(control, "widescreen", &value) && value < 0.5) N3DSGml_setVar(control, "widescreen", 1.0);
+    if (N3DSGml_getVar(control, "widescreen_space", &value) && value != N3DS_AM2R_NATIVE_SPACE) {
+        N3DSGml_setVar(control, "widescreen_space", N3DS_AM2R_NATIVE_SPACE);
+    }
+    if (N3DSGml_getVar(control, "display_scale", &value) && value != 1.0) N3DSGml_setVar(control, "display_scale", 1.0);
+    if (N3DSGml_getVar(control, "displayx", &value) && value != 0.0) N3DSGml_setVar(control, "displayx", 0.0);
+    if (N3DSGml_getVar(control, "displayy", &value) && value != 0.0) N3DSGml_setVar(control, "displayy", 0.0);
+}
+
 int32_t N3DSAm2r_gameWidth(void) {
     if (!gAm2r.active) return 0;
     Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
@@ -1403,6 +1426,7 @@ void N3DSAm2r_update(void) {
     N3DSAm2r_stopStraySpinLoops();
     N3DSAm2r_skipPauseFades();
     N3DSAm2r_checkWidescreenSurface();
+    N3DSAm2r_applyScreenMode();
     N3DSAm2r_dropWaterFilter();
     N3DSAm2r_hideKeyboardRow();
     double inGame = 0.0;
