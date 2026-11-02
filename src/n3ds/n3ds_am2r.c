@@ -739,7 +739,11 @@ void N3DSAm2r_init(Runner* runner) {
     // Fast scripts default to on; cheats.ini can turn them off.
     N3DSAm2rNative_setEnabled(true);
     N3DSAm2r_loadCheats();
-    N3DS_setScreenMode(N3DS_SCREEN_STRETCH); // the only screen mode: the others made no sense for this game
+    // The port used to force STRETCH here ("the only screen mode: the others made no sense for this game"), and that
+    // is where the missing strokes came from: STRETCH scales the game's picture to the whole screen, so a 426-wide
+    // widescreen picture is squeezed to 400 (0.94) and every glyph loses a pixel column. The screen mode now comes
+    // from the build default (wide) or the player's choice in the Display page, and N3DSAm2r_applyScreenMode() makes
+    // the wide picture exactly 400 columns wide so it is drawn 1:1.
     N3DSAm2r_collectRooms();
     N3DSAm2rNative_init(runner);
 }
