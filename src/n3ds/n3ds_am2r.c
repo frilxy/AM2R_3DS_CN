@@ -44,7 +44,9 @@ enum { CHEATS_PAGE_TELEPORT = CHEAT_COUNT, CHEATS_PAGE_ROWS };
 enum { TELE_AREA, TELE_ROOM, TELE_GO, TELE_PAGE_ROWS };
 #define N3DS_AM2R_AREAS 10
 #define N3DS_AM2R_MAX_AREA_ROOMS 64
-enum { DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
+// The old build let the player pick the top screen's mode at runtime; this brings that back (and with it the way
+// to see whether a text problem belongs to the screen mapping).
+enum { DISPLAY_ROW_FRAMESKIP, DISPLAY_ROW_NATIVE, DISPLAY_ROW_FPS, DISPLAY_ROW_LIGHTING, DISPLAY_ROW_SCREEN, DISPLAY_ROW_EXIT, DISPLAY_ROW_COUNT };
 // The Extras page wraps the game's own Extras page (EXTRAS_ROW_GAME) and holds Cheats.
 enum { EXTRAS_ROW_GAME, EXTRAS_ROW_CHEATS, EXTRAS_PAGE_ROWS };
 // Rows a page shows at once (the tip bar covers the rest of the screen); longer pages scroll.
@@ -831,6 +833,19 @@ static void N3DSAm2r_refreshPage(void) {
         Instance* lighting = N3DSAm2r_pageRow(DISPLAY_ROW_LIGHTING);
         if (lighting != NULL) N3DSGml_setVarString(lighting, "optext", N3DSAm2rNative_lighting()
             ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
+        Instance* screen = N3DSAm2r_pageRow(DISPLAY_ROW_SCREEN);
+        if (screen != NULL) {
+            const char* value = "宽屏";
+            switch (N3DS_getScreenMode()) {
+                case N3DS_SCREEN_WIDE: value = N3DSAm2r_text("WIDE", "宽屏"); break;
+                case N3DS_SCREEN_STRETCH: value = N3DSAm2r_text("FIT", "拉伸"); break;
+                case N3DS_SCREEN_PILLARBOX: value = N3DSAm2r_text("ORIG", "原尺寸"); break;
+                case N3DS_SCREEN_1X: value = "1x"; break;
+                case N3DS_SCREEN_2X: value = "2x"; break;
+                default: break;
+            }
+            N3DSGml_setVarString(screen, "optext", value);
+        }
         const char* tip = selected == DISPLAY_ROW_FRAMESKIP ? N3DSAm2r_text(
                 "A steady 30 fps at full game speed (draws every other frame)",
                 "保持完整游戏速度下稳定的 30 帧（隔帧绘制）")
@@ -843,6 +858,10 @@ static void N3DSAm2r_refreshPage(void) {
             : selected == DISPLAY_ROW_LIGHTING ? N3DSAm2r_text(
                 "The dark rooms' light effect. OFF draws them fully lit, which is also faster",
                 "暗房间的光照效果；关闭后全亮，也更快")
+            : selected == DISPLAY_ROW_SCREEN ? N3DSAm2r_text(
+                "How the picture fills the top screen: WIDE shows more of the room, FIT stretches it, "
+                "ORIG/1x/2x keep the game's own pixels",
+                "画面在上屏的显示方式：宽屏看到更多房间、拉伸铺满、原尺寸/1x/2x 保持游戏原始像素")
             : N3DSAm2r_text("Back to the options", "回到选项");
         N3DSGml_setGlobalString("tiptext", tip);
         return;
@@ -886,7 +905,7 @@ static void N3DSAm2r_openPage(N3DSAm2rPage page, int32_t selected) {
     int count = N3DSAm2r_pageRowCount(page);
     for (int i = 0; i < count; i++) {
         bool lrRow = page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP || i == DISPLAY_ROW_NATIVE ||
-            i == DISPLAY_ROW_FPS || i == DISPLAY_ROW_LIGHTING) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
+            i == DISPLAY_ROW_FPS || i == DISPLAY_ROW_LIGHTING || i == DISPLAY_ROW_SCREEN) : page == PAGE_EXTRAS ? false : page == PAGE_TELEPORT ? i <= TELE_ROOM : i < CHEAT_COUNT;
         const char* label = i == count - 1 ? N3DSAm2r_text("Exit", "返回")
             : page == PAGE_DISPLAY ? (i == DISPLAY_ROW_FRAMESKIP ? N3DSAm2r_text("Frameskip", "跳帧")
                 : i == DISPLAY_ROW_NATIVE ? N3DSAm2r_text("Fast scripts", "快速脚本")
@@ -1142,6 +1161,12 @@ static void N3DSAm2r_updatePage(void) {
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
     } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_FPS && (menu1 || left || right)) {
         N3DS_setFpsCounter(!N3DS_getFpsCounter());
+        N3DSAm2r_sfx(gAm2r.sndMenuSel);
+    } else if (gAm2r.page == PAGE_DISPLAY && selected == DISPLAY_ROW_SCREEN && (left || right)) {
+        N3DSScreenMode mode = N3DS_getScreenMode();
+        int32_t step = right ? 1 : -1;
+        int32_t next = ((int32_t) mode + step + (int32_t) N3DS_SCREEN_MODE_COUNT) % (int32_t) N3DS_SCREEN_MODE_COUNT;
+        N3DS_setScreenMode((N3DSScreenMode) next);
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
     } else if (gAm2r.page == PAGE_CHEATS && selected == CHEATS_PAGE_TELEPORT && menu1) {
         N3DSAm2r_sfx(gAm2r.sndMenuSel);
