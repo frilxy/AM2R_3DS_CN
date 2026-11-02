@@ -1,0 +1,34 @@
+# Exports the devkitPro toolchain that this repository builds with, so it can be installed on a machine that cannot
+# reach pkg.devkitpro.org (Cloudflare returns 403 there). Run it by hand from the Actions tab ("Run workflow"); it
+# publishes the tarball parts as release assets of the toolchain-export release.
+name: export-toolchain
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    steps:
+      - name: Pack /opt/devkitpro
+        run: |
+          set -e
+          du -sh /opt/devkitpro
+          tar -C /opt -cf - devkitpro | xz -T0 -6 -c > /tmp/devkitpro.tar.xz
+          ls -l /tmp/devkitpro.tar.xz
+          rm -rf /tmp/parts && mkdir -p /tmp/parts
+          split -b 1800M -d -a 2 /tmp/devkitpro.tar.xz /tmp/parts/devkitpro.tar.xz.part
+          ls -l /tmp/parts
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release view toolchain-export --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create toolchain-export --repo "$GITHUB_REPOSITORY" --title "devkitPro toolchain export" \
+              --notes "Packed /opt/devkitpro from devkitpro/devkitarm. Download the parts, cat them together, tar -xJf into /opt."
+          gh release upload toolchain-export /tmp/parts/* --clobber --repo "$GITHUB_REPOSITORY"
