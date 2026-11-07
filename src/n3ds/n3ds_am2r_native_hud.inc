@@ -174,8 +174,12 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         gmlCmp(state, 55) == 0;
     bool styleHold = gmlCmp(g.opmslstyle, 0) == 0, styleToggle = gmlCmp(g.opmslstyle, 1) == 0;
     if (gmlCmp(g.maxmissiles, 0) > 0) {
-        drawBackgroundAt(gmlCmp(g.maxmissiles, 100) >= 0 ? 126 : 127, xoff, 0);
-        drawTextOf((0 + xoff) + 19, 7, *missilesSlot);
+        // The 100+ frame (126) is wider than the two-digit one (127): the slot advances by 45 instead of 38 for
+        // exactly that reason. The number used to start at +19 in both cases, so at 100+ the first digit sat
+        // underneath the wider icon (the ammo icon is drawn over the text). Shift it by the same 7 pixels.
+        bool wideAmmo = gmlCmp(g.maxmissiles, 100) >= 0;
+        drawBackgroundAt(wideAmmo ? 126 : 127, xoff, 0);
+        drawTextOf((0 + xoff) + (wideAmmo ? 26 : 19), 7, *missilesSlot);
         GMLReal ix = (0 + xoff) + 1;
         if (styleHold) {
             if (gmlCmp(g.currentweapon, 1) != 0 || busy || truthy(sjball)) drawSprite(504, 0, ix, 4);
