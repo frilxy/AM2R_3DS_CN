@@ -85,3 +85,4 @@ bool N3DSRenderer_restoreSharedFontAtlasPixels(Renderer* base, const uint8_t* pi
 bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h);
 uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* base);
 void N3DSRenderer_setSharedFontAtlasNextY(Renderer* base, uint32_t y);
+void N3DSRenderer_invalidateTextLayoutCache(Renderer* base);

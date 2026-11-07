@@ -2467,6 +2467,9 @@ static int32_t N3DSRenderer_allocDynamicCaptureTPAG(N3DSRenderer* renderer) {
     return (int32_t) (newTPAGCount - 1u);
 }
 
+// Upstream has no text layout cache; the font loader still calls this after replacing glyphs.
+void N3DSRenderer_invalidateTextLayoutCache(Renderer* base) { (void) base; }
+
 // ===[ Runtime font atlas ]===
 
 static N3DSDynamicCaptureTPAG* N3DSRenderer_poolTPAG(N3DSRenderer* renderer, int32_t tpagIndex) {
