@@ -73,6 +73,7 @@ target_include_directories(butterscotch PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor
     ${CMAKE_SOURCE_DIR}/vendor/stb/ds
     ${CMAKE_SOURCE_DIR}/vendor/stb/image
+    ${CMAKE_SOURCE_DIR}/vendor/stb/truetype
 )
 
 target_compile_options(butterscotch PRIVATE -ffunction-sections -fdata-sections)

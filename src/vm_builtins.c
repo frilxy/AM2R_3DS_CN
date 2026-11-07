@@ -22761,6 +22761,19 @@ static RValue builtin_video_get_position(VMContext* ctx, RValue* args, MAYBE_UNU
 
 // ===[ REGISTRATION ]===
 
+#ifdef PLATFORM_N3DS
+#include "n3ds/n3ds_font_replace.h"
+
+// font_replace(font, ttf, size, bold, italic): the language packs swap in the CJK font with it.
+static RValue builtin_font_replace(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (ctx != NULL && ctx->runner != NULL && argCount >= 3 && args[0].type == RVALUE_REAL &&
+        args[1].type == RVALUE_STRING && args[1].string != NULL && args[2].type == RVALUE_REAL) {
+        N3DSFontReplace_apply(ctx->runner, (int32_t) args[0].real, args[1].string, (float) args[2].real, false, false);
+    }
+    return RValue_makeReal(0);
+}
+#endif
+
 void VMBuiltins_registerAll(VMContext* ctx) {
     requireMessage(!ctx->registeredBuiltinFunctions, "Attempting to register all VMBuiltins, but it was already registered!");
     ctx->registeredBuiltinFunctions = true;
@@ -22768,6 +22781,9 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     const bool isGMS2 = DataWin_isVersionAtLeast(ctx->dataWin, 2, 0, 0, 0);
 
     // Core output
+#ifdef PLATFORM_N3DS
+    VM_registerBuiltin(ctx, "font_replace", builtin_font_replace);
+#endif
     VM_registerBuiltin(ctx, "show_debug_message", builtin_show_debug_message);
 
     // String functions
