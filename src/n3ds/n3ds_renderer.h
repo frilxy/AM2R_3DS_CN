@@ -76,3 +76,12 @@ void N3DSRenderer_drawBottomSnapshot(Renderer* renderer);
 #define N3DS_OVERLAY_DEPTH 1.0f
 void N3DSRenderer_beginScreenOverlay(Renderer* renderer, bool top);
 void N3DSRenderer_endScreenOverlay(Renderer* renderer);
+
+int32_t N3DSRenderer_allocSharedFontAtlas(Renderer* base);
+int32_t N3DSRenderer_sharedFontAtlasIndex(Renderer* base);
+int32_t N3DSRenderer_sharedFontAtlasTPAG(Renderer* base);
+const uint8_t* N3DSRenderer_sharedFontAtlasPixels(Renderer* base, uint32_t* usedRows);
+bool N3DSRenderer_restoreSharedFontAtlasPixels(Renderer* base, const uint8_t* pixels, uint32_t usedRows);
+bool N3DSRenderer_uploadFontAtlasRegion(Renderer* base, const uint8_t* rgba, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h);
+uint32_t N3DSRenderer_sharedFontAtlasNextY(Renderer* base);
+void N3DSRenderer_setSharedFontAtlasNextY(Renderer* base, uint32_t y);
