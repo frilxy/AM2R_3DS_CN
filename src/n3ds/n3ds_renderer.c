@@ -5235,7 +5235,19 @@ static void N3DSRenderer_drawTextCommon(Renderer* base, const char* text, float 
             const N3DSCachedTextGlyph* cachedGlyph = &layout->glyphs[i];
             Tex3DS_SubTexture subtex;
             C2D_Image image;
-            if (useDirectFontAsset) {
+            N3DSDynamicCaptureTPAG* cachedDyn = N3DSRenderer_getDynamicCaptureTPAG(renderer, font->tpagIndex);
+            if (cachedDyn != NULL) {
+                float bl = cachedDyn->subtex.left, br = cachedDyn->subtex.right, bt = cachedDyn->subtex.top, bb = cachedDyn->subtex.bottom;
+                float bw = (float) cachedDyn->subtex.width, bh = (float) cachedDyn->subtex.height;
+                subtex.width = cachedGlyph->sourceWidth;
+                subtex.height = cachedGlyph->sourceHeight;
+                subtex.left = bl + (br - bl) * ((float) cachedGlyph->sourceX / bw);
+                subtex.right = bl + (br - bl) * (((float) cachedGlyph->sourceX + (float) cachedGlyph->sourceWidth) / bw);
+                subtex.top = bt + (bb - bt) * ((float) cachedGlyph->sourceY / bh);
+                subtex.bottom = bt + (bb - bt) * (((float) cachedGlyph->sourceY + (float) cachedGlyph->sourceHeight) / bh);
+                image.tex = &cachedDyn->texture;
+                image.subtex = &subtex;
+            } else if (useDirectFontAsset) {
                 subtex.width = cachedGlyph->sourceWidth;
                 subtex.height = cachedGlyph->sourceHeight;
                 float baseLeft = directFontBaseSubtex.left;
