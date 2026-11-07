@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+#include "stb_truetype.h"
 
 // citro3d only takes power-of-two textures between 8 and 1024, so the shared texture is 1024x1024. The sizes stack by
 // the rows they actually used: rounding each up to a power of two does not fit (512+512+256+256 > 1024).
@@ -35,7 +38,8 @@ typedef struct {
     int16_t bearingX;
     int16_t bearingY;
     int16_t advance;
-    uint8_t* bits; // width bits per row, no row padding (imageFormat 7 layout)
+    uint8_t* bits;  // width bits per row, no row padding (imageFormat 7 layout)
+    uint8_t* alpha; // width*height coverage (outline rasterisation); when set, bits is NULL
 } N3DSFontGlyphBitmap;
 
 // How a glyph is packed into the shared texture. The game stores each glyph as the ink extended up to the line's top
@@ -575,8 +579,36 @@ static void N3DSFontReplace_applyVerticalNudge(Font* font) {
 // rect is the ink plus the blank rows above it up to the line top, matching how the game's own fonts are packed:
 // the runner draws a glyph at cursorY, which is the line top, so a rect that starts at the line top puts the ink
 // exactly on the baseline.
+
+// Outline rasterisation (A plan): the game's own CJK TTF carries outlines, not bitmap strikes. Render the codepoint
+// with stb_truetype's anti-aliased rasteriser and feed the same bitmap struct the strike path uses, with coverage in
+// alpha[] instead of packed bits.
+static bool N3DSFontReplace_rasterizeOutline(const stbtt_fontinfo* stb, float pixelHeight, uint16_t codepoint,
+        N3DSFontGlyphBitmap* out) {
+    int glyphId = stbtt_FindGlyphIndex(stb, codepoint);
+    if (glyphId == 0) return false;
+    float scale = stbtt_ScaleForPixelHeight(stb, pixelHeight);
+    int advance = 0, bearing = 0;
+    stbtt_GetGlyphHMetrics(stb, glyphId, &advance, &bearing);
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    stbtt_GetGlyphBitmapBox(stb, glyphId, scale, scale, &x0, &y0, &x1, &y1);
+    int w = x1 - x0, h = y1 - y0;
+    memset(out, 0, sizeof(*out));
+    out->codepoint = codepoint;
+    out->advance = (int16_t) lroundf((float) advance * scale);
+    out->bearingX = (int16_t) x0;
+    out->bearingY = (int16_t) (-y0); // stb's box top is negative above the baseline
+    if (w <= 0 || h <= 0) return true; // space and friends: advance only
+    out->width = (uint16_t) w;
+    out->height = (uint16_t) h;
+    out->alpha = (uint8_t*) safeMalloc((size_t) w * (size_t) h);
+    stbtt_MakeGlyphBitmap(stb, out->alpha, w, h, w, scale, scale, glyphId);
+    return true;
+}
+
 static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, const uint8_t* d, size_t size,
-        const N3DSFontCmap4* cmap, const N3DSFontStrike* strike, const N3DSGlyphSet* set, float emSize, const char* ttfPath) {
+        const N3DSFontCmap4* cmap, const N3DSFontStrike* strike, const stbtt_fontinfo* outline, const N3DSGlyphSet* set,
+        float emSize, const char* ttfPath) {
     DataWin* dw = runner->dataWin;
     Font* font = &dw->font.fonts[fontIndex];
     int16_t requested = (int16_t) (emSize > 0.0f ? emSize + 0.5f : strike->ppem);
@@ -619,20 +651,27 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
 
     for (uint32_t i = 0; i < set->count; i++) {
         uint16_t codepoint = set->items[i];
-        uint16_t glyphId = N3DSFontReplace_glyphForCodepoint(cmap, codepoint);
-        if (glyphId == 0u) {
-            missing++;
-            continue;
-        }
-        N3DSFontSubtable sub;
-        if (!N3DSFontReplace_findSubtable(d, size, strike, glyphId, &sub)) {
-            missing++;
-            continue;
-        }
         N3DSFontGlyphBitmap glyph;
-        if (!N3DSFontReplace_readGlyph(d, size, strike, &sub, glyphId, codepoint, &glyph)) {
-            missing++;
-            continue;
+        if (outline != NULL) {
+            if (!N3DSFontReplace_rasterizeOutline(outline, (float) requested, codepoint, &glyph)) {
+                missing++;
+                continue;
+            }
+        } else {
+            uint16_t glyphId = N3DSFontReplace_glyphForCodepoint(cmap, codepoint);
+            if (glyphId == 0u) {
+                missing++;
+                continue;
+            }
+            N3DSFontSubtable sub;
+            if (!N3DSFontReplace_findSubtable(d, size, strike, glyphId, &sub)) {
+                missing++;
+                continue;
+            }
+            if (!N3DSFontReplace_readGlyph(d, size, strike, &sub, glyphId, codepoint, &glyph)) {
+                missing++;
+                continue;
+            }
         }
         // Ink taller than the requested line would be cut off at the top; the line has to cover it instead.
         if (glyph.height > 0u && (int32_t) glyph.bearingY > ascent) ascent = glyph.bearingY;
@@ -688,7 +727,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
         if (w > N3DS_FONT_SHARED_ATLAS_W) {
             logError("AM2R: a glyph is %u px wide, wider than the atlas\n", w);
             free(rectW); free(rectH); free(order); free(placedX); free(placedY);
-            for (uint32_t k = 0; k < bitmapCount; k++) free(bitmaps[k].bits);
+            for (uint32_t k = 0; k < bitmapCount; k++) { free(bitmaps[k].bits); free(bitmaps[k].alpha); }
             free(bitmaps);
             return false;
         }
@@ -710,7 +749,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     if (N3DSRenderer_sharedFontAtlasIndex(renderer) < 0 && N3DSRenderer_allocSharedFontAtlas(renderer) < 0) {
         logError("AM2R: no room for the font texture\n");
         free(rectW); free(rectH); free(order); free(placedX); free(placedY);
-        for (uint32_t k = 0; k < bitmapCount; k++) free(bitmaps[k].bits);
+        for (uint32_t k = 0; k < bitmapCount; k++) { free(bitmaps[k].bits); free(bitmaps[k].alpha); }
         free(bitmaps);
         return false;
     }
@@ -721,7 +760,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
         logError("AM2R: the font texture is full (%u of %u rows used, %u more wanted)\n",
             nextY, (unsigned) N3DS_FONT_SHARED_ATLAS_H, stripHeight);
         free(rectW); free(rectH); free(order); free(placedX); free(placedY);
-        for (uint32_t k = 0; k < bitmapCount; k++) free(bitmaps[k].bits);
+        for (uint32_t k = 0; k < bitmapCount; k++) { free(bitmaps[k].bits); free(bitmaps[k].alpha); }
         free(bitmaps);
         return false;
     }
@@ -755,14 +794,20 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
             if (dstY >= stripHeight) break;
             for (uint32_t x = 0; x < g->width; x++) {
                 size_t bitIndex = (size_t) y * (size_t) g->width + (size_t) x;
-                if (((g->bits[bitIndex >> 3] >> (7u - (bitIndex & 7u))) & 1u) == 0u) continue;
+                uint8_t coverage = 0xFFu;
+                if (g->alpha != NULL) {
+                    coverage = g->alpha[bitIndex];
+                    if (coverage == 0u) continue;
+                } else if (((g->bits[bitIndex >> 3] >> (7u - (bitIndex & 7u))) & 1u) == 0u) {
+                    continue;
+                }
                 uint32_t dstX = placedX[i] + (uint32_t) left + x;
                 if (dstX >= N3DS_FONT_SHARED_ATLAS_W) continue;
                 size_t at = ((size_t) dstY * (size_t) N3DS_FONT_SHARED_ATLAS_W + (size_t) dstX) * 4u;
                 rgba[at + 0u] = 0xFFu; // glyphs are drawn with the current draw colour, so white is the usable ink
                 rgba[at + 1u] = 0xFFu;
                 rgba[at + 2u] = 0xFFu;
-                rgba[at + 3u] = 0xFFu;
+                rgba[at + 3u] = coverage;
             }
         }
     }
@@ -775,7 +820,7 @@ static bool N3DSFontReplace_buildAndInstall(Runner* runner, int32_t fontIndex, c
     free(order);
     free(placedX);
     free(placedY);
-    for (uint32_t k = 0; k < bitmapCount; k++) free(bitmaps[k].bits);
+    for (uint32_t k = 0; k < bitmapCount; k++) { free(bitmaps[k].bits); free(bitmaps[k].alpha); }
     if (!uploaded) {
         logError("AM2R: could not upload the font texture\n");
         free(bitmaps);
@@ -1126,14 +1171,22 @@ bool N3DSFontReplace_apply(Runner* runner, int32_t fontIndex, const char* ttfPat
 
     N3DSFontCmap4 cmap;
     N3DSFontStrike strike;
-    if (!N3DSFontReplace_cmap4(d, size, &cmap) || !N3DSFontReplace_findStrike(d, size, emSize, &strike)) {
-        logError("AM2R: %s has no usable bitmap strike (an outline font cannot be used)\n", path);
-        free(d);
-        return false;
+    bool haveStrike = N3DSFontReplace_cmap4(d, size, &cmap) && N3DSFontReplace_findStrike(d, size, emSize, &strike);
+    stbtt_fontinfo stb;
+    bool haveOutline = false;
+    if (!haveStrike) {
+        int offset = stbtt_GetFontOffsetForIndex(d, 0);
+        haveOutline = offset >= 0 && stbtt_InitFont(&stb, d, offset);
+        if (!haveOutline) {
+            logError("AM2R: %s has neither a bitmap strike nor usable outlines\n", path);
+            free(d);
+            return false;
+        }
+        logInfo("AM2R: %s has no bitmap strike; rasterising outlines at %.0fpx\n", path, (double) emSize);
     }
 
     const N3DSGlyphSet* set = N3DSFontReplace_glyphSet();
-    bool ok = N3DSFontReplace_buildAndInstall(runner, fontIndex, d, size, &cmap, &strike, set, emSize, path);
+    bool ok = N3DSFontReplace_buildAndInstall(runner, fontIndex, d, size, &cmap, &strike, haveOutline ? &stb : NULL, set, emSize, path);
     if (ok) {
         // A swapped font has a whole new glyph array; a layout cached before the swap still holds the old rectangles,
         // so strings laid out during the init room (before oControl replaced the fonts) kept drawing nothing.
