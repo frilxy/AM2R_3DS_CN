@@ -3568,7 +3568,19 @@ static bool N3DSRenderer_tryDrawSingleGlyphTextFast(
 
     Tex3DS_SubTexture subtex;
     C2D_Image image;
-    if (useDirectFontAsset) {
+    N3DSDynamicCaptureTPAG* dyn = N3DSRenderer_getDynamicCaptureTPAG(renderer, font->tpagIndex);
+    if (dyn != NULL) {
+        float bl = dyn->subtex.left, br = dyn->subtex.right, bt = dyn->subtex.top, bb = dyn->subtex.bottom;
+        float bw = (float) dyn->subtex.width, bh = (float) dyn->subtex.height;
+        subtex.width = glyph->sourceWidth;
+        subtex.height = glyph->sourceHeight;
+        subtex.left = bl + (br - bl) * ((float) glyph->sourceX / bw);
+        subtex.right = bl + (br - bl) * (((float) glyph->sourceX + (float) glyph->sourceWidth) / bw);
+        subtex.top = bt + (bb - bt) * ((float) glyph->sourceY / bh);
+        subtex.bottom = bt + (bb - bt) * (((float) glyph->sourceY + (float) glyph->sourceHeight) / bh);
+        image.tex = &dyn->texture;
+        image.subtex = &subtex;
+    } else if (useDirectFontAsset) {
         if (directFontImage == NULL || directFontBaseSubtex == NULL) return false;
         subtex.width = glyph->sourceWidth;
         subtex.height = glyph->sourceHeight;
