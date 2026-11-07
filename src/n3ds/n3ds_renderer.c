@@ -2503,9 +2503,9 @@ static void N3DSRenderer_setRuntimeSubtex(Tex3DS_SubTexture* subtex, uint32_t te
     subtex->width = (uint16_t) contentW;
     subtex->height = (uint16_t) contentH;
     subtex->left = 0.0f;
-    subtex->top = 1.0f;
+    subtex->top = 0.0f;
     subtex->right = (float) contentW / (float) texW;
-    subtex->bottom = 1.0f - (float) contentH / (float) texH;
+    subtex->bottom = (float) contentH / (float) texH;
 }
 
 // Allocates the shared font texture and the TPAG the fonts will point at.
