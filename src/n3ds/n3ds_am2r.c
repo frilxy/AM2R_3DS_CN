@@ -1500,12 +1500,35 @@ void N3DSAm2r_prepareRoomChange(void) {
     }
 }
 
+// A room's light map is a surface its oLightEngine makes on entering the room and frees in its Destroy event, which
+// GameMaker doesn't run when a room ends: every room entry left one 512 x 256 surface behind, and a few visits ate the
+// 3DS's video memory (the light map then came out smaller, the dark overlay covered part of the screen and everything
+// slowed down). The previous room's is freed once the new room's exists.
+static void N3DSAm2r_freeStaleLightMap(void) {
+    static int32_t engine = -2;
+    static int32_t lastSurface = -1;
+    if (engine == -2) engine = N3DSGml_objectIndex("oLightEngine");
+    if (engine < 0) return;
+    Instance* list[1];
+    double surf = -1.0;
+    int32_t current = -1;
+    if (N3DSGml_instances(engine, list, 1) > 0 && N3DSGml_getVar(list[0], "surf", &surf)) current = (int32_t) surf;
+    if (lastSurface >= 0 && current >= 0 && current != lastSurface) {
+        Renderer* renderer = gAm2r.runner != NULL ? gAm2r.runner->renderer : NULL;
+        if (renderer != NULL && renderer->vtable->surfaceExists(renderer, lastSurface)) {
+            renderer->vtable->surfaceFree(renderer, lastSurface);
+        }
+    }
+    if (current >= 0) lastSurface = current;
+}
+
 void N3DSAm2r_update(void) {
     if (!gAm2r.active) return;
     // Widescreen belongs to the game's picture. The pause room (map, items, log pages) and the HUD are laid out for the
     // game's own 320-wide canvas; handing them the widescreen space drew a 400-wide layout that ran off the right of the
     // screen - the energy readout cut to "E - 00", the "scanning" note past the edge, the log text spilling out of its
     // box. While the pause is up the game is told it has the plain picture; on the way back the mode below restores it.
+    N3DSAm2r_freeStaleLightMap();
     if (N3DSPause_isPaused()) {
         Instance* control = N3DSGml_firstInstance(gAm2r.objControl);
         if (control != NULL) {
