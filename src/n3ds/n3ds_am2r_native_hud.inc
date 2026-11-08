@@ -126,7 +126,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     // too: shift it back in by that much (N3DSAm2r_hudLeftInset; 0 unless the picture starts left of the screen). The
     // shift is a GMLReal (like every other HUD coordinate here) so it stays in the game's own arithmetic.
     GMLReal hudShift = (GMLReal) N3DSAm2r_hudLeftInset();
-    GMLReal xoff = 33 + hudShift;
+    GMLReal xoff = 21 + hudShift;
     setNum(self, &v_xoff, xoff);
     if (gmlCmp(g.etanks, 0) == 0) drawBackgroundAt(117, hudShift, 0);
     for (int32_t pair = 1; pair < 16; pair++) {
@@ -134,7 +134,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         bool match = gmlCmp(g.etanks, lo) == 0 || (pair == 15 ? gmlCmp(g.etanks, 30) >= 0 : gmlCmp(g.etanks, lo + 1) == 0);
         if (!match) continue;
         drawBackgroundAt(kTankFrames[pair].bg, hudShift, 0);
-        xoff = kTankFrames[pair].xoff + hudShift;
+        xoff = kTankFrames[pair].xoff - 12 + hudShift;
         setNum(self, &v_xoff, xoff);
     }
 
@@ -157,8 +157,8 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
     }
 
     // Energy tanks: full when health is past the tank's share.
-    setNum(self, &v_etankxoff, 32);
-    GMLReal etankxoff = 32;
+    setNum(self, &v_etankxoff, 20);
+    GMLReal etankxoff = 20;
     for (int32_t k = 1; k <= 30; k++) {
         if (gmlCmp(g.etanks, k) < 0) continue;
         GMLReal threshold = k == 1 ? 99.9 : 99.9 + (GMLReal) (100 * (k - 1)) * mult;
