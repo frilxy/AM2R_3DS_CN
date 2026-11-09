@@ -261,7 +261,8 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
             drawBackgroundAt(which == 1 ? 128 : 129, (xoff + 4) + ws, 4);
             RValue n = R(which == 1 ? g.monstersarea : g.monstersleft);
             RValue text = callScript(gCode_to_string_lz, &n, 1);
-            drawText((xoff + 6) + ws, 21, text);
+            // Centred under the (wider) metroid icon, not at its left edge: +6 left the digits hanging off to the left.
+            drawText((xoff + 16) + ws, 20, text);
             RValue_free(&text);
         }
     }
