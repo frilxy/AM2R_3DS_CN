@@ -376,24 +376,35 @@ static inline uint32_t N3DSLoadingMorton(uint32_t x, uint32_t y) {
     return (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) | ((y & 4u) << 3);
 }
 
+// The bottom-screen art ships inside the title as raw RGBA (320x240x4), converted at build time: no PNG decode,
+// no SD copy, and no way for a stale sdmc:/3ds/am2r/gfx/bottom.png to override it.
+static uint8_t* N3DS_loadBottomArt(int* outW, int* outH) {
+    FILE* f = fopen("romfs:/gfx/bottom.rgba", "rb");
+    if (f == NULL) return NULL;
+    const size_t bytes = 320u * 240u * 4u;
+    uint8_t* pixels = (uint8_t*) malloc(bytes);
+    size_t read = pixels != NULL ? fread(pixels, 1, bytes, f) : 0;
+    fclose(f);
+    if (pixels == NULL || read != bytes) { free(pixels); return NULL; }
+    *outW = 320;
+    *outH = 240;
+    return pixels;
+}
+
 // Loads gfx/bottom.png (SD first, then the copy in romfs) into a texture of its own, so the boot screen can show the
 // bottom art before the renderer exists. Failure is silent: the bottom screen then stays black, as it used to.
 static void N3DSLoadingScreen_loadArt(N3DSLoadingScreen* screen) {
     if (screen == NULL || !screen->useCitro2D) return;
 
-    int width = 0, height = 0, channels = 0;
-    stbi_uc* pixels = stbi_load(N3DS_SD_DIR "gfx/bottom.png", &width, &height, &channels, 4);
-    if (pixels == NULL) pixels = stbi_load("romfs:/gfx/bottom.png", &width, &height, &channels, 4);
-    if (pixels == NULL || width <= 0 || height <= 0 || width > 1024 || height > 1024) {
-        if (pixels != NULL) stbi_image_free(pixels);
-        return;
-    }
+    int width = 0, height = 0;
+    stbi_uc* pixels = (stbi_uc*) N3DS_loadBottomArt(&width, &height);
+    if (pixels == NULL) return;
 
     uint32_t texW = 8u, texH = 8u;
     while (texW < (uint32_t) width) texW <<= 1;
     while (texH < (uint32_t) height) texH <<= 1;
     if (!C3D_TexInit(&screen->artTexture, (u16) texW, (u16) texH, GPU_RGBA8)) {
-        stbi_image_free(pixels);
+        free(pixels);
         return;
     }
     C3D_TexSetFilter(&screen->artTexture, GPU_NEAREST, GPU_NEAREST);
@@ -899,23 +910,16 @@ int main(int argc, char** argv) {
     // The bottom screen's artwork, if the player put one on the SD card. Optional: without the file (or with one
     // that will not decode) the screen keeps the plain black it always had.
     {
-        int bottomW = 0, bottomH = 0, bottomChannels = 0;
-        // The SD card copy wins, so the art can be replaced without rebuilding; otherwise the one packaged into
-        // the title is used, and a build without either keeps the plain black.
-        const char* bottomPath = N3DS_SD_DIR "gfx/bottom.png";
-        stbi_uc* bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
-        if (bottomPixels == NULL) {
-            bottomPath = "romfs:/gfx/bottom.png";
-            bottomPixels = stbi_load(bottomPath, &bottomW, &bottomH, &bottomChannels, 4);
-        }
+        int bottomW = 0, bottomH = 0;
+        stbi_uc* bottomPixels = (stbi_uc*) N3DS_loadBottomArt(&bottomW, &bottomH);
         if (bottomPixels != NULL) {
             if (!N3DSRenderer_setBottomBackground(renderer, bottomPixels, (uint32_t) bottomW, (uint32_t) bottomH)) {
-                logWarn("N3DS: %s (%dx%d) could not be uploaded; the bottom screen stays black\n", bottomPath,
+                logWarn("N3DS: romfs bottom art (%dx%d) could not be uploaded; the bottom screen stays black\n",
                     bottomW, bottomH);
             } else {
-                logInfo("N3DS: bottom screen art %dx%d from %s\n", bottomW, bottomH, bottomPath);
+                logInfo("N3DS: bottom screen art %dx%d from romfs (packed)\n", bottomW, bottomH);
             }
-            stbi_image_free(bottomPixels);
+            free(bottomPixels);
         }
     }
     logInfo("Screen mode: %s\n", N3DS_screenModeName(gScreenMode));

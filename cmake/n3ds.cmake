@@ -91,9 +91,11 @@ file(WRITE "${N3DS_ROMFS_DIR}/build.txt" "${N3DS_APP_NAME} on Butterscotch ${BUT
 
 # The bottom screen's artwork ships inside the title, so a fresh install is not a black screen. A file at
 # sdmc:/3ds/am2r/gfx/bottom.png wins over this one (see main.c).
-if(EXISTS "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png")
+# Packed as raw RGBA (converted from bottom.png at build time): the runtime just reads and uploads it, and a stale
+# sdmc:/3ds/am2r/gfx/bottom.png can no longer override the art inside the title.
+if(EXISTS "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.rgba")
     file(MAKE_DIRECTORY "${N3DS_ROMFS_DIR}/gfx")
-    configure_file("${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.png" "${N3DS_ROMFS_DIR}/gfx/bottom.png" COPYONLY)
+    configure_file("${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}/bottom.rgba" "${N3DS_ROMFS_DIR}/gfx/bottom.rgba" COPYONLY)
 endif()
 
 set(N3DS_SMDH_FILE "${CMAKE_CURRENT_BINARY_DIR}/${N3DS_OUTPUT_NAME}.smdh")
