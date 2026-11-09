@@ -179,7 +179,7 @@ static RValue native_draw_gui(VMContext* ctx, RValue* args, int32_t argCount) {
         // underneath the wider icon (the ammo icon is drawn over the text). Shift it by the same 7 pixels.
         bool wideAmmo = gmlCmp(g.maxmissiles, 100) >= 0;
         drawBackgroundAt(wideAmmo ? 126 : 127, xoff, 0);
-        drawTextOf((0 + xoff) + 26, 7, *missilesSlot);
+        drawTextOf((0 + xoff) + (wideAmmo ? 28 : 26), 7, *missilesSlot);
         GMLReal ix = (0 + xoff) + 1;
         if (styleHold) {
             if (gmlCmp(g.currentweapon, 1) != 0 || busy || truthy(sjball)) drawSprite(504, 0, ix, 4);
