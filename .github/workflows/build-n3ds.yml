@@ -119,9 +119,9 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; dsx_name="am2r-$tag.3dsx"; fi
 
           # Every release gets an install QR: FBI scans it and fetches the CIA straight from this release.
-          python3 -m pip --version >/dev/null 2>&1 || apt-get install -y --no-install-recommends python3-pip
-          python3 -m pip install --quiet qrcode pillow
-          python3 - "$base/$cia_name" "out/qr-$tag.png" <<'PY'
+          python3 -m venv /tmp/qrvenv
+          /tmp/qrvenv/bin/pip install --quiet qrcode pillow
+          /tmp/qrvenv/bin/python - "$base/$cia_name" "out/qr-$tag.png" <<'PY'
           import sys, qrcode
           qrcode.make(sys.argv[1]).save(sys.argv[2])
           PY
