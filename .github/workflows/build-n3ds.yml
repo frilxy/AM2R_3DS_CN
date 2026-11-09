@@ -115,13 +115,26 @@ jobs:
 
           base="https://github.com/$GH_REPO/releases/download/$tag"
 
+          cia_name="am2r.cia"; dsx_name="am2r.3dsx"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; dsx_name="am2r-$tag.3dsx"; fi
+
+          # Every release gets an install QR: FBI scans it and fetches the CIA straight from this release.
+          python3 -m pip --version >/dev/null 2>&1 || apt-get install -y --no-install-recommends python3-pip
+          python3 -m pip install --quiet qrcode pillow
+          python3 - "$base/$cia_name" "out/qr-$tag.png" <<'PY'
+          import sys, qrcode
+          qrcode.make(sys.argv[1]).save(sys.argv[2])
+          PY
+
           marker="<!-- n3ds-build -->"
           {
             echo "$marker"
             echo "## Downloads"
             echo
-            cia_name="am2r.cia"; dsx_name="am2r.3dsx"
-            if [ "$GITHUB_REF_TYPE" = tag ]; then cia_name="am2r-$tag.cia"; dsx_name="am2r-$tag.3dsx"; fi
+            echo "![CIA 安装二维码]($base/qr-$tag.png)"
+            echo
+            echo "FBI → Remote Install → Scan QR Code，扫描上图直接安装。"
+            echo
             echo "* \`$cia_name\` — install with FBI: $base/$cia_name"
             echo "* \`$dsx_name\` — for the Homebrew Launcher: $base/$dsx_name"
             echo
@@ -178,8 +191,8 @@ jobs:
           # The linked ELF (with symbols) is not published: it cannot be installed and only serves to turn crash dump
           # addresses into function names, which is done on demand when a dump needs reading.
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            assets=("out/am2r-$tag.cia" "out/am2r-$tag.3dsx")
+            assets=("out/am2r-$tag.cia" "out/am2r-$tag.3dsx" "out/qr-$tag.png")
           else
-            assets=(out/am2r.cia out/am2r.3dsx)
+            assets=(out/am2r.cia out/am2r.3dsx "out/qr-$tag.png")
           fi
           gh release upload "$tag" --clobber "${assets[@]}"
