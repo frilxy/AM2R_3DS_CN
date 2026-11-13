@@ -500,10 +500,15 @@ static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
     free(sprite->tpagIndices);
     sprite->tpagIndices = frames;
     sprite->textureCount = made;
-    sprite->width = frameWidth;
-    sprite->height = (uint32_t) height;
-    sprite->originX = 0;
-    sprite->originY = 0;
+    // Only an area-title banner (a wide strip cut into >1 frames) changes the sprite's geometry. Suit/palette
+    // replacements are single images drawn with the sprite's own origin, and resetting it put effects such as the
+    // Spider Ball glow at the bottom-right of Samus.
+    if (frameCount > 1u) {
+        sprite->width = frameWidth;
+        sprite->height = (uint32_t) height;
+        sprite->originX = 0;
+        sprite->originY = 0;
+    }
     logInfo("AM2R: sprite %d -> %s: %u frames of %ux%u\n", (int) spriteIndex, args[1].string, made, frameWidth, (unsigned) height);
     return RValue_makeUndefined();
 }
