@@ -437,6 +437,77 @@ static RValue hookBackgroundReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, i
     return RValue_makeUndefined();
 }
 
+// sprite_replace(sprite, png, imgnum, removeback, smooth, xorig, yorig). The language packs use it for the area title
+// banners: the pack ships one wide strip per area, its frame count encoded as _f<frames> in the file name, and the game
+// cuts it with draw_sprite_part. Each frame becomes a runtime image page, then the sprite points at them.
+static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (argCount < 2 || args[1].type != RVALUE_STRING || args[1].string == NULL) return RValue_makeUndefined();
+    Runner* runner = gAm2r.runner;
+    DataWin* dw = runner != NULL ? runner->dataWin : NULL;
+    if (dw == NULL || runner->renderer == NULL) return RValue_makeUndefined();
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    if (spriteIndex < 0 || (uint32_t) spriteIndex >= dw->sprt.count) return RValue_makeUndefined();
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    if (sprite->tpagIndices == NULL || sprite->textureCount == 0) return RValue_makeUndefined();
+
+    char* fullPath = N3DSFontReplace_resolvePath(args[1].string);
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* pixels = fullPath != NULL ? stbi_load(fullPath, &width, &height, &channels, 4) : NULL;
+    free(fullPath);
+    if (pixels == NULL || width <= 0 || height <= 0) {
+        logInfo("AM2R: sprite_replace could not read %s\n", args[1].string);
+        if (pixels != NULL) stbi_image_free(pixels);
+        return RValue_makeUndefined();
+    }
+    if (argCount > 3 && RValue_toBool(args[3])) {
+        const uint8_t* key = pixels + (size_t) (height - 1) * (size_t) width * 4u;
+        for (size_t i = 0; i < (size_t) width * (size_t) height; i++) {
+            uint8_t* px = pixels + i * 4u;
+            if (px[0] == key[0] && px[1] == key[1] && px[2] == key[2]) px[3] = 0u;
+        }
+    }
+
+    uint32_t namedFrames = 0;
+    const char* base = strrchr(args[1].string, '/');
+    base = base != NULL ? base + 1 : args[1].string;
+    const char* mark = strstr(base, "_f");
+    while (mark != NULL && (mark[2] < '0' || mark[2] > '9')) mark = strstr(mark + 1, "_f");
+    if (mark != NULL) namedFrames = (uint32_t) strtoul(mark + 2, NULL, 10);
+    uint32_t frameCount = 1, frameWidth = (uint32_t) width;
+    if (namedFrames >= 2u && namedFrames <= 512u && ((uint32_t) width % namedFrames) == 0u &&
+        ((uint32_t) width / namedFrames) >= 2u) {
+        frameCount = namedFrames;
+        frameWidth = (uint32_t) width / frameCount;
+    }
+
+    int32_t* frames = (int32_t*) safeMalloc((size_t) frameCount * sizeof(int32_t));
+    uint32_t made = 0;
+    uint8_t* cropped = (uint8_t*) safeMalloc((size_t) frameWidth * (size_t) height * 4u);
+    for (uint32_t f = 0; f < frameCount; f++) {
+        for (uint32_t y = 0; y < (uint32_t) height; y++) {
+            memcpy(cropped + (size_t) y * frameWidth * 4u,
+                pixels + ((size_t) y * (size_t) width + (size_t) f * frameWidth) * 4u, (size_t) frameWidth * 4u);
+        }
+        frames[f] = N3DSRenderer_allocRuntimeImage(runner->renderer, cropped, frameWidth, (uint32_t) height);
+        if (frames[f] < 0) break;
+        N3DSRenderer_setRuntimeTPAGContent(runner->renderer, frames[f], frameWidth, (uint32_t) height);
+        made++;
+    }
+    free(cropped);
+    stbi_image_free(pixels);
+    if (made == 0) { free(frames); return RValue_makeUndefined(); }
+
+    free(sprite->tpagIndices);
+    sprite->tpagIndices = frames;
+    sprite->textureCount = made;
+    sprite->width = frameWidth;
+    sprite->height = (uint32_t) height;
+    sprite->originX = 0;
+    sprite->originY = 0;
+    logInfo("AM2R: sprite %d -> %s: %u frames of %ux%u\n", (int) spriteIndex, args[1].string, made, frameWidth, (unsigned) height);
+    return RValue_makeUndefined();
+}
+
 // ===[ Screen mode ]===
 
 // The screen modes the Display page offers, in order (Wide first: the default).
@@ -805,6 +876,9 @@ void N3DSAm2r_init(Runner* runner) {
         } else if (strcmp(name, "background_replace") == 0) {
             vm->funcCallCache[i].builtin = (void*) hookBackgroundReplace;
             logInfo("AM2R: background_replace goes through the 3DS front end\n");
+        } else if (strcmp(name, "sprite_replace") == 0) {
+            vm->funcCallCache[i].builtin = (void*) hookSpriteReplace;
+            logInfo("AM2R: sprite_replace goes through the 3DS front end\n");
         } else if (strcmp(name, "draw_text") == 0) {
             gDrawTextBuiltin = vm->funcCallCache[i].builtin;
             vm->funcCallCache[i].builtin = (void*) hookDrawText;
