@@ -114,7 +114,7 @@ ctr_create_3dsx(butterscotch_3dsx TARGET butterscotch OUTPUT ${N3DS_OUTPUT_NAME}
 # Installable title. As a title it gets its own memory mode (124 MB, 804 MHz, L2 cache on New 3DS: res/n3ds/app.rsf);
 # every build has the same title ID, so installing a new .cia replaces the old one and keeps the SD data and saves.
 find_program(N3DS_MAKEROM makerom HINTS "${N3DS_TOOLS_DIR}")
-# Title version: a release tag (vX.Y.Z) is encoded as the 3DS title version (major << 10 | minor << 4 | patch), so the
+# Title version: a release tag (vX.Y.Z) is encoded as the 3DS title version (major << 10 | minor << 6 | patch), so the
 # number installed and shown by the console/tools matches the release instead of a commit count. Builds that are not on
 # a tag keep the commit count, which stays monotonic for the HOME Menu's icon cache.
 set(N3DS_TITLE_VERSION 0)
@@ -125,7 +125,7 @@ if(_n3ds_tag_result EQUAL 0 AND _n3ds_tag MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9
     set(_n3ds_major ${CMAKE_MATCH_1})
     set(_n3ds_minor ${CMAKE_MATCH_2})
     set(_n3ds_patch ${CMAKE_MATCH_3})
-    math(EXPR N3DS_TITLE_VERSION "${_n3ds_major} * 1024 + ${_n3ds_minor} * 16 + ${_n3ds_patch}")
+    math(EXPR N3DS_TITLE_VERSION "${_n3ds_major} * 1024 + ${_n3ds_minor} * 64 + ${_n3ds_patch}")
     set(N3DS_APP_VERSION "${_n3ds_major}.${_n3ds_minor}.${_n3ds_patch}")
 endif()
 if(N3DS_APP_VERSION STREQUAL "")
