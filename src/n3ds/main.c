@@ -726,6 +726,9 @@ int main(int argc, char** argv) {
     mkdir(N3DS_SD_DIR, 0777);
     N3DSLog_init();
     logInfo("Butterscotch 3DS (%s %s)\n", BUTTERSCOTCH_COMMIT_HASH, BUTTERSCOTCH_COMMIT_DATE);
+#ifdef N3DS_APP_VERSION
+    logInfo("AM2R: release version %s\n", N3DS_APP_VERSION);
+#endif
     bool isNew3DS = false;
     APT_CheckNew3DS(&isNew3DS);
     logInfo("Console: %s, speedup %s\n", isNew3DS ? "New 3DS" : "Old 3DS", isNew3DS ? "on" : "n/a");

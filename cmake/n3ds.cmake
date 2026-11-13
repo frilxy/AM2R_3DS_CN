@@ -114,15 +114,31 @@ ctr_create_3dsx(butterscotch_3dsx TARGET butterscotch OUTPUT ${N3DS_OUTPUT_NAME}
 # Installable title. As a title it gets its own memory mode (124 MB, 804 MHz, L2 cache on New 3DS: res/n3ds/app.rsf);
 # every build has the same title ID, so installing a new .cia replaces the old one and keeps the SD data and saves.
 find_program(N3DS_MAKEROM makerom HINTS "${N3DS_TOOLS_DIR}")
-# Title version: the commit count, so every build is newer than the last. The HOME Menu keeps a title's icon (SMDH) in
-# a cache it refreshes only when the installed version changes; with every build at version 0, a new icon never showed.
+# Title version: a release tag (vX.Y.Z) is encoded as the 3DS title version (major << 10 | minor << 4 | patch), so the
+# number installed and shown by the console/tools matches the release instead of a commit count. Builds that are not on
+# a tag keep the commit count, which stays monotonic for the HOME Menu's icon cache.
 set(N3DS_TITLE_VERSION 0)
-execute_process(COMMAND git rev-list --count HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    OUTPUT_VARIABLE _n3ds_commit_count OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _n3ds_git_result)
-if(_n3ds_git_result EQUAL 0 AND _n3ds_commit_count MATCHES "^[0-9]+$")
-    math(EXPR N3DS_TITLE_VERSION "${_n3ds_commit_count} % 65536")
+set(N3DS_APP_VERSION "")
+execute_process(COMMAND git describe --tags --exact-match WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE _n3ds_tag OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _n3ds_tag_result)
+if(_n3ds_tag_result EQUAL 0 AND _n3ds_tag MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+    set(_n3ds_major ${CMAKE_MATCH_1})
+    set(_n3ds_minor ${CMAKE_MATCH_2})
+    set(_n3ds_patch ${CMAKE_MATCH_3})
+    math(EXPR N3DS_TITLE_VERSION "${_n3ds_major} * 1024 + ${_n3ds_minor} * 16 + ${_n3ds_patch}")
+    set(N3DS_APP_VERSION "${_n3ds_major}.${_n3ds_minor}.${_n3ds_patch}")
 endif()
-message(STATUS "n3ds: title version ${N3DS_TITLE_VERSION}")
+if(N3DS_APP_VERSION STREQUAL "")
+    execute_process(COMMAND git rev-list --count HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE _n3ds_commit_count OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _n3ds_git_result)
+    if(_n3ds_git_result EQUAL 0 AND _n3ds_commit_count MATCHES "^[0-9]+$")
+        math(EXPR N3DS_TITLE_VERSION "${_n3ds_commit_count} % 65536")
+    endif()
+endif()
+message(STATUS "n3ds: title version ${N3DS_TITLE_VERSION} (app version '${N3DS_APP_VERSION}')")
+if(NOT N3DS_APP_VERSION STREQUAL "")
+    target_compile_definitions(butterscotch PRIVATE N3DS_APP_VERSION="${N3DS_APP_VERSION}")
+endif()
 find_program(N3DS_BANNERTOOL bannertool HINTS "${N3DS_TOOLS_DIR}")
 if(N3DS_MAKEROM)
     set(_n3ds_banner_args "")
