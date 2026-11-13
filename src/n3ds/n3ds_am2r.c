@@ -1147,7 +1147,12 @@ static void N3DSAm2r_applyCheats(void) {
     double inGame = 0.0;
     if (!N3DSGml_getGlobal("ingame", -1, &inGame) || inGame == 0.0) return;
     // Other drains (heat, Metroids latched on) go straight to samushealth: filled after every step.
-    if (N3DSAm2r_cheat(CHEAT_HEALTH)) N3DSAm2r_fillGlobal("samushealth", "maxhealth");
+    if (N3DSAm2r_cheat(CHEAT_HEALTH)) {
+        // The game's current health is the global `Health`; `samushealth` was a guess and does not exist in data.win,
+        // which is why unlimited health never stopped the damage.
+        N3DSAm2r_fillGlobal("Health", "maxhealth");
+        N3DSAm2r_fillGlobal("samushealth", "maxhealth");
+    }
     if (N3DSAm2r_cheat(CHEAT_AMMO)) {
         N3DSAm2r_fillGlobal("missiles", "maxmissiles");
         N3DSAm2r_fillGlobal("smissiles", "maxsmissiles");
