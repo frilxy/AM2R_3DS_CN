@@ -32,13 +32,13 @@ Upgrading from an older build is just a CIA reinstall; saves and SD data stay.
 | **SELECT** | Tap: the game's own (area description after a scan); **hold**: pause → items page, press again to resume |
 | Bottom screen touch | Drag the map; tap to place/remove a marker |
 | START + SELECT | Debug overlay |
-| Pause menu → Display | Screen mode (original / stretch), status bar, frameskip, fast scripts, FPS counter, cheats |
+| Pause menu → Display | Screen mode (point / wide / stretch), status bar, frameskip, fast scripts, FPS counter, cheats |
 
 ## What this build adds
 
 - Full Simplified Chinese translation (`font_replace` / `background_replace` implemented, bitmap fonts, line-wrap bug fixed)
 - Live bottom-screen map: status counters, zoom levels, drag to pan, tap to mark; artwork on non-gameplay screens
-- Screen modes: original (native 320×240 at 1:1, centred with side bars, default) and stretch (squashed to fill the screen)
+- Screen modes: point (native 320×240, default), wide, stretch
 - Fixes for the save-select stutter and a long-session crash (atlas page OOM); fonts are cached on the SD card so the second boot is about a second faster
 
 ## Two things you can replace
