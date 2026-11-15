@@ -24,9 +24,9 @@ case "${BS_N3DS_GAME:-am2r}" in
             -DN3DS_UNIQUE_ID=0xA2E21
             -DN3DS_PRODUCT_CODE=CTR-P-AM2R
             # AM2R has its own 16:9 widescreen (426x240), wider than the 5:3 top screen, so the upstream hack has
-            # nothing to add. Wide is the default: the picture 1:1 and centred, filling the screen, with the 26 columns
-            # past 400 given up evenly (13 each side). The other modes (Stretch/1x/2x) stay available in Options.
-            -DN3DS_SCREEN_MODE=wide
+            # nothing to add. 1x is the default: the game's own widescreen is turned off and its native 320x240 is
+            # shown at 1:1, centred, with side bars. Stretch stays available in Options.
+            -DN3DS_SCREEN_MODE=1x
             # AM2R switches its button prompts to the keyboard's while any keyboard binding is held: gamepad only.
             -DN3DS_KEYBOARD_MIRROR=OFF
         )

@@ -18,7 +18,9 @@ set(N3DS_ASSET_DIR "" CACHE PATH "Optional icon.png (48x48), banner.png (256x128
 if(N3DS_ASSET_DIR STREQUAL "" OR N3DS_ASSET_DIR STREQUAL "${CMAKE_SOURCE_DIR}/res/n3ds/butterscotch")
     set(N3DS_ASSET_DIR "${CMAKE_SOURCE_DIR}/res/n3ds/${N3DS_SD_FOLDER}")
 endif()
-set(N3DS_SCREEN_MODE "wide" CACHE STRING "Default top-screen mode: wide, stretch, 1x or 2x")
+# The default top-screen mode. AM2R's build (tools/n3ds/build.sh) uses 1x: the game's own widescreen is turned off and
+# its native 320x240 is shown at 1:1 with side bars. Stretch is the only other mode the Display page offers.
+set(N3DS_SCREEN_MODE "1x" CACHE STRING "Default top-screen mode: 1x or stretch")
 set(N3DS_TOOLS_DIR "/root/kfx/3ds-prefix/bin" CACHE PATH "Where makerom and bannertool are")
 
 add_compile_definitions(PLATFORM_N3DS)
