@@ -515,16 +515,12 @@ static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
 
 // ===[ Screen mode ]===
 
-// The screen modes the Display page offers, in order (Original/1x first: the default; Stretch is the only other one).
-// Wide stays in the N3DSScreenMode enum because the renderer still has its branch, but it is no longer offered here:
-// the localised build only needs the native 1:1 picture and the stretched one.
-static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_1X, N3DS_SCREEN_STRETCH };
+// The screen modes the Display page offers, in order (Wide first: the default).
+static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_WIDE, N3DS_SCREEN_STRETCH, N3DS_SCREEN_1X };
 // The modes' names as the saved file and the log use them: kept in English and never translated, because the save
-// (cheats.ini's "screen=Point") is read back by name - a translated one would stop an old save being understood. "Point"
-// in particular keeps its old spelling for exactly that reason: the mode is called Original in the menu, but renaming
-// the saved value would make every existing screen=Point save fall back to the default. The names the player sees are
-// N3DSAm2r_screenModeLabel, below (they are translated).
-static const char* const kScreenModeNames[] = { "Point", "Stretch" };
+// (cheats.ini's "screen=Wide") is read back by name - a translated one would stop an old save being understood. The
+// names the player sees are N3DSAm2r_screenModeLabel, below (they are translated).
+static const char* const kScreenModeNames[] = { "Wide", "Stretch", "Point" };
 #define N3DS_AM2R_SCREEN_MODES ((int) (sizeof(kScreenModes) / sizeof(kScreenModes[0])))
 
 static int N3DSAm2r_screenModeSlot(void) {
@@ -668,13 +664,12 @@ static const char* N3DSAm2r_text(const char* english, const char* chinese) {
 }
 
 // The screen mode's name as the Display page shows it. The saved name (kScreenModeNames) stays English - see the note
-// on it - so the player-facing name is separate and translated here. 1x is shown as "Original": it turns the game's own
-// widescreen off and shows its native 320x240 at 1:1 with side bars. Wide is no longer offered, so it has no
-// player-facing name left and falls back to the saved name, as does an unknown mode.
+// on it - so the player-facing name is separate and translated here. An unknown mode falls back to the saved name.
 static const char* N3DSAm2r_screenModeLabel(N3DSScreenMode mode) {
     switch (mode) {
-        case N3DS_SCREEN_1X: return N3DSAm2r_text("Original", "原始");
+        case N3DS_SCREEN_WIDE: return N3DSAm2r_text("Wide", "宽屏");
         case N3DS_SCREEN_STRETCH: return N3DSAm2r_text("Stretch", "拉伸");
+        case N3DS_SCREEN_1X: return N3DSAm2r_text("Point", "点对点");
         default: return N3DSAm2r_screenModeName(mode);
     }
 }
@@ -692,7 +687,7 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "显示", "金手指", "返回", "画面模式", "状态栏", "跳帧", "快速脚本", "帧率显示", "开", "关", "不可用",
         "回到选项", "此版本的游戏不支持", "左下角的小型帧率计数器", "无限生命和弹药，更强的武器",
         // The Display page's tips.
-        "拉伸把 320x240 画面横向压满全屏；原始为原生 320×240 1:1，左右留黑边",
+        "宽屏填满屏幕；拉伸压缩填满；点对点原生 320x240",
         "游戏中显示的能量、弹药与地图",
         "保持完整游戏速度下稳定的 30 帧（隔帧绘制）",
         "繁重的游戏脚本改用内置代码运行：更快，行为相同",
@@ -704,8 +699,8 @@ static void N3DSAm2r_registerPortGlyphs(void) {
         "光束击中任何目标都会将其摧毁",
         "炸弹与强力炸弹击中任何目标都会将其摧毁",
         "导弹击中任何目标都会将其摧毁，对 Metroid 也有效",
-        // The screen modes' player-facing names (N3DSAm2r_screenModeLabel).
-        "原始", "拉伸",
+        // The screen modes' player-facing names (N3DSAm2r_screenModeLabel; "Point" is 点对点 in either language).
+        "宽屏", "拉伸",
         // The pause screen's "[Select] -> Logs" hint, which the game draws from its own bytecode (hookDrawText).
         "[Select] -> 日志",
     };
@@ -733,9 +728,8 @@ static void N3DSAm2r_loadCheats(void) {
         value = atoi(text) != 0;
         if (strcmp(name, "screen") == 0) {
             // Only the name. Older builds saved a slot number and the slots have since been reordered (Stretch was 0
-            // then, 1x is 0 now), so a number would name the wrong mode; it is ignored and the default (1x) stands.
-            // A name this build no longer offers - "screen=Wide" from an older version - is ignored the same way.
-            N3DSScreenMode mode = N3DS_SCREEN_1X;
+            // then, Wide is 0 now), so a number would name the wrong mode; it is ignored and the default stands.
+            N3DSScreenMode mode = N3DS_SCREEN_WIDE;
             if (N3DSAm2r_screenModeFromName(text, &mode)) N3DS_setScreenMode(mode);
         }
         if (strcmp(name, "frameskip") == 0) N3DS_setFrameskip(value != 0);
@@ -995,8 +989,8 @@ static void N3DSAm2r_refreshPage(void) {
         Instance* fps = N3DSAm2r_pageRow(DISPLAY_ROW_FPS);
         if (fps != NULL) N3DSGml_setVarString(fps, "optext", N3DS_getFpsCounter() ? N3DSAm2r_text("ON", "开") : N3DSAm2r_text("OFF", "关"));
         const char* tip = selected == DISPLAY_ROW_SCREEN
-                ? N3DSAm2r_text("Stretch squashes the 320x240 picture to fill the screen; Original is the native 320x240 at 1:1 with side bars",
-                    "拉伸把 320x240 画面横向压满全屏；原始为原生 320×240 1:1，左右留黑边")
+                ? N3DSAm2r_text("Wide fills the screen; Stretch squashes; Point is the native 320x240",
+                    "宽屏填满屏幕；拉伸压缩填满；点对点原生 320x240")
             : selected == DISPLAY_ROW_HUD
                 ? N3DSAm2r_text("The energy, ammo and map display during play", "游戏中显示的能量、弹药与地图")
             : selected == DISPLAY_ROW_FRAMESKIP
