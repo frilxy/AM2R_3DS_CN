@@ -517,7 +517,7 @@ static RValue hookSpriteReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
 
 // The screen modes the Display page offers, in order (Original/1x first: the default; Stretch is the only other one).
 // Wide stays in the N3DSScreenMode enum because the renderer still has its branch, but it is no longer offered here:
-// the localised build only needs the native 1:1 picture and the stretched one.
+// on the 400-wide screen it crops the game's 16:9 picture to 400 columns and shifts the bottom screen.
 static const N3DSScreenMode kScreenModes[] = { N3DS_SCREEN_1X, N3DS_SCREEN_STRETCH };
 // The modes' names as the saved file and the log use them: kept in English and never translated, because the save
 // (cheats.ini's "screen=Point") is read back by name - a translated one would stop an old save being understood. "Point"
